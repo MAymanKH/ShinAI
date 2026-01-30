@@ -211,7 +211,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 
 ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
 
-1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-small` model
+1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model
 2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching
 3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search
 
@@ -250,13 +250,13 @@ When a relevant topic comes up later, this memory is retrieved and injected into
 
 ### 🎭 Group Chat Member Persona
 
-Unlike typical "assistant" bots, ShinAI acts like a **real group member**:
+Unlike typical "assistant" bots, ShinAI can act like a **real group member** (depending on your personality configuration):
 
 - **No "How can I help you?"** – Responds naturally without formal greetings
 - **Random Interjections** – Sometimes jumps into conversations uninvited (1% chance)
 - **Matches Dialect** – Adapts to the group's language style (e.g., Egyptian Arabic slang)
 - **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling)
-- **Teasing & Sarcasm** – Can roast users who tease first
+- **Teasing & Sarcasm** – Can roast users
 
 ### 💬 Smart Response Types
 
@@ -378,13 +378,3 @@ The bot avoids awkward endless conversations:
 - Fully private, no API costs
 - Requires local GPU
 - Configure with `LOCAL_MODEL` env var
-
----
-
-## License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
