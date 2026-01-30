@@ -1,0 +1,53 @@
+# ===========================================
+# ShinAI .gitignore
+# ===========================================
+
+# --- Sensitive Data (DO NOT COMMIT) ---
+# Real personality/stickers/members - use *_template.py versions instead
+shin_ai/data/personality.py
+shin_ai/data/stickers.py
+shin_ai/data/members.py
+
+# Environment file with secrets
+.env
+
+# Data Files
+data/
+
+# --- Session Files ---
+*.session
+*.session-journal
+
+# --- Logs ---
+*.log
+
+# --- Databases ---
+chroma_db/
+chroma_training_db/
+db/
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# --- IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Test/Dev Files ---
+tst.py
+manual.py
+*.tmp
+*.bak

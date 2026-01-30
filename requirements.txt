@@ -1,0 +1,17 @@
+# Telegram Bot Framework
+pyrofork
+tgcrypto
+
+# Vector Database for Memory/Context
+chromadb
+sentence-transformers
+
+# AI Providers
+google-genai
+cerebras-cloud-sdk
+groq
+openai
+
+# Utilities
+python-dotenv
+python-dateutil
