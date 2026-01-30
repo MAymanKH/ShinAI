@@ -154,7 +154,8 @@ ShinAI/
 ## Triggers
 
 The bot responds when:
-- Mentioned with "يالبوت" (Arabic trigger word)
+- Mentioned the bot
+- Mentioned the word "يالبوت"
 - Replied to on its previous messages
 - Random 1% chance on any group message
 
