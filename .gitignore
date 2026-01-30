@@ -13,6 +13,7 @@ shin_ai/data/members.py
 
 # Data Files
 data/
+.json
 
 # --- Session Files ---
 *.session
