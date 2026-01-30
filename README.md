@@ -2,6 +2,9 @@
 
 A customizable Telegram bot powered by multiple AI providers with personality, memory, and social context awareness.
 
+[![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
+
+
 ## Features
 
 - 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, or local LLM (Ollama)
