@@ -1,9 +1,12 @@
+<div align="center">
+
 # ShinAI 🤖
 
-A customizable Telegram bot powered by multiple AI providers with personality, memory, and social context awareness.
+Customizable Telegram bot powered by multiple AI providers with personality, memory, actions, and social context awareness.
 
 [![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
 
+</div>
 
 ## Features
 
