@@ -58,6 +58,7 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
     
     Triggers on:
     - Direct mentions ("يالبوت")
+    - @mention of the bot
     - Replies to bot messages
     - Random 1% chance
     """
@@ -74,6 +75,16 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
     # Direct mention (prioritize "يالبوت" over "يالبوتة" which is for wife bot)
     if "يالبوت" in text and text.count("يالبوت") > text.count("يالبوتة"):
         return True
+    
+    # Check for @mention of the bot
+    me = await client.get_me()
+    if me.username:
+        entities = msg.entities or msg.caption_entities or []
+        for entity in entities:
+            if entity.type == enums.MessageEntityType.MENTION:
+                mention_text = text[entity.offset:entity.offset + entity.length]
+                if mention_text.lower() == f"@{me.username.lower()}":
+                    return True
     
     # Reply chain to bot's previous messages
     if await check_reply_chain(msg):
@@ -112,7 +123,7 @@ async def yalbot(client: Client, msg: Message):
     # Gather context
     style_examples = _get_style_examples(prompt)
     reply_text = await _get_reply_chain_text(client, msg)
-    is_direct = await _is_direct_interaction(msg)
+    is_direct = await _is_direct_interaction(client, msg)
     user_status, reply_target_status = await _get_member_statuses(client, msg)
     
     # Build runtime context
@@ -300,11 +311,22 @@ async def _get_reply_chain_text(client: Client, msg: Message) -> str:
     return ""
 
 
-async def _is_direct_interaction(msg: Message) -> bool:
+async def _is_direct_interaction(client: Client, msg: Message) -> bool:
     """Check if this is a direct interaction with the bot."""
     text_content = msg.text or msg.caption or ""
     if "يالبوت" in text_content:
         return True
+    
+    # Check for @mention of the bot
+    me = await client.get_me()
+    if me.username:
+        entities = msg.entities or msg.caption_entities or []
+        for entity in entities:
+            if entity.type == enums.MessageEntityType.MENTION:
+                mention_text = text_content[entity.offset:entity.offset + entity.length]
+                if mention_text.lower() == f"@{me.username.lower()}":
+                    return True
+    
     if await check_reply_chain(msg):
         return True
     return False
