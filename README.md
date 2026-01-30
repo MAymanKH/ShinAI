@@ -167,7 +167,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Context Collection                          │
+│                      Context Collection                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐    │
 │  │ Recent Chat   │  │ Long-term     │  │ Social Context    │    │
 │  │ (50 messages) │  │ Memory (RAG)  │  │ (Member Profiles) │    │
@@ -180,26 +180,26 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    System Prompt Builder                         │
-│         Combines personality + context + instructions            │
+│                    System Prompt Builder                        │
+│         Combines personality + context + instructions           │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      AI Provider (LLM)                           │
+│                      AI Provider (LLM)                          │
 │     Gemini │ OpenRouter │ Groq │ Cerebras │ Ollama              │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Response Parser                              │
+│                     Response Parser                             │
 │   Extracts: Text │ Reactions │ Stickers │ Actions │ Targets     │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Action Executor                              │
-│        Sends messages, reactions, stickers, or kicks             │
+│                     Action Executor                             │
+│        Sends messages, reactions, stickers, or kicks            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
