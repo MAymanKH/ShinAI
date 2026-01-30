@@ -18,7 +18,7 @@ A customizable Telegram bot powered by multiple AI providers with personality, m
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/ShinAI.git
+git clone https://github.com/MAymanKH/ShinAI.git
 cd ShinAI
 ```
 
