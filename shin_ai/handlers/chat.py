@@ -77,14 +77,8 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
         return True
     
     # Check for @mention of the bot
-    me = await client.get_me()
-    if me.username:
-        entities = msg.entities or msg.caption_entities or []
-        for entity in entities:
-            if entity.type == enums.MessageEntityType.MENTION:
-                mention_text = text[entity.offset:entity.offset + entity.length]
-                if mention_text.lower() == f"@{me.username.lower()}":
-                    return True
+    if getattr(msg, "mentioned", False):
+        return True
     
     # Reply chain to bot's previous messages
     if await check_reply_chain(msg):
@@ -318,14 +312,8 @@ async def _is_direct_interaction(client: Client, msg: Message) -> bool:
         return True
     
     # Check for @mention of the bot
-    me = await client.get_me()
-    if me.username:
-        entities = msg.entities or msg.caption_entities or []
-        for entity in entities:
-            if entity.type == enums.MessageEntityType.MENTION:
-                mention_text = text_content[entity.offset:entity.offset + entity.length]
-                if mention_text.lower() == f"@{me.username.lower()}":
-                    return True
+    if getattr(msg, "mentioned", False):
+        return True
     
     if await check_reply_chain(msg):
         return True
