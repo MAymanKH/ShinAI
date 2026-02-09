@@ -20,7 +20,7 @@ from shin_ai.config import AI_CHOICE
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
-from shin_ai.utils.context_manager import add_message_to_context, get_recent_context_string
+from shin_ai.utils.context_manager import add_message_to_context, get_recent_context_string, get_recent_media_messages
 from shin_ai.providers import *
 from shin_ai.providers.local_llm import local_llm
 from shin_ai.providers.gemini import gemini_api
@@ -111,8 +111,24 @@ async def yalbot(client: Client, msg: Message):
     # Extract prompt from message
     prompt = _extract_prompt(msg)
     
-    # Download any attached media
-    image_bytes, mime_type = await _download_media(client, msg)
+    # Download any attached media from message and reply chain
+    media_list = await _download_media(client, msg)
+    
+    # If no media in reply chain but user mentions images, check recent context
+    if not media_list:
+        prompt_lower = prompt.lower()
+        image_keywords = ["image", "photo", "picture", "pic", "sticker", "صورة", "الصورة", "صوره"]
+        
+        if any(keyword in prompt_lower for keyword in image_keywords):
+            logger.info("User mentioned media but no reply chain - checking recent context")
+            recent_media = get_recent_media_messages(msg.chat.id, max_count=10)
+            
+            if recent_media:
+                # Download up to 5 most recent media items
+                media_ids = [m["msg_id"] for m in recent_media[:5]]
+                context_media = await _download_media_from_context(client, msg.chat.id, media_ids)
+                media_list.extend(context_media)
+                logger.info(f"Added {len(context_media)} media items from recent context")
     
     # Gather context
     style_examples = _get_style_examples(prompt)
@@ -175,8 +191,7 @@ async def yalbot(client: Client, msg: Message):
         msg=msg,
         system_prompt=system_prompt,
         prompt=prompt,
-        image_bytes=image_bytes,
-        mime_type=mime_type,
+        media_list=media_list,
     )
 
     logger.info(f"Answer: {answer}")
@@ -236,34 +251,137 @@ def _extract_prompt(msg: Message) -> str:
     return " "
 
 
-async def _download_media(client: Client, msg: Message) -> tuple[bytes | None, str | None]:
-    """Download photo or sticker from message for AI processing."""
-    image_bytes = None
-    mime_type = None
+async def _download_media(client: Client, msg: Message) -> list[dict]:
+    """Download all photos and stickers from message and its reply chain for AI processing.
+    
+    Returns a list of dicts with keys: 'bytes', 'mime_type', 'sender', 'position', 'media_type'
+    """
+    media_list = []
+    
+    # Helper function to download media from a single message
+    async def download_from_message(target_msg: Message, position: str) -> tuple[bytes | None, str | None, str | None]:
+        try:
+            sender_name = "Unknown"
+            if target_msg.from_user:
+                sender_name = f"{target_msg.from_user.username or target_msg.from_user.first_name}"
+            
+            if target_msg.photo:
+                logger.info(f"Downloading photo from message {target_msg.id}...")
+                file_stream = await client.download_media(target_msg.photo, in_memory=True)
+                image_bytes = file_stream.getvalue()
+                logger.info("Photo downloaded.")
+                return image_bytes, "image/jpeg", "photo", sender_name
+            elif target_msg.sticker:
+                if not target_msg.sticker.is_animated and not target_msg.sticker.is_video:
+                    logger.info(f"Downloading sticker from message {target_msg.id}...")
+                    file_stream = await client.download_media(target_msg.sticker, in_memory=True)
+                    image_bytes = file_stream.getvalue()
+                    emoji = target_msg.sticker.emoji or ""
+                    logger.info("Sticker downloaded.")
+                    return image_bytes, "image/webp", f"sticker {emoji}".strip(), sender_name
+        except Exception as e:
+            logger.error(f"Error downloading media from message {target_msg.id}: {e}")
+        return None, None, None, None
+    
+    # Download media from current message (most recent)
+    result = await download_from_message(msg, "current")
+    if result[0] and result[1]:
+        image_bytes, mime_type, media_type, sender_name = result
+        media_list.append({
+            'bytes': image_bytes,
+            'mime_type': mime_type,
+            'sender': sender_name,
+            'position': 'Current message',
+            'media_type': media_type
+        })
+    
+    # Traverse reply chain and collect all media (from newest to oldest)
+    current_msg = msg
+    depth = 0
+    max_depth = 10
+    
+    while current_msg.reply_to_message and depth < max_depth:
+        reply = current_msg.reply_to_message
+        depth += 1
+        
+        # Download media from this reply
+        result = await download_from_message(reply, f"reply_{depth}")
+        if result[0] and result[1]:
+            image_bytes, mime_type, media_type, sender_name = result
+            # Position description indicates how far back in the conversation
+            position_desc = f"{depth} {'message' if depth == 1 else 'messages'} back in reply chain"
+            media_list.append({
+                'bytes': image_bytes,
+                'mime_type': mime_type,
+                'sender': sender_name,
+                'position': position_desc,
+                'media_type': media_type
+            })
+        
+        # Move to next message in chain
+        if reply.reply_to_message:
+            current_msg = reply
+        elif reply.reply_to_message_id:
+            try:
+                current_msg = await client.get_messages(msg.chat.id, reply.id)
+            except Exception as e:
+                logger.error(f"Error fetching message in reply chain: {e}")
+                break
+        else:
+            break
+    
+    logger.info(f"Downloaded {len(media_list)} media items from conversation context")
+    return media_list
 
-    try:
-        target_msg = msg
-        # If current message has no media, check reply
-        if not (msg.photo or msg.sticker) and msg.reply_to_message:
-            target_msg = msg.reply_to_message
 
-        if target_msg.photo:
-            logger.info("Downloading photo...")
-            file_stream = await client.download_media(target_msg.photo, in_memory=True)
-            image_bytes = file_stream.getvalue()
-            mime_type = "image/jpeg"
-            logger.info("Photo downloaded.")
-        elif target_msg.sticker:
-            if not target_msg.sticker.is_animated and not target_msg.sticker.is_video:
-                logger.info("Downloading sticker...")
+async def _download_media_from_context(client: Client, chat_id: int, media_msg_ids: list[int]) -> list[dict]:
+    """Download media from specific message IDs in the recent context.
+    
+    Returns list of dicts with keys: 'bytes', 'mime_type', 'sender', 'position', 'media_type'
+    """
+    media_list = []
+    
+    for idx, msg_id in enumerate(media_msg_ids):
+        try:
+            target_msg = await client.get_messages(chat_id, msg_id)
+            
+            sender_name = "Unknown"
+            if target_msg.from_user:
+                sender_name = f"{target_msg.from_user.username or target_msg.from_user.first_name}"
+            
+            image_bytes = None
+            mime_type = None
+            media_type = None
+            
+            if target_msg.photo:
+                logger.info(f"Downloading photo from context message {msg_id}...")
+                file_stream = await client.download_media(target_msg.photo, in_memory=True)
+                image_bytes = file_stream.getvalue()
+                mime_type = "image/jpeg"
+                media_type = "photo"
+            elif target_msg.sticker and not target_msg.sticker.is_animated and not target_msg.sticker.is_video:
+                logger.info(f"Downloading sticker from context message {msg_id}...")
                 file_stream = await client.download_media(target_msg.sticker, in_memory=True)
                 image_bytes = file_stream.getvalue()
                 mime_type = "image/webp"
-                logger.info("Sticker downloaded.")
-    except Exception as e:
-        logger.error(f"Error downloading media: {e}")
-
-    return image_bytes, mime_type
+                emoji = target_msg.sticker.emoji or ""
+                media_type = f"sticker {emoji}".strip()
+            
+            if image_bytes and mime_type:
+                position = f"From recent context (message {idx + 1})"
+                media_list.append({
+                    'bytes': image_bytes,
+                    'mime_type': mime_type,
+                    'sender': sender_name,
+                    'position': position,
+                    'media_type': media_type
+                })
+                logger.info(f"Downloaded {media_type} from context message {msg_id}")
+        except Exception as e:
+            logger.error(f"Error downloading media from context message {msg_id}: {e}")
+            continue
+    
+    return media_list
 
 
 def _get_style_examples(prompt: str) -> str:
@@ -369,8 +487,7 @@ async def _call_ai_provider(
     msg: Message,
     system_prompt: str,
     prompt: str,
-    image_bytes: bytes | None,
-    mime_type: str | None,
+    media_list: list[dict],
 ) -> str | None:
     """Call the configured AI provider."""
     try:
@@ -379,7 +496,7 @@ async def _call_ai_provider(
         if AI_CHOICE == "local":
             answer = await local_llm(system_prompt, prompt)
         elif AI_CHOICE == "gemini":
-            answer = await gemini_api(system_prompt, prompt, image_bytes=image_bytes, mime_type=mime_type)
+            answer = await gemini_api(system_prompt, prompt, media_list=media_list)
         elif AI_CHOICE == "cerebras":
             answer = await cerebras_api(system_prompt, prompt)
         elif AI_CHOICE == "groq":

@@ -27,13 +27,30 @@ def add_message_to_context(msg: Message):
         if msg.reply_to_message.from_user:
             replied_to_user = msg.reply_to_message.from_user.first_name
 
-    text_content = msg.text or msg.caption or "[Media/Sticker]"
+    # Determine media type
+    media_type = None
+    if msg.photo:
+        media_type = "photo"
+        text_content = msg.caption or "[Photo]"
+    elif msg.sticker:
+        emoji = msg.sticker.emoji or ""
+        media_type = f"sticker {emoji}".strip()
+        text_content = f"[Sticker {emoji}]"
+    elif msg.video:
+        media_type = "video"
+        text_content = msg.caption or "[Video]"
+    elif msg.animation:
+        media_type = "animation"
+        text_content = msg.caption or "[GIF/Animation]"
+    else:
+        text_content = msg.text or msg.caption or "[Other Media]"
 
     entry = {
         "msg_id": msg.id,
         "user_id": msg.from_user.id,
         "user_name": user_name,
         "text": text_content,
+        "media_type": media_type,
         "reply_to_id": replied_to_id,
         "reply_to_user": replied_to_user,
         "timestamp": getattr(msg, "date", time.time())
@@ -75,3 +92,29 @@ def get_recent_context_string(chat_id: int, current_msg_id: int = None) -> str:
         lines.append(f"{prefix}: {m['text']}")
     
     return "\n".join(lines)
+
+def get_recent_media_messages(chat_id: int, max_count: int = 10) -> list[dict]:
+    """
+    Returns a list of recent messages that contain photos or stickers.
+    Limited to max_count most recent media messages.
+    
+    Returns list of dicts with: msg_id, user_name, media_type, timestamp
+    """
+    if chat_id not in _context_buffer:
+        return []
+    
+    media_messages = []
+    # Iterate in reverse to get most recent first
+    for m in reversed(list(_context_buffer[chat_id])):
+        if m.get("media_type") and m["media_type"] in ["photo"] or (m.get("media_type") and m["media_type"].startswith("sticker")):
+            media_messages.append({
+                "msg_id": m["msg_id"],
+                "user_name": m["user_name"],
+                "media_type": m["media_type"],
+                "timestamp": m["timestamp"]
+            })
+            
+            if len(media_messages) >= max_count:
+                break
+    
+    return media_messages

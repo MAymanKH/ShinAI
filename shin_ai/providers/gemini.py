@@ -188,7 +188,7 @@ MODELS_LIST = [
     "gemini-2.5-flash"
 ]
 
-async def gemini_api(system_prompt, prompt, image_bytes=None, mime_type=None)  -> str:
+async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
     failed_keys_count = 0
 
     for model in list(MODELS_LIST):
@@ -199,12 +199,28 @@ async def gemini_api(system_prompt, prompt, image_bytes=None, mime_type=None)  -
 
             try:
                 genai_client = genai.Client(api_key=api_key)
-                # Prepare contents
+                # Prepare contents - start with text prompt
                 contents = [prompt]
-                if image_bytes and mime_type:
-                    contents.append(
-                        genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-                    )
+                
+                # Add all media from the conversation context with descriptive labels
+                if media_list:
+                    for idx, media_info in enumerate(media_list, 1):
+                        image_bytes = media_info['bytes']
+                        mime_type = media_info['mime_type']
+                        sender = media_info['sender']
+                        position = media_info['position']
+                        media_type = media_info['media_type']
+                        
+                        # Add a text label before each image to provide context
+                        label = f"\n[Image {idx}/{len(media_list)}: {media_type} from {sender}, {position}]"
+                        contents.append(label)
+                        
+                        # Add the actual image
+                        contents.append(
+                            genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+                        )
+                    
+                    logger.info(f"Added {len(media_list)} media items with positional context to Gemini request")
 
                 config = genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
