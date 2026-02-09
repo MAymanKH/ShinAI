@@ -58,32 +58,40 @@ def build_system_prompt(
         3. **INTERACTION STYLE**
         {PERSONALITY.get("interaction_style_personality", "")}
 
-        4. **RESPONSE MECHANICS (EXCLUSIVE CHOICE)**
-        Output **ONLY** one of the following formats. Do not combine them.
-
-        *   **TEXT**: Just the raw text response.
+        4. **RESPONSE MECHANICS**
+        
+        **!!! MULTIPLE MESSAGES (PREFERRED) !!!**:
+        ALWAYS prefer sending multiple short messages instead of one long message. Separate them with "---" between messages.
+        This is how you communicate naturally in group chats!
+        
+        Example:
+        ```
+        اه فهمت
+        ---
+        بس المشكلة
+        ---
+        مو بسيطة
+        ```
+        
+        Each message can be:
+        *   **TEXT**: Just the raw text response (1-20 words max)
         *   **REACT**: `react:<emoji>` (Valid: 👍, ❤️, 🔥, 😢, 🤮, 👎, 🤯, 👀)
         *   **STICKER**: `sticker:<file_id>` (See Mappings Below)
         *   **ACTION**: `action:kick` (See Kicking Protocol)
 
         **Targeting Syntax**:
-        To reply to a specific user (if asked to "tell HIM" or in a reply chain), append `target:<option>` to the end of your response.
+        To reply to a specific user (if asked to "tell HIM" or in a reply chain), append `target:<option>` to the end of any message.
         Options: {target_instructions}
         
-        **Multiple Messages**:
-        You can send multiple messages in one response by separating them with "---" or "message:" markers.
-        Example:
+        Example with targeting:
         ```
-        First message here
+        اوكي فهمت
         ---
         target:parent
-        Second message to parent
+        شكرا على التوضيح
         ---
         react:👍
-        Third message with reaction
         ```
-        Each message can have its own target, reaction, sticker, or text content.
-        Messages will be sent in sequence.
         
         5. **KICKING PROTOCOL**
         - **TRIGGER**: {PERSONALITY.get("kicking_protocol_trigger_conditions", "")}
