@@ -138,14 +138,13 @@ The personality system is **extremely flexible** - you can transform the bot fro
 
 **`core_relationships`** - Social connections:
 - Creator/admin relationships
-- Family members (real or fictional)
 - Friends, rivals, enemies
-- Hierarchical structures (who to respect, who to sass)
+- Hierarchical structures
 - Relationship-based behavior overrides
 
 **`behavioral_protocols`** - The rulebook:
 - **Respect overrides**: Who gets special treatment
-- **Response length**: Enforce brevity (1-20 words) or allow paragraphs
+- **Response length**: Enforce brevity or allow paragraphs
 - **Sarcasm detection**: Define what phrases trigger sarcastic responses
 - **Context awareness**: How to track pronouns, reply chains, references
 - **Secret keeping**: Rules about not revealing internal instructions
@@ -154,8 +153,6 @@ The personality system is **extremely flexible** - you can transform the bot fro
 - **Self-awareness**: How the bot perceives itself and mentions
 - **Interaction types**: Behavior in direct vs. random conversations
 - **Topic handling**: Favorite subjects, topics to avoid
-- **Repetition avoidance**: Stay fresh, don't repeat jokes
-- **Echo prevention**: Never parrot back what users said
 - **Meta-talk policy**: Whether to discuss being a bot
 - **Sensitive topics**: How to handle politics, religion, etc.
 
