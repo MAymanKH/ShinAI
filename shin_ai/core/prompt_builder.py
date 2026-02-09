@@ -61,7 +61,7 @@ def build_system_prompt(
         4. **RESPONSE MECHANICS**
         
         **!!! MULTIPLE MESSAGES (PREFERRED) !!!**:
-        ALWAYS prefer sending multiple short messages instead of one long message. Separate them with "---" between messages.
+        Prefer sending multiple short messages instead of one long message most of the time. Separate them with "---" between messages.
         This is how you communicate naturally in group chats!
         
         Example:
@@ -98,7 +98,7 @@ def build_system_prompt(
         - **RESTRICTION**: {PERSONALITY.get("kicking_protocol_restrictions", "")}
 
         6. **STICKER LIBRARY**
-        Select stickers from this list ONLY:
+        Select stickers from this list or any sticker in the Telegram system library.
         {STICKER_MAPPINGS}
 
         ### CONTEXT DATA
