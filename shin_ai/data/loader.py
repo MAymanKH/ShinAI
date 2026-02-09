@@ -60,24 +60,9 @@ PERSONALITY: dict[str, str] = _personality_module.personality
 # Load Sticker Configuration  
 # ===========================================
 _stickers_module = _load_module_with_fallback("stickers")
+STICKERS: dict[str, str] = _stickers_module.STICKERS
 STICKER_MAPPINGS: str = _stickers_module.STICKER_MAPPINGS
 STICKER_TO_DESCRIPTION: dict[str, str] = _stickers_module.STICKER_TO_DESCRIPTION
-
-# Individual sticker IDs (for compatibility)
-CLOWN_STICKER_FILE_ID = getattr(_stickers_module, "CLOWN_STICKER_FILE_ID", "")
-LAUGHING_STICKER_FILE_ID = getattr(_stickers_module, "LAUGHING_STICKER_FILE_ID", "")
-TIRED_STICKER_FILE_ID = getattr(_stickers_module, "TIRED_STICKER_FILE_ID", "")
-IDK_WHAT_TO_DO_STICKER_FILE_ID = getattr(_stickers_module, "IDK_WHAT_TO_DO_STICKER_FILE_ID", "")
-IDK_WHAT_TO_DO_2_STICKER_FILE_ID = getattr(_stickers_module, "IDK_WHAT_TO_DO_2_STICKER_FILE_ID", "")
-EXTREME_SHOCK_STICKER_FILE_ID = getattr(_stickers_module, "EXTREME_SHOCK_STICKER_FILE_ID", "")
-SASSY_WHILE_DRINKING_MIX_CHOCHOLATE_STICKER_FILE_ID = getattr(_stickers_module, "SASSY_WHILE_DRINKING_MIX_CHOCHOLATE_STICKER_FILE_ID", "")
-SCARED_STICKER_FILE_ID = getattr(_stickers_module, "SCARED_STICKER_FILE_ID", "")
-YOU_GOT_A_DEAL_BRO_STICKER_FILE_ID = getattr(_stickers_module, "YOU_GOT_A_DEAL_BRO_STICKER_FILE_ID", "")
-HAPPY_WHILE_DRINKING_TEE_STICKER_FILE_ID = getattr(_stickers_module, "HAPPY_WHILE_DRINKING_TEE_STICKER_FILE_ID", "")
-HAPPY_WHILE_DRINKING_TEE_WTIH_TEE_STICKER_FILE_ID = getattr(_stickers_module, "HAPPY_WHILE_DRINKING_TEE_WTIH_TEE_STICKER_FILE_ID", "")
-NOT_HAPPY_STICKER_FILE_ID = getattr(_stickers_module, "NOT_HAPPY_STICKER_FILE_ID", "")
-NOT_HAPPY_2_STICKER_FILE_ID = getattr(_stickers_module, "NOT_HAPPY_2_STICKER_FILE_ID", "")
-NOT_HAPPY_3_STICKER_FILE_ID = getattr(_stickers_module, "NOT_HAPPY_3_STICKER_FILE_ID", "")
 
 # ===========================================
 # Load Members Configuration
