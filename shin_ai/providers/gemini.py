@@ -6,6 +6,9 @@ Handles API calls to Google's Gemini models with key rotation and statistics.
 from google import genai
 from shin_ai.config import GEMINI_MODEL, DATA_DIR
 from shin_ai.utils.logger_config import logger
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 import json
 import os
 import time
@@ -188,10 +191,84 @@ MODELS_LIST = [
     "gemini-2.5-flash"
 ]
 
+# Initialize embedder for semantic query detection
+logger.info("Loading semantic model for query classification...")
+embedder = SentenceTransformer("intfloat/multilingual-e5-large")
+
+# Example queries that require Google Search (real-time information)
+SEARCH_NEEDED_EXAMPLES = [
+    "What's the latest news about AI?",
+    "Current weather in Tokyo",
+    "What's happening in the stock market today?",
+    "Who won the game yesterday?",
+    "Latest updates on the election",
+    "What's the price of Bitcoin now?",
+    "Recent developments in technology",
+    "Today's breaking news",
+    "What time is it in New York?",
+    "Current temperature in London",
+    "Latest iPhone release date",
+    "What's trending on Twitter today?",
+    "Recent sports scores",
+    "Today's exchange rate",
+    "What's new in 2026?",
+]
+
+# Example queries that DON'T need search (reasoning/knowledge-based)
+NO_SEARCH_EXAMPLES = [
+    "Explain quantum physics to me",
+    "Write a poem about love",
+    "Help me debug this code",
+    "What's the meaning of life?",
+    "How do I solve this math problem?",
+    "Tell me a joke",
+    "Analyze this image",
+    "Translate this to Spanish",
+    "Summarize this document",
+    "Give me coding advice",
+]
+
+# Pre-compute embeddings for examples (using E5 query prefix)
+logger.info("Pre-computing example embeddings...")
+search_needed_embeddings = embedder.encode([f"query: {q}" for q in SEARCH_NEEDED_EXAMPLES])
+no_search_embeddings = embedder.encode([f"query: {q}" for q in NO_SEARCH_EXAMPLES])
+
+def needs_google_search(prompt: str, threshold: float = 0.65) -> bool:
+    """
+    Semantically detect if a query needs real-time web information using embeddings.
+    Returns True if Google Search would be beneficial.
+    """
+    # Encode the user's query with E5 query prefix
+    query_embedding = embedder.encode(f"query: {prompt}").reshape(1, -1)
+    
+    # Calculate similarity to "search needed" examples
+    search_similarities = cosine_similarity(query_embedding, search_needed_embeddings)[0]
+    max_search_similarity = np.max(search_similarities)
+    
+    # Calculate similarity to "no search needed" examples
+    no_search_similarities = cosine_similarity(query_embedding, no_search_embeddings)[0]
+    max_no_search_similarity = np.max(no_search_similarities)
+    
+    # Decision logic: needs search if it's more similar to search examples
+    # and exceeds threshold
+    needs_search = max_search_similarity > max_no_search_similarity and max_search_similarity > threshold
+    
+    logger.debug(f"Query similarity - Search: {max_search_similarity:.3f}, No-Search: {max_no_search_similarity:.3f}, Needs search: {needs_search}")
+    
+    return needs_search
+
 async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
     failed_keys_count = 0
+    
+    # Intelligently reorder models based on query requirements
+    if needs_google_search(prompt):
+        models_to_try = ["gemini-2.5-flash", "gemini-3-flash-preview"]  # Prioritize 2.5 for search
+        logger.info("🔍 Query needs Google Search - prioritizing Gemini 2.5 Flash")
+    else:
+        models_to_try = list(MODELS_LIST)  # Use default order (3 first)
+        logger.info("🧠 Query uses reasoning - using Gemini 3 Flash Preview")
 
-    for model in list(MODELS_LIST):
+    for model in models_to_try:
         # Create a list of items to iterate over, preserving the current order
         for key_name, api_key in list(API_KEYS_MAP.items()):
             if not api_key:
@@ -222,10 +299,19 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     
                     logger.info(f"Added {len(media_list)} media items with positional context to Gemini request")
 
-                config = genai.types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    tools=[genai.types.Tool(google_search=genai.types.GoogleSearch())]
-                )
+                # Conditionally enable Google Search based on model
+                # Gemini 3 models may have issues with Google Search in some configurations
+                if "gemini-3" in model:
+                    config = genai.types.GenerateContentConfig(
+                        system_instruction=system_prompt
+                    )
+                    logger.info(f"Using {model} without Google Search")
+                else:
+                    config = genai.types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        tools=[genai.types.Tool(google_search=genai.types.GoogleSearch())]
+                    )
+                    logger.info(f"Using {model} with Google Search enabled")
 
                 response = await genai_client.aio.models.generate_content(
                     model=model,
@@ -252,7 +338,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 continue
 
         logger.warning(f"Model {model} failed for all keys. Rotating to end of list.")
-        if model in MODELS_LIST:
-            MODELS_LIST.append(MODELS_LIST.pop(MODELS_LIST.index(model)))
+        if model in models_to_try:
+            models_to_try.append(models_to_try.pop(models_to_try.index(model)))
 
     return ""
