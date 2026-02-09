@@ -3,49 +3,16 @@ STICKERS = {
     "CLOWN_STICKER_FILE_ID": "placeholder",
     "LAUGHING_STICKER_FILE_ID": "placeholder",
     "TIRED_STICKER_FILE_ID": "placeholder",
-    "IDK_WHAT_TO_DO_STICKER_FILE_ID": "placeholder",
-    "IDK_WHAT_TO_DO_2_STICKER_FILE_ID": "placeholder",
-    "EXTREME_SHOCK_STICKER_FILE_ID": "placeholder",
-    "SASSY_WHILE_DRINKING_MIX_CHOCHOLATE_STICKER_FILE_ID": "placeholder",
-    "SCARED_STICKER_FILE_ID": "placeholder",
-    "YOU_GOT_A_DEAL_BRO_STICKER_FILE_ID": "placeholder",
-    "HAPPY_WHILE_DRINKING_TEE_STICKER_FILE_ID": "placeholder",
-    "HAPPY_WHILE_DRINKING_TEE_WTIH_TEE_STICKER_FILE_ID": "placeholder",
-    "NOT_HAPPY_STICKER_FILE_ID": "placeholder",
-    "NOT_HAPPY_2_STICKER_FILE_ID": "placeholder",
-    "NOT_HAPPY_3_STICKER_FILE_ID": "placeholder",
 }
 
 STICKER_MAPPINGS = f"""
         - Clown: {STICKERS["CLOWN_STICKER_FILE_ID"]}
         - Laughing: {STICKERS["LAUGHING_STICKER_FILE_ID"]}
         - Tired: {STICKERS["TIRED_STICKER_FILE_ID"]}
-        - Confused: {STICKERS["IDK_WHAT_TO_DO_STICKER_FILE_ID"]}
-        - Confused (Alternative): {STICKERS["IDK_WHAT_TO_DO_2_STICKER_FILE_ID"]}
-        - Shock: {STICKERS["EXTREME_SHOCK_STICKER_FILE_ID"]}
-        - Sassy: {STICKERS["SASSY_WHILE_DRINKING_MIX_CHOCHOLATE_STICKER_FILE_ID"]}
-        - Scared: {STICKERS["SCARED_STICKER_FILE_ID"]}
-        - Deal: {STICKERS["YOU_GOT_A_DEAL_BRO_STICKER_FILE_ID"]}
-        - Happy: {STICKERS["HAPPY_WHILE_DRINKING_TEE_STICKER_FILE_ID"]}
-        - Happy (Alternative): {STICKERS["HAPPY_WHILE_DRINKING_TEE_WTIH_TEE_STICKER_FILE_ID"]}
-        - Annoyed: {STICKERS["NOT_HAPPY_STICKER_FILE_ID"]}
-        - Annoyed (Alternative): {STICKERS["NOT_HAPPY_2_STICKER_FILE_ID"]}
-        - Annoyed (Alternative 2): {STICKERS["NOT_HAPPY_3_STICKER_FILE_ID"]}
 """
 
 STICKER_TO_DESCRIPTION = {
     STICKERS["CLOWN_STICKER_FILE_ID"]: "Clown / You are a clown",
     STICKERS["LAUGHING_STICKER_FILE_ID"]: "Laughing / Joy",
     STICKERS["TIRED_STICKER_FILE_ID"]: "Tired / Done",
-    STICKERS["IDK_WHAT_TO_DO_STICKER_FILE_ID"]: "Confused / I don't know what to do",
-    STICKERS["IDK_WHAT_TO_DO_2_STICKER_FILE_ID"]: "Confused / What is this?",
-    STICKERS["EXTREME_SHOCK_STICKER_FILE_ID"]: "Shock / Surprise",
-    STICKERS["SASSY_WHILE_DRINKING_MIX_CHOCHOLATE_STICKER_FILE_ID"]: "Sassy / Sipping Tea (Chocolate)",
-    STICKERS["SCARED_STICKER_FILE_ID"]: "Scared / Fear",
-    STICKERS["YOU_GOT_A_DEAL_BRO_STICKER_FILE_ID"]: "Deal / Handshake",
-    STICKERS["HAPPY_WHILE_DRINKING_TEE_STICKER_FILE_ID"]: "Happy / Sipping Tea",
-    STICKERS["HAPPY_WHILE_DRINKING_TEE_WTIH_TEE_STICKER_FILE_ID"]: "Happy / Drinking Tea",
-    STICKERS["NOT_HAPPY_STICKER_FILE_ID"]: "Annoyed / Stop",
-    STICKERS["NOT_HAPPY_2_STICKER_FILE_ID"]: "Annoyed / Seriously?",
-    STICKERS["NOT_HAPPY_3_STICKER_FILE_ID"]: "Annoyed / Angry"
 }
