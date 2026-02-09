@@ -1,12 +1,42 @@
 <div align="center">
 
-# ShinAI 🤖
+# ShinAI
 
-Customizable Telegram bot powered by multiple AI providers with personality, memory, actions, and social context awareness.
+An intelligent Telegram bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across multiple AI providers.
 
 [![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
 
 </div>
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+  - [Personality Configuration](#personality-configuration)
+  - [Sticker Configuration](#sticker-configuration)
+  - [Member Configuration](#member-configuration)
+- [Project Structure](#project-structure)
+- [Commands](#commands)
+- [Triggers](#triggers)
+- [How It Works](#how-it-works)
+  - [Architecture Overview](#architecture-overview)
+  - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
+  - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
+  - [Memory System](#memory-system)
+- [Bot Capabilities](#bot-capabilities)
+  - [Group Chat Member Persona](#group-chat-member-persona)
+  - [Smart Response Types](#smart-response-types)
+  - [Multi-Message Responses](#multi-message-responses)
+  - [Intelligent Reply Targeting](#intelligent-reply-targeting)
+  - [Sticker Integration](#sticker-integration)
+  - [Telegram Reactions](#telegram-reactions)
+  - [Kick Protocol](#kick-protocol)
+  - [Context Awareness](#context-awareness)
+  - [Loop Prevention](#loop-prevention)
+- [AI Provider Details](#ai-provider-details)
+- [License](#license)
 
 ## Features
 
@@ -270,7 +300,7 @@ When a relevant topic comes up later, this memory is retrieved and injected into
 
 ## Bot Capabilities
 
-### 🎭 Group Chat Member Persona
+### Group Chat Member Persona
 
 Unlike typical "assistant" bots, ShinAI can act like a **real group member** (depending on your personality configuration):
 
@@ -280,7 +310,7 @@ Unlike typical "assistant" bots, ShinAI can act like a **real group member** (de
 - **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling)
 - **Teasing & Sarcasm** – Can roast users
 
-### 💬 Smart Response Types
+### Smart Response Types
 
 The AI chooses the most appropriate response format:
 
@@ -291,7 +321,7 @@ The AI chooses the most appropriate response format:
 | **Sticker** | `sticker:<file_id>` | Sends a sticker from the configured library |
 | **Action** | `action:kick` | Kicks a user (with restrictions) |
 
-### 📨 Multi-Message Responses
+### Multi-Message Responses
 
 The bot can send multiple messages in a single interaction, enabling more complex and natural conversations:
 
@@ -323,7 +353,7 @@ react:🔥
 
 This enables storytelling, step-by-step instructions, and complex multi-person interactions.
 
-### 🎯 Intelligent Reply Targeting
+### Intelligent Reply Targeting
 
 When responding in a reply chain, the bot can choose who to reply to:
 
@@ -337,7 +367,7 @@ This enables conversations like:
 > **User A**: "Tell him he's wrong"  
 > **Bot**: *replies directly to User B* "you're wrong lol"
 
-### 📌 Sticker Integration
+### Sticker Integration
 
 The bot has access to a custom sticker library with semantic descriptions:
 
@@ -353,7 +383,7 @@ STICKER_MAPPINGS = {
 
 The AI selects stickers based on emotional context, not just keywords.
 
-### 😀 Telegram Reactions
+### Telegram Reactions
 
 Instead of cluttering chat with text, the bot can react with emojis:
 
@@ -364,7 +394,7 @@ Reactions are preferred when:
 - Responding to stickers (sticker → reaction only)
 - Ending a conversation naturally
 
-### 👢 Kick Protocol
+### Kick Protocol
 
 The bot can kick users, but with strict safeguards:
 
@@ -385,18 +415,28 @@ Creator: "kick @spammer"
 Bot: *kicks @spammer*
 ```
 
-### 🧠 Context Awareness
+### Context Awareness
 
 The bot maintains awareness of:
 
 | Context Type | Window | Purpose |
-|--------------|--------|---------|
+| -------------- | -------- | --------- |
 | **Recent Messages** | Last 50 messages | Understand ongoing conversation |
 | **Reply Chain** | Up to 10 levels deep | Follow threaded discussions |
 | **User Status** | Real-time | Know if user is admin/owner |
 | **Interaction Type** | Per-message | Direct mention vs. random interjection |
 
-### 🔄 Loop Prevention
+**Visual Context (Gemini only):**
+When using Gemini as the AI provider, the bot can "see" and understand images and stickers in the conversation. All photos, stickers, and visual content from the last 50 messages are sent to Gemini along with text, enabling responses like:
+
+- Commenting on shared photos
+- Understanding sticker emotions/context
+- Referencing visual content in conversations
+- Responding appropriately to memes and images
+
+This multimodal capability makes conversations feel more natural, as the bot can fully participate in visual discussions just like a human member would.
+
+### Loop Prevention
 
 The bot avoids awkward endless conversations:
 
@@ -429,6 +469,12 @@ The bot avoids awkward endless conversations:
 
 ### Local LLM (Ollama)
 
-- Fully private, no API costs
-- Requires local GPU
-- Configure with `LOCAL_MODEL` env var
+- Fully private, no data is sent outside
+- No API costs
+- Requires decent GPU and RAM
+
+---
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
