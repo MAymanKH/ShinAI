@@ -10,6 +10,7 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
 
 ## Table of Contents
 
+- [Inspiration](#inspiration)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -37,6 +38,12 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Loop Prevention](#loop-prevention)
 - [AI Provider Details](#ai-provider-details)
 - [License](#license)
+
+## Inspiration
+
+I was tired of AI bots that felt like... bots. You know, the type: "As an AI language model, I cannot..." or the overly formal "How can I assist you today?" that kills the vibe in a casual group chat with friends.
+
+I wanted an AI that didn't just stand on the sidelines waiting for a command, but actually **lived** in the group chat. We wanted a "digital homie"—someone who knows the inside jokes, understands the group's specific slang, remembers that embarrassing thing you said three weeks ago, and isn't afraid to roast you for it. **ShinAI** was born from the desire to bridge the gap between "helpful assistant" and "chaotic group member."
 
 ## Features
 
@@ -546,9 +553,9 @@ The bot avoids awkward endless conversations:
 ### Gemini (Recommended)
 
 - Supports **image understanding** (photos, stickers)
-- Has **Google Search** integration for real-time info
 - Multiple API key rotation for quota management
 - Tracks key health with `/gstats` command
+- **Semantic model switching**: Uses embeddings to intelligently route queries between Gemini 3 Flash and Gemini 2.5 Flash for Google Search (Better quota management)
 
 ### OpenRouter
 
