@@ -3,9 +3,10 @@ from sentence_transformers import SentenceTransformer
 import asyncio
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
-from shin_ai.config import API_ID, API_HASH
+from shin_ai.config import API_ID, API_HASH, STYLE_GROUP_ID
 
-STYLE_GROUP_ID = -1001894386311  # source group
+if not STYLE_GROUP_ID:
+    raise ValueError("STYLE_GROUP_ID must be set in .env file. Get your group ID by forwarding a message to @RawDataBot")
 
 # Updated to E5 model for consistent embeddings
 embedder = SentenceTransformer("intfloat/multilingual-e5-large")

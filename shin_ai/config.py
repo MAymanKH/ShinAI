@@ -54,3 +54,8 @@ GROQ_MODEL = os.getenv("GROQ_MODEL")
 
 # Cerebras
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+
+# ===========================================
+# Style Learning Configuration
+# ===========================================
+STYLE_GROUP_ID = os.getenv("STYLE_GROUP_ID")  # Optional: Group ID to learn communication style from
