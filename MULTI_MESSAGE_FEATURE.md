@@ -11,6 +11,11 @@ The bot can now send **multiple messages** in response to a single user request.
 ### 1. **For Bot Users**
 Nothing changes! The bot just becomes smarter and can send multiple replies when appropriate.
 
+**Note**: When sending multiple messages:
+- Only the **first message** will be a reply to your message
+- Subsequent messages will be sent normally to the chat (not as replies)
+- There's a **1.5 second delay** between each message for natural pacing
+
 ### 2. **For AI Responses**
 The AI can now format responses with multiple messages using separators:
 
@@ -106,7 +111,16 @@ He went on a grand adventure
 And lived happily ever after! ✨
 ```
 
-**Result**: Four separate messages sent in sequence
+**Result**: 
+- **Message 1** (0.0s): "Let me tell you a story..." ← replies to user
+- **Delay** (1.5s) 
+- **Message 2** (1.5s): "Once upon a time..." ← sent normally
+- **Delay** (1.5s)
+- **Message 3** (3.0s): "He went on a grand adventure" ← sent normally  
+- **Delay** (1.5s)
+- **Message 4** (4.5s): "And lived happily ever after! ✨" ← sent normally
+
+Total time: ~4.5 seconds for natural story delivery
 
 ## Technical Implementation
 
@@ -120,22 +134,32 @@ And lived happily ever after! ✨
 2. **`shin_ai/core/action_executor.py`**
    - Updated `execute_response()` to handle list of messages
    - Loops through each parsed message and executes it
-   - Messages chain together (2nd message replies to 1st if both target sender)
+   - **Only first message is a reply** - subsequent messages sent normally
+   - **1.5 second delay** between messages for natural conversation flow
+   - Added `asyncio.sleep()` between message sends
+   - Modified `_execute_text()` and `_execute_sticker()` to handle optional `reply_to_id`
 
 3. **`shin_ai/core/prompt_builder.py`**
    - Added documentation about multi-message format in system prompt
    - AI now knows it can use separators
 
 ### Message Chaining Logic
-When multiple messages target the same person (default `sender`), they automatically chain:
+When sending multiple messages:
 
 ```
-Message 1 → User's message
-Message 2 → Message 1
-Message 3 → Message 2
+User's message
+    ↓ (reply)
+Message 1
+    ↓ (1.5s delay, no reply)
+Message 2
+    ↓ (1.5s delay, no reply)
+Message 3
 ```
 
-This creates a natural conversation thread.
+This creates a natural conversation flow where:
+- **First message** replies to the user (or specified target)
+- **Subsequent messages** appear as regular chat messages
+- **Delays** make it feel like natural typing/thinking time
 
 ## Backward Compatibility
 
@@ -176,12 +200,20 @@ Expected output shows:
 
 ## Configuration
 
-No configuration needed! The feature works automatically.
+### Message Delay
+The delay between messages is set to **1.5 seconds** by default. To change this, edit [action_executor.py](shin_ai/core/action_executor.py#L42):
 
-The AI will decide when to use multiple messages based on:
-- Context of the conversation
-- User's request structure
-- Natural conversation flow
+```python
+await asyncio.sleep(1.5)  # Change this value
+```
+
+Recommended ranges:
+- **0.5 - 1.0 seconds**: Quick responses, less natural
+- **1.5 - 2.0 seconds**: Natural conversation pace (recommended)
+- **2.5 - 3.0 seconds**: Slower, more dramatic
+
+### Reply Behavior
+Currently, only the first message is a reply. To change this behavior, modify the logic in [action_executor.py](shin_ai/core/action_executor.py#L44-L48).
 
 ## Troubleshooting
 
@@ -206,11 +238,14 @@ Message 1 --- Message 2
 ## Future Enhancements
 
 Potential improvements:
-- [ ] Delay between messages (for dramatic effect)
+- [x] Delay between messages (for dramatic effect) ✅ **Implemented: 1.5s delay**
+- [x] First message as reply, rest as normal messages ✅ **Implemented**
 - [ ] Typing indicators between multi-messages
+- [ ] Configurable delay per message
 - [ ] Max message limit per response
 - [ ] Message grouping/batching options
 - [ ] Per-message media support (images in different messages)
+- [ ] Smart delay based on message length
 
 ---
 

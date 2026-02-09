@@ -3,6 +3,7 @@ Action Executor Module
 
 Executes parsed AI response actions (reactions, stickers, text, kicks).
 """
+import asyncio
 from pyrogram import Client, enums
 from pyrogram.types import Message
 
@@ -48,25 +49,22 @@ async def execute_response(
     )
     
     # Execute each message in sequence
-    last_sent_id = None
     for idx, single_parsed in enumerate(parsed_list):
-        # Resolve which message to reply to
-        reply_to_id = valid_targets.get(single_parsed.target_option, msg.id)
+        # Add delay between messages (not before the first one)
+        if idx > 0:
+            await asyncio.sleep(1.5)  # 1.5 second delay between messages
         
-        # If this is not the first message and target is "sender", 
-        # chain to the previously sent message instead
-        if idx > 0 and single_parsed.target_option == "sender" and last_sent_id:
-            reply_to_id = last_sent_id
+        # Only the first message is a reply, rest are sent normally
+        if idx == 0:
+            reply_to_id = valid_targets.get(single_parsed.target_option, msg.id)
+        else:
+            reply_to_id = None  # Don't reply, just send to chat
         
         # Execute actions for this message
         await _execute_reaction(msg, single_parsed.reaction)
         await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
-        sent_id = await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
+        await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
         await _execute_kick(client, msg, single_parsed)
-        
-        # Track the last sent message for chaining
-        if sent_id:
-            last_sent_id = sent_id
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -85,18 +83,24 @@ async def _execute_sticker(
     client: Client, 
     msg: Message, 
     sticker_id: str | None, 
-    reply_to_id: int
+    reply_to_id: int | None
 ) -> None:
     """Send a sticker as a reply."""
     if not sticker_id:
         return
     
     try:
-        sent_sticker = await client.send_sticker(
-            msg.chat.id, 
-            sticker_id, 
-            reply_to_message_id=reply_to_id
-        )
+        if reply_to_id:
+            sent_sticker = await client.send_sticker(
+                msg.chat.id, 
+                sticker_id, 
+                reply_to_message_id=reply_to_id
+            )
+        else:
+            sent_sticker = await client.send_sticker(
+                msg.chat.id, 
+                sticker_id
+            )
         save_reply(msg.chat.id, sent_sticker.id)
         add_message_to_context(sent_sticker)
     except Exception as e:
@@ -107,7 +111,7 @@ async def _execute_text(
     client: Client, 
     msg: Message, 
     text_content: str, 
-    reply_to_id: int
+    reply_to_id: int | None
 ) -> int | None:
     """
     Send a text message as a reply.
@@ -119,11 +123,17 @@ async def _execute_text(
         return None
     
     try:
-        sent_message = await client.send_message(
-            msg.chat.id, 
-            text_content, 
-            reply_to_message_id=reply_to_id
-        )
+        if reply_to_id:
+            sent_message = await client.send_message(
+                msg.chat.id, 
+                text_content, 
+                reply_to_message_id=reply_to_id
+            )
+        else:
+            sent_message = await client.send_message(
+                msg.chat.id, 
+                text_content
+            )
         save_reply(msg.chat.id, sent_message.id)
         add_message_to_context(sent_message)
         return sent_message.id
