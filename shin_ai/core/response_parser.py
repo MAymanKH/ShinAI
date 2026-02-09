@@ -29,11 +29,12 @@ class ParsedResponse:
         )
 
 
-def parse_ai_response(answer: Optional[str]) -> ParsedResponse:
+def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
     """
     Parse an AI response string to extract structured components.
     
-    The AI can return responses in these formats:
+    The AI can return multiple messages separated by "---" or "message:" markers.
+    Each message can contain:
     - Plain text
     - react:<emoji>
     - sticker:<file_id>
@@ -44,46 +45,62 @@ def parse_ai_response(answer: Optional[str]) -> ParsedResponse:
         answer: Raw response string from the AI
         
     Returns:
-        ParsedResponse with extracted components
+        List of ParsedResponse objects (one per message)
     """
-    result = ParsedResponse()
-    
     if not answer or not isinstance(answer, str):
-        return result
+        return [ParsedResponse()]
     
-    text_content = answer.strip()
+    # Split by message separators
+    # Support both "---" and "message:" or "messageN:" patterns
+    raw_messages = re.split(r'(?:^|\n)(?:---|message\d*:)', answer.strip(), flags=re.MULTILINE)
+    raw_messages = [m.strip() for m in raw_messages if m.strip()]
     
-    # Extract Action with optional target
-    # Matches "action:kick" or "action:kick:@username" or "action:kick:username"
-    kick_match = re.search(r"action:kick(?::(@?[\w_]+))?", text_content)
-    if kick_match:
-        result.kick_action = True
-        if kick_match.group(1):
-            result.kick_target_username = kick_match.group(1)
-        text_content = text_content.replace(kick_match.group(0), "").strip()
-
-    # Extract Target Option
-    target_match = re.search(r"target:(\w+)", text_content)
-    if target_match:
-        result.target_option = target_match.group(1)
-        text_content = text_content.replace(target_match.group(0), "").strip()
-
-    # Extract React
-    react_match = re.search(r"react:(\S+)", text_content)
-    if react_match:
-        result.reaction = react_match.group(1)
-        text_content = text_content.replace(react_match.group(0), "").strip()
+    # If no separators found, treat as single message
+    if not raw_messages:
+        raw_messages = [answer.strip()]
     
-    # Extract Sticker
-    sticker_match = re.search(r"sticker:(\S+)", text_content)
-    if sticker_match:
-        result.sticker_id = sticker_match.group(1)
-        text_content = text_content.replace(sticker_match.group(0), "").strip()
-        # Stickers are sent alone - clear any text
-        text_content = ""
+    results = []
+    
+    for text_content in raw_messages:
+        result = ParsedResponse()
+        
+        # Extract Action with optional target
+        # Matches "action:kick" or "action:kick:@username" or "action:kick:username"
+        kick_match = re.search(r"action:kick(?::(@?[\w_]+))?", text_content)
+        if kick_match:
+            result.kick_action = True
+            if kick_match.group(1):
+                result.kick_target_username = kick_match.group(1)
+            text_content = text_content.replace(kick_match.group(0), "").strip()
 
-    result.text_content = text_content
-    return result
+        # Extract Target Option
+        target_match = re.search(r"target:(\w+)", text_content)
+        if target_match:
+            result.target_option = target_match.group(1)
+            text_content = text_content.replace(target_match.group(0), "").strip()
+
+        # Extract React
+        react_match = re.search(r"react:(\S+)", text_content)
+        if react_match:
+            result.reaction = react_match.group(1)
+            text_content = text_content.replace(react_match.group(0), "").strip()
+        
+        # Extract Sticker
+        sticker_match = re.search(r"sticker:(\S+)", text_content)
+        if sticker_match:
+            result.sticker_id = sticker_match.group(1)
+            text_content = text_content.replace(sticker_match.group(0), "").strip()
+            # Stickers are sent alone - clear any text
+            text_content = ""
+
+        result.text_content = text_content
+        
+        # Only add if there's actual content
+        if result.has_content:
+            results.append(result)
+    
+    # Return at least one empty response if nothing parsed
+    return results if results else [ParsedResponse()]
 
 
 def is_ai_response_valid(answer: Optional[str]) -> bool:

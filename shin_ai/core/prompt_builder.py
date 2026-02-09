@@ -70,6 +70,21 @@ def build_system_prompt(
         To reply to a specific user (if asked to "tell HIM" or in a reply chain), append `target:<option>` to the end of your response.
         Options: {target_instructions}
         
+        **Multiple Messages**:
+        You can send multiple messages in one response by separating them with "---" or "message:" markers.
+        Example:
+        ```
+        First message here
+        ---
+        target:parent
+        Second message to parent
+        ---
+        react:👍
+        Third message with reaction
+        ```
+        Each message can have its own target, reaction, sticker, or text content.
+        Messages will be sent in sequence.
+        
         5. **KICKING PROTOCOL**
         - **TRIGGER**: {PERSONALITY.get("kicking_protocol_trigger_conditions", "")}
         - **RESTRICTION**: {PERSONALITY.get("kicking_protocol_restrictions", "")}

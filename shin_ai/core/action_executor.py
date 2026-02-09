@@ -17,7 +17,7 @@ from shin_ai.utils.memory import save_memory
 async def execute_response(
     client: Client,
     msg: Message,
-    parsed: ParsedResponse,
+    parsed: ParsedResponse | list[ParsedResponse],
     valid_targets: dict[str, int],
     original_prompt: str,
     raw_answer: str,
@@ -29,29 +29,44 @@ async def execute_response(
     Args:
         client: Pyrogram client instance
         msg: Original message that triggered the response
-        parsed: Parsed response containing actions to execute
+        parsed: Single ParsedResponse or list of ParsedResponse objects
         valid_targets: Mapping of target names to message IDs
         original_prompt: The original user prompt
         raw_answer: The raw AI response (for memory saving)
         reply_text: Reply chain context for memory
     """
-    # Save interaction to memory first
+    # Normalize to list
+    parsed_list = [parsed] if isinstance(parsed, ParsedResponse) else parsed
+    
+    # Save interaction to memory first (using the first message)
     await _save_interaction_memory(
         msg=msg,
-        parsed=parsed,
+        parsed=parsed_list[0] if parsed_list else ParsedResponse(),
         original_prompt=original_prompt,
         raw_answer=raw_answer,
         reply_text=reply_text,
     )
     
-    # Resolve which message to reply to
-    reply_to_id = valid_targets.get(parsed.target_option, msg.id)
-
-    # Execute actions in order
-    await _execute_reaction(msg, parsed.reaction)
-    await _execute_sticker(client, msg, parsed.sticker_id, reply_to_id)
-    await _execute_text(client, msg, parsed.text_content, reply_to_id)
-    await _execute_kick(client, msg, parsed)
+    # Execute each message in sequence
+    last_sent_id = None
+    for idx, single_parsed in enumerate(parsed_list):
+        # Resolve which message to reply to
+        reply_to_id = valid_targets.get(single_parsed.target_option, msg.id)
+        
+        # If this is not the first message and target is "sender", 
+        # chain to the previously sent message instead
+        if idx > 0 and single_parsed.target_option == "sender" and last_sent_id:
+            reply_to_id = last_sent_id
+        
+        # Execute actions for this message
+        await _execute_reaction(msg, single_parsed.reaction)
+        await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
+        sent_id = await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
+        await _execute_kick(client, msg, single_parsed)
+        
+        # Track the last sent message for chaining
+        if sent_id:
+            last_sent_id = sent_id
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -93,10 +108,15 @@ async def _execute_text(
     msg: Message, 
     text_content: str, 
     reply_to_id: int
-) -> None:
-    """Send a text message as a reply."""
+) -> int | None:
+    """
+    Send a text message as a reply.
+    
+    Returns:
+        The message ID of the sent message, or None if failed
+    """
     if not text_content:
-        return
+        return None
     
     try:
         sent_message = await client.send_message(
@@ -106,8 +126,10 @@ async def _execute_text(
         )
         save_reply(msg.chat.id, sent_message.id)
         add_message_to_context(sent_message)
+        return sent_message.id
     except Exception as e:
         logger.error(f"Text reply failed: {e}")
+        return None
 
 
 async def _execute_kick(
