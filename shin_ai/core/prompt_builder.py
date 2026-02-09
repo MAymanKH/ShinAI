@@ -183,6 +183,7 @@ def build_target_instructions(
     msg_id: int,
     sender_name: str,
     reply_msg: Optional[object] = None,
+    recent_messages: Optional[list[dict]] = None,
 ) -> tuple[dict[str, int], str]:
     """
     Build target instructions and valid targets mapping.
@@ -191,6 +192,7 @@ def build_target_instructions(
         msg_id: Current message ID
         sender_name: Name of the message sender
         reply_msg: The reply_to_message object if any
+        recent_messages: List of recent messages from context (dicts with msg_id, user_name, text)
         
     Returns:
         Tuple of (valid_targets dict, target_instructions string)
@@ -209,5 +211,14 @@ def build_target_instructions(
         if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
             valid_targets["grandparent"] = reply_msg.reply_to_message_id
             target_instructions += f"\n            - `target:grandparent`: Reply to the user BEFORE {parent_name} (the specific message {parent_name} replied to)"
+    
+    # Add recent context messages as targets (target tags are already embedded in chat history)
+    if recent_messages:
+        target_instructions += "\n\n            **RECENT CONTEXT TARGETS**:\n            You can reply to any message from the chat history above that has a [target:msgX] tag."
+        
+        # Build the valid_targets mapping
+        for idx, msg_data in enumerate(recent_messages, 1):
+            target_key = f"msg{idx}"
+            valid_targets[target_key] = msg_data["msg_id"]
 
     return valid_targets, target_instructions

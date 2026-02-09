@@ -63,13 +63,58 @@ def get_recent_context_string(chat_id: int, current_msg_id: int = None) -> str:
     Returns a formatted string of the recent conversation history.
     Excludes the current message if provided (to avoid duplication in prompt).
     """
+    context_str, _ = get_recent_context_with_targets(chat_id, current_msg_id, max_targets=0)
+    return context_str
+
+
+def get_recent_context_with_targets(chat_id: int, current_msg_id: int = None, max_targets: int = 10) -> tuple[str, list[dict]]:
+    """
+    Returns both formatted context string AND list of messages for targeting in a single pass.
+    More efficient than calling separate functions.
+    
+    Args:
+        chat_id: The chat ID to get context from
+        current_msg_id: Message ID to exclude (typically the current message)
+        max_targets: Maximum number of recent messages to return for targeting (0 to disable)
+        
+    Returns:
+        Tuple of (formatted_context_string, list_of_message_dicts_for_targeting)
+    """
     if chat_id not in _context_buffer:
-        return ""
+        return "", []
 
     lines = []
-    # Sort by timestamp/id just in case, though deque should be ordered
+    target_messages = []
     msgs = list(_context_buffer[chat_id])
     
+    # First pass: collect target messages (most recent ones)
+    msg_to_target = {}  # Map msg_id to target label
+    if max_targets > 0:
+        target_idx = 1
+        for m in reversed(msgs):
+            if current_msg_id and m["msg_id"] == current_msg_id:
+                continue
+            
+            msg_to_target[m["msg_id"]] = f"target:msg{target_idx}"
+            
+            # Truncate text for display in target list
+            text = m["text"]
+            if len(text) > 50:
+                text = text[:47] + "..."
+            
+            target_messages.append({
+                "msg_id": m["msg_id"],
+                "user_id": m["user_id"],
+                "user_name": m["user_name"],
+                "text": text,
+                "timestamp": m["timestamp"]
+            })
+            
+            target_idx += 1
+            if len(target_messages) >= max_targets:
+                break
+    
+    # Second pass: format context with embedded target tags
     for m in msgs:
         if current_msg_id and m["msg_id"] == current_msg_id:
             continue
@@ -77,21 +122,23 @@ def get_recent_context_string(chat_id: int, current_msg_id: int = None) -> str:
         # Format Timestamp
         try:
             ts = m["timestamp"]
-            # Convert to local time string including timezone if possible, or just standard format
             dt_obj = datetime.fromtimestamp(ts)
             time_str = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
         except:
             time_str = "Unknown Time"
 
-        # Format: [Time] [User Name]: Message
-        # Add reply indicator if applicable
+        # Format: [Time] [User Name] [target:msgX]: Message
         prefix = f"[{time_str}] [{m['user_name']}]"
         if m['reply_to_user']:
             prefix = f"[{time_str}] [{m['user_name']} (replying to {m['reply_to_user']})]"
+        
+        # Add target tag if this message is in the recent targets
+        if m["msg_id"] in msg_to_target:
+            prefix += f" [{msg_to_target[m['msg_id']]}]"
             
         lines.append(f"{prefix}: {m['text']}")
     
-    return "\n".join(lines)
+    return "\n".join(lines), target_messages
 
 def get_recent_media_messages(chat_id: int, max_count: int = 10) -> list[dict]:
     """
@@ -118,3 +165,5 @@ def get_recent_media_messages(chat_id: int, max_count: int = 10) -> list[dict]:
                 break
     
     return media_messages
+
+
