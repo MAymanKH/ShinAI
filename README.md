@@ -13,11 +13,15 @@ Customizable Telegram bot powered by multiple AI providers with personality, mem
 - 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, or local LLM (Ollama)
 - 💬 **Personality System**: Fully customizable bot personality and behavior
 - 🎭 **Social Context**: Recognizes group members and adapts responses
+- 🔄 **Reply Chain Tracking**: Understands conversation context
 - 📝 **Long-term Memory**: Remembers past conversations using vector embeddings
 - 🎨 **Style Learning**: Learns communication patterns from example messages
 - 📌 **Sticker Support**: Send stickers as responses with custom mappings
+- 😀 **Emoji Reactions**: React to messages with emojis instead of text
+- 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
+- 🎯 **Smart Reply Targeting**: Choose who to reply to in conversation threads
+- 👢 **Action Execution**: Perform moderation actions like kicking users
 - ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
-- 🔄 **Reply Chain Tracking**: Understands conversation context
 
 ## Quick Start
 
@@ -56,7 +60,17 @@ cp shin_ai/data/stickers_template.py shin_ai/data/stickers.py
 cp shin_ai/data/members_template.py shin_ai/data/members.py
 ```
 
-### 5. Run the Bot
+### 5. (Optional) Index Style Examples
+
+If you want the bot to learn from a specific group's communication style:
+
+```bash
+# 1. Add STYLE_GROUP_ID to your .env (get group ID from @RawDataBot)
+# 2. Run the style indexer
+python -m shin_ai.stylers.style_indexer
+```
+
+### 6. Run the Bot
 
 ```bash
 python main.py
@@ -77,6 +91,7 @@ python main.py
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
 | `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
+| `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
 
 ### Personality Configuration
 
@@ -275,6 +290,38 @@ The AI chooses the most appropriate response format:
 | **Reaction** | `react:<emoji>` | `react:🔥` → Adds 🔥 reaction |
 | **Sticker** | `sticker:<file_id>` | Sends a sticker from the configured library |
 | **Action** | `action:kick` | Kicks a user (with restrictions) |
+
+### 📨 Multi-Message Responses
+
+The bot can send multiple messages in a single interaction, enabling more complex and natural conversations:
+
+**How it works:**
+- AI can split responses using `---` or `message:` separators
+- Each message can have its own text, reaction, sticker, target, or action
+- First message replies to the trigger, subsequent messages sent normally
+- 1.5 second delay between messages for natural pacing
+
+**Example use cases:**
+```
+Multiple questions:
+"What's 2+2?"
+---
+"What's the capital of France? Paris!"
+
+Replying to different people:
+target:parent
+"Hello Ahmad! 👋"
+---
+target:grandparent
+"Goodbye Sarah!"
+
+Reaction + explanation:
+react:🔥
+---
+"This is absolutely incredible!"
+```
+
+This enables storytelling, step-by-step instructions, and complex multi-person interactions.
 
 ### 🎯 Intelligent Reply Targeting
 
