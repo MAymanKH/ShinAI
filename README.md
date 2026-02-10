@@ -132,7 +132,7 @@ python main.py
 
 ### Personality Configuration
 
-The personality system is **extremely flexible** - you can transform the bot from a casual group member to a professional assistant, from sarcastic to polite, from talkative to concise. Every aspect of the bot's behavior and persona is controlled through `shin_ai/data/personality.py`.
+The personality system is **extremely flexible** - you can transform the bot from a casual group member to a professional assistant, from sarcastic to polite, from talkative to concise. Copy `shin_ai/data/personality_template.py` to `shin_ai/data/personality.py` and control every aspect of the bot's behavior and persona through it.
 
 #### Core Personality Components
 
@@ -238,11 +238,11 @@ You're not just configuring a bot - you're **creating a character** with depth, 
 
 ### Sticker Configuration
 
-Edit `shin_ai/data/stickers.py` to map sticker file IDs to descriptions. Get sticker file IDs by forwarding stickers to @RawDataBot.
+Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map sticker file IDs to descriptions. Get sticker file IDs by forwarding stickers to @RawDataBot.
 
 ### Member Configuration
 
-Edit `shin_ai/data/members.py` to add group members for social context. The bot will recognize them and adapt its responses accordingly.
+Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them and adapt its responses accordingly.
 
 ## Project Structure
 
