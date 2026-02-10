@@ -69,20 +69,30 @@ git clone https://github.com/MAymanKH/ShinAI.git
 cd ShinAI
 ```
 
-### 2. Install Dependencies
+### 2. (Optional) Create a Virtual Environment
+
+```bash
+python -m venv venv
+# On Windows
+.\venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+```
+
+### 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment
+### 4. Configure Environment
 
 ```bash
 cp .env.example .env
-# Edit .env with your API credentials
+# Edit .env with your credentials and settings
 ```
 
-### 4. Customize Your Bot
+### 5. Customize Your Bot
 
 Copy the template files and customize them:
 
@@ -97,7 +107,7 @@ cp shin_ai/data/stickers_template.py shin_ai/data/stickers.py
 cp shin_ai/data/members_template.py shin_ai/data/members.py
 ```
 
-### 5. (Optional) Index Style Examples
+### 6. (Optional) Index Style Examples
 
 If you want the bot to learn from a specific group's communication style:
 
@@ -107,7 +117,7 @@ If you want the bot to learn from a specific group's communication style:
 python -m shin_ai.stylers.style_indexer
 ```
 
-### 6. Run the Bot
+### 7. Run the Bot
 
 ```bash
 python main.py
