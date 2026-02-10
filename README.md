@@ -62,6 +62,12 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 
 ## Quick Start
 
+### 0. Install Prerequisites
+
+- [Python](https://www.python.org/downloads/) 3.7 or higher
+- [Git](https://git-scm.com/install/)
+- Make sure they are added to your path.
+
 ### 1. Clone the Repository
 
 ```bash
