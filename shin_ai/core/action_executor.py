@@ -248,7 +248,9 @@ async def _resolve_kick_target(
 
     # 4. Fallback to reply target in trigger message
     if msg.reply_to_message and msg.reply_to_message.from_user:
-        return msg.reply_to_message.from_user
+        # Prevent kicking self (the bot) if the user is replying to the bot
+        if not msg.reply_to_message.from_user.is_self:
+            return msg.reply_to_message.from_user
     
     # 5. Last Resort: If target option is sender, kick the sender
     if target_option == "sender" and target_msg_id:
