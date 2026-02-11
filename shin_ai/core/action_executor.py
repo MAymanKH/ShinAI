@@ -54,17 +54,24 @@ async def execute_response(
         if idx > 0:
             await asyncio.sleep(1.5)  # 1.5 second delay between messages
         
-        # Only the first message is a reply, rest are sent normally
-        if idx == 0:
-            reply_to_id = valid_targets.get(single_parsed.target_option, msg.id)
-        else:
-            reply_to_id = None  # Don't reply, just send to chat
+        # Resolve target ID from the valid targets map
+        reply_to_id = valid_targets.get(single_parsed.target_option)
+        
+        # Logic:
+        # 1. If target is 'sender' (default), only reply on the first message to avoid spamming replies
+        # 2. If target is explicit (e.g., 'msg1', 'parent'), allow replying in any message sequence
+        if single_parsed.target_option == "sender" and idx > 0:
+            reply_to_id = None
+
+        # Fallback: First message always defaults to replying to sender if lookup failed
+        if idx == 0 and reply_to_id is None:
+            reply_to_id = msg.id
         
         # Execute actions for this message
         await _execute_reaction(msg, single_parsed.reaction)
         await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
         await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
-        await _execute_kick(client, msg, single_parsed)
+        await _execute_kick(client, msg, single_parsed, valid_targets)
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -145,13 +152,20 @@ async def _execute_text(
 async def _execute_kick(
     client: Client, 
     msg: Message, 
-    parsed: ParsedResponse
+    parsed: ParsedResponse,
+    valid_targets: dict[str, int]
 ) -> None:
     """Execute a kick action if requested."""
     if not parsed.kick_action:
         return
     
-    target = await _resolve_kick_target(client, msg, parsed.kick_target_username)
+    target = await _resolve_kick_target(
+        client, 
+        msg, 
+        parsed.kick_target_username,
+        parsed.target_option,
+        valid_targets
+    )
     
     if not target:
         return
@@ -165,6 +179,8 @@ async def _execute_kick(
             # Kick = Ban then Unban
             await client.ban_chat_member(msg.chat.id, target.id)
             await client.unban_chat_member(msg.chat.id, target.id)
+            # Notify who was kicked
+            await msg.reply_text(f"نطرت {target.first_name} بناءً على طلبك")
     except Exception as e:
         logger.error(f"Kick failed: {e}")
         await msg.reply_text("معرفتش أنطر")
@@ -173,19 +189,43 @@ async def _execute_kick(
 async def _resolve_kick_target(
     client: Client, 
     msg: Message, 
-    ai_specified_target: str | None
+    ai_specified_username: str | None,
+    target_option: str,
+    valid_targets: dict[str, int]
 ):
     """
     Resolve the target user for a kick action.
     
     Priority:
-    1. Mentions in the message
-    2. AI-specified target username
-    3. Reply target
+    1. AI-specified username (action:kick:@user)
+    2. AI-specified target message (target:msgX) (Excluding default 'sender')
+    3. Mentions in the message
+    4. Reply target of the trigger message
+    5. Fallback to 'sender' target option (Kick the prompter)
     """
-    target = None
+    # 1. AI Specified Username
+    if ai_specified_username:
+        try:
+            clean_username = ai_specified_username.replace("@", "")
+            target = await client.get_users(clean_username)
+            if target:
+                return target
+        except Exception as e:
+            logger.error(f"Failed to resolve kick target {ai_specified_username}: {e}")
+
+    # 2. AI Specified Target Message (ignore default "sender" for now to check mentions first)
+    target_msg_id = valid_targets.get(target_option)
     
-    # 1. Check mentions in the message
+    if target_option != "sender" and target_msg_id:
+        try:
+            # Fetch message to get user
+            t_msg = await client.get_messages(msg.chat.id, target_msg_id)
+            if t_msg and t_msg.from_user:
+                return t_msg.from_user
+        except Exception as e:
+            logger.error(f"Failed to fetch target message for kick: {e}")
+
+    # 3. Check mentions in the message (User intent)
     entities_to_check = []
     if msg.entities:
         entities_to_check.extend([(e, msg.text) for e in msg.entities])
@@ -206,19 +246,14 @@ async def _resolve_kick_target(
         except Exception as e:
             logger.error(f"Error resolving mention: {e}")
 
-    # 2. Check AI-specified target
-    if ai_specified_target:
-        try:
-            clean_username = ai_specified_target.replace("@", "")
-            target = await client.get_users(clean_username)
-            if target:
-                return target
-        except Exception as e:
-            logger.error(f"Failed to resolve kick target {ai_specified_target}: {e}")
-
-    # 3. Fallback to reply target
+    # 4. Fallback to reply target in trigger message
     if msg.reply_to_message and msg.reply_to_message.from_user:
         return msg.reply_to_message.from_user
+    
+    # 5. Last Resort: If target option is sender, kick the sender
+    if target_option == "sender" and target_msg_id:
+        if msg.from_user:
+            return msg.from_user
     
     return None
 

@@ -60,7 +60,7 @@ def build_system_prompt(
 
         4. **RESPONSE MECHANICS**
         
-        **!!! MULTIPLE MESSAGES (PREFERRED) !!!**:
+        **Multiple Messages**:
         Prefer sending multiple short messages instead of one long message most of the time. Separate them with "---" between messages.
         This is how you communicate naturally in group chats!
         
@@ -214,7 +214,7 @@ def build_target_instructions(
     
     # Add recent context messages as targets (target tags are already embedded in chat history)
     if recent_messages:
-        target_instructions += "\n\n            **RECENT CONTEXT TARGETS**:\n            You can reply to any message from the chat history above that has a [target:msgX] tag."
+        target_instructions += "\n\n            **RECENT CONTEXT TARGETS**:\n            You can reply to any specific past message by appending `target:msgX` (e.g., `target:msg1`). Look for [target:msgX] tags in the chat history."
         
         # Build the valid_targets mapping
         for idx, msg_data in enumerate(recent_messages, 1):
