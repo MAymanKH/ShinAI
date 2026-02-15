@@ -23,7 +23,7 @@ async def execute_response(
     original_prompt: str,
     raw_answer: str,
     reply_text: str = "",
-) -> None:
+) -> list[str]:
     """
     Execute all actions from a parsed AI response.
     
@@ -35,6 +35,9 @@ async def execute_response(
         original_prompt: The original user prompt
         raw_answer: The raw AI response (for memory saving)
         reply_text: Reply chain context for memory
+        
+    Returns:
+        List of moderation action error strings (empty if all succeeded)
     """
     # Normalize to list
     parsed_list = [parsed] if isinstance(parsed, ParsedResponse) else parsed
@@ -49,6 +52,7 @@ async def execute_response(
     )
     
     # Execute each message in sequence
+    mod_errors = []
     for idx, single_parsed in enumerate(parsed_list):
         # Add delay between messages (not before the first one)
         if idx > 0:
@@ -68,7 +72,13 @@ async def execute_response(
         await _execute_reaction(msg, single_parsed.reaction)
         await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
         await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
-        await _execute_mod_action(client, msg, single_parsed)
+        
+        # Collect moderation errors
+        mod_error = await _execute_mod_action(client, msg, single_parsed)
+        if mod_error:
+            mod_errors.append(mod_error)
+    
+    return mod_errors
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -150,41 +160,34 @@ async def _execute_text(
 # Moderation Actions
 # ===========================================
 
-_MOD_ACTION_LABELS = {
-    "kick": ("نطرت", "أنطر"),
-    "ban": ("بانيت", "أبان"),
-    "unban": ("شلت البان عن", "أشيل البان عن"),
-    "mute": ("سكّتت", "أسكّت"),
-    "unmute": ("فكيت الميوت عن", "أفك الميوت عن"),
-}
-
 
 async def _execute_mod_action(
     client: Client, 
     msg: Message, 
     parsed: ParsedResponse,
-) -> None:
-    """Execute a moderation action (kick, ban, unban, mute, unmute) if requested."""
+) -> str | None:
+    """Execute a moderation action (kick, ban, unban, mute, unmute) if requested.
+    
+    Returns:
+        Error description string if the action failed, None if succeeded or no action.
+    """
     if not parsed.mod_action:
-        return
+        return None
     
     action = parsed.mod_action
-    success_label, fail_label = _MOD_ACTION_LABELS.get(action, (action, action))
     
     # Unban doesn't need target resolution from context - it needs a username
     if action == "unban":
         target = await _resolve_mod_target_simple(client, msg, parsed.mod_target_username)
         if not target:
             logger.warning(f"Unban action requested but no target could be resolved")
-            await msg.reply_text(f"مين أشيل البان عنه؟")
-            return
+            return f"UNBAN FAILED: Could not find the user to unban. No username was specified. Use action:unban:@username to specify who to unban."
         try:
             await client.unban_chat_member(msg.chat.id, target.id)
-            await msg.reply_text(f"{success_label} {target.first_name}")
+            return None
         except Exception as e:
             logger.error(f"Unban failed: {e}")
-            await msg.reply_text(f"ما عرفت {fail_label} {target.first_name}")
-        return
+            return f"UNBAN FAILED on {target.first_name} (@{target.username or 'N/A'}): {e}"
     
     # For kick/ban/mute/unmute - resolve the target from context
     target = await _resolve_mod_target(
@@ -193,14 +196,15 @@ async def _execute_mod_action(
     
     if not target:
         logger.warning(f"{action} action requested but no target could be resolved")
-        return
+        return f"{action.upper()} FAILED: Could not determine who to {action}. No target message or username was found."
+    
+    target_display = f"{target.first_name} (@{target.username or 'N/A'}, id:{target.id})"
     
     try:
         # Check status before acting - can't act on admins/owners
         chat_member = await client.get_chat_member(msg.chat.id, target.id)
         if chat_member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-            await msg.reply_text(f"ما أقدر أسوي كذا على أدمن")
-            return
+            return f"{action.upper()} FAILED on {target_display}: Target is an admin/owner. You cannot {action} admins or the group owner."
         
         if action == "kick":
             await client.ban_chat_member(msg.chat.id, target.id)
@@ -225,11 +229,11 @@ async def _execute_mod_action(
                 )
             )
         
-        await msg.reply_text(f"{success_label} {target.first_name}")
+        return None  # Success
         
     except Exception as e:
         logger.error(f"{action} failed: {e}")
-        await msg.reply_text(f"ما عرفت {fail_label} {target.first_name}")
+        return f"{action.upper()} FAILED on {target_display}: {e}"
 
 
 async def _resolve_mod_target_simple(
