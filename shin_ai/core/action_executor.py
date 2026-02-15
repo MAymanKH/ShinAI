@@ -8,7 +8,7 @@ from pyrogram import Client, enums
 from pyrogram.types import Message
 
 from shin_ai.core.response_parser import ParsedResponse
-from shin_ai.data.loader import STICKER_TO_DESCRIPTION
+from shin_ai.data.loader import STICKER_TO_DESCRIPTION, MEMBERS
 from shin_ai.services.replies import save_reply
 from shin_ai.utils.context_manager import add_message_to_context
 from shin_ai.utils.logger_config import logger
@@ -161,6 +161,46 @@ async def _execute_text(
 # ===========================================
 
 
+def _resolve_name_to_username(name: str) -> str | None:
+    """
+    Look up a name/nickname in the MEMBERS social context and return the @username.
+    
+    Searches through all members' names, preferred_name, and dict keys
+    to find a match, then returns the @username if found.
+    """
+    name_lower = name.lower().strip().replace("@", "")
+    
+    for key, data in MEMBERS.items():
+        # Check all names (usernames + nicknames)
+        for n in data.get("names", []):
+            if n.lower().replace("@", "") == name_lower:
+                # Find the @username from the names list
+                for candidate in data.get("names", []):
+                    if candidate.startswith("@"):
+                        return candidate.replace("@", "")
+                # Fallback to the dict key if it looks like a username
+                if not key.startswith("!") and not key[0].isdigit():
+                    return key
+        
+        # Check preferred_name (could be comma-separated)
+        for pname in data.get("preferred_name", "").split(","):
+            if pname.strip().lower() == name_lower:
+                for candidate in data.get("names", []):
+                    if candidate.startswith("@"):
+                        return candidate.replace("@", "")
+                if not key.startswith("!") and not key[0].isdigit():
+                    return key
+        
+        # Check the dict key itself
+        if key.lower() == name_lower:
+            for candidate in data.get("names", []):
+                if candidate.startswith("@"):
+                    return candidate.replace("@", "")
+            return key
+    
+    return None
+
+
 async def _execute_mod_action(
     client: Client, 
     msg: Message, 
@@ -242,11 +282,26 @@ async def _resolve_mod_target_simple(
 ):
     """Resolve target from username only (used for unban where user isn't in chat)."""
     if ai_specified_username:
+        clean = ai_specified_username.replace("@", "")
+        
+        # First try direct Telegram lookup
         try:
-            clean_username = ai_specified_username.replace("@", "")
-            return await client.get_users(clean_username)
-        except Exception as e:
-            logger.error(f"Failed to resolve username {ai_specified_username}: {e}")
+            result = await client.get_users(clean)
+            if result:
+                return result
+        except Exception:
+            pass
+        
+        # If direct lookup failed, try resolving via MEMBERS social context
+        resolved_username = _resolve_name_to_username(clean)
+        if resolved_username:
+            try:
+                result = await client.get_users(resolved_username)
+                if result:
+                    logger.info(f"Resolved name '{clean}' → @{resolved_username} via social context")
+                    return result
+            except Exception as e:
+                logger.error(f"Failed to resolve name '{clean}' → @{resolved_username}: {e}")
     
     # Check mentions in the user's message
     entities_to_check = []
@@ -287,15 +342,28 @@ async def _resolve_mod_target(
     4. Reply target of the trigger message (skip if it's the bot itself)
     5. Fallback to the sender (self-defense)
     """
-    # 1. AI Specified Username
+    # 1. AI Specified Username (or name/nickname → resolve via social context)
     if ai_specified_username:
+        clean = ai_specified_username.replace("@", "")
+        
+        # First try direct Telegram lookup
         try:
-            clean_username = ai_specified_username.replace("@", "")
-            target = await client.get_users(clean_username)
+            target = await client.get_users(clean)
             if target:
                 return target
-        except Exception as e:
-            logger.error(f"Failed to resolve mod target {ai_specified_username}: {e}")
+        except Exception:
+            pass
+        
+        # If direct lookup failed, try resolving via MEMBERS social context
+        resolved_username = _resolve_name_to_username(clean)
+        if resolved_username:
+            try:
+                target = await client.get_users(resolved_username)
+                if target:
+                    logger.info(f"Resolved name '{clean}' → @{resolved_username} via social context")
+                    return target
+            except Exception as e:
+                logger.error(f"Failed to resolve name '{clean}' → @{resolved_username}: {e}")
 
     # 2. AI Specified Target Message ID - fetch the message and get its author
     if target_id:
