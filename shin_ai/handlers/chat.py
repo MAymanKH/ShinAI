@@ -20,7 +20,7 @@ from shin_ai.config import AI_CHOICE
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
-from shin_ai.utils.context_manager import add_message_to_context, get_recent_context_with_targets, get_recent_media_messages
+from shin_ai.utils.context_manager import add_message_to_context, get_recent_context_string, get_recent_media_messages
 from shin_ai.providers import *
 from shin_ai.providers.local_llm import local_llm
 from shin_ai.providers.gemini import gemini_api
@@ -158,8 +158,8 @@ async def yalbot(client: Client, msg: Message):
     # Get memory and context sections
     memory_section = _get_memory_section(prompt)
     
-    # Get recent context and targeting messages in one efficient call
-    recent_context_section, recent_messages = _get_recent_context_and_targets(msg)
+    # Get recent context with embedded message IDs
+    recent_context_section = _get_recent_context(msg)
     
     social_context_section = get_social_context(msg, reply_text)
     
@@ -167,11 +167,10 @@ async def yalbot(client: Client, msg: Message):
     
     # Build target instructions
     sender_name = msg.from_user.first_name if msg.from_user else "User"
-    valid_targets, target_instructions = build_target_instructions(
+    target_instructions = build_target_instructions(
         msg_id=msg.id,
         sender_name=sender_name,
         reply_msg=msg.reply_to_message,
-        recent_messages=recent_messages,
     )
     
     # Build the system prompt
@@ -217,7 +216,7 @@ async def yalbot(client: Client, msg: Message):
         client=client,
         msg=msg,
         parsed=parsed,
-        valid_targets=valid_targets,
+        default_target_id=msg.id,
         original_prompt=prompt,
         raw_answer=answer,
         reply_text=reply_text,
@@ -474,24 +473,21 @@ def _get_memory_section(prompt: str) -> str:
     return ""
 
 
-def _get_recent_context_and_targets(msg: Message) -> tuple[str, list[dict]]:
-    """Get recent chat context and targeting messages in a single efficient call."""
+def _get_recent_context(msg: Message) -> str:
+    """Get recent chat context with embedded message IDs for targeting."""
     try:
-        context_str, target_messages = get_recent_context_with_targets(
+        context_str = get_recent_context_string(
             msg.chat.id, 
-            current_msg_id=msg.id, 
-            max_targets=10
+            current_msg_id=msg.id,
         )
         
         if context_str:
-            formatted_context = f"RECENT GROUP ACTIVITY (Last 50 messages):\n{context_str}"
+            return f"RECENT GROUP ACTIVITY (Last 50 messages):\n{context_str}"
         else:
-            formatted_context = "RECENT GROUP ACTIVITY: None recorded yet."
-            
-        return formatted_context, target_messages
+            return "RECENT GROUP ACTIVITY: None recorded yet."
     except Exception as e:
-        logger.error(f"Error getting recent context and targets: {e}")
-        return "", []
+        logger.error(f"Error getting recent context: {e}")
+        return ""
 
 
 async def _call_ai_provider(

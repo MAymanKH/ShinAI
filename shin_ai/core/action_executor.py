@@ -19,7 +19,7 @@ async def execute_response(
     client: Client,
     msg: Message,
     parsed: ParsedResponse | list[ParsedResponse],
-    valid_targets: dict[str, int],
+    default_target_id: int,
     original_prompt: str,
     raw_answer: str,
     reply_text: str = "",
@@ -31,7 +31,7 @@ async def execute_response(
         client: Pyrogram client instance
         msg: Original message that triggered the response
         parsed: Single ParsedResponse or list of ParsedResponse objects
-        valid_targets: Mapping of target names to message IDs
+        default_target_id: The message ID to reply to by default (the sender's message)
         original_prompt: The original user prompt
         raw_answer: The raw AI response (for memory saving)
         reply_text: Reply chain context for memory
@@ -54,24 +54,21 @@ async def execute_response(
         if idx > 0:
             await asyncio.sleep(1.5)  # 1.5 second delay between messages
         
-        # Resolve target ID from the valid targets map
-        reply_to_id = valid_targets.get(single_parsed.target_option)
-        
-        # Logic:
-        # 1. If target is 'sender' (default), only reply on the first message to avoid spamming replies
-        # 2. If target is explicit (e.g., 'msg1', 'parent'), allow replying in any message sequence
-        if single_parsed.target_option == "sender" and idx > 0:
+        # Resolve target: use AI-specified ID if present, otherwise default to sender
+        if single_parsed.target_id:
+            reply_to_id = single_parsed.target_id
+        elif idx == 0:
+            # First message defaults to replying to the sender
+            reply_to_id = default_target_id
+        else:
+            # Subsequent messages without explicit target are sent without reply
             reply_to_id = None
-
-        # Fallback: First message always defaults to replying to sender if lookup failed
-        if idx == 0 and reply_to_id is None:
-            reply_to_id = msg.id
         
         # Execute actions for this message
         await _execute_reaction(msg, single_parsed.reaction)
         await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
         await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
-        await _execute_kick(client, msg, single_parsed, valid_targets)
+        await _execute_kick(client, msg, single_parsed)
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -153,7 +150,6 @@ async def _execute_kick(
     client: Client, 
     msg: Message, 
     parsed: ParsedResponse,
-    valid_targets: dict[str, int]
 ) -> None:
     """Execute a kick action if requested."""
     if not parsed.kick_action:
@@ -163,11 +159,11 @@ async def _execute_kick(
         client, 
         msg, 
         parsed.kick_target_username,
-        parsed.target_option,
-        valid_targets
+        parsed.target_id,
     )
     
     if not target:
+        logger.warning("Kick action requested but no target could be resolved")
         return
     
     try:
@@ -190,18 +186,17 @@ async def _resolve_kick_target(
     client: Client, 
     msg: Message, 
     ai_specified_username: str | None,
-    target_option: str,
-    valid_targets: dict[str, int]
+    target_id: int | None,
 ):
     """
     Resolve the target user for a kick action.
     
     Priority:
     1. AI-specified username (action:kick:@user)
-    2. AI-specified target message (target:msgX) (Excluding default 'sender')
-    3. Mentions in the message
-    4. Reply target of the trigger message
-    5. Fallback to 'sender' target option (Kick the prompter)
+    2. AI-specified target message ID (target:<id>) - fetch message, get author
+    3. Mentions in the user's message
+    4. Reply target of the trigger message (skip if it's the bot itself)
+    5. Fallback to the sender (self-defense kick)
     """
     # 1. AI Specified Username
     if ai_specified_username:
@@ -213,19 +208,16 @@ async def _resolve_kick_target(
         except Exception as e:
             logger.error(f"Failed to resolve kick target {ai_specified_username}: {e}")
 
-    # 2. AI Specified Target Message (ignore default "sender" for now to check mentions first)
-    target_msg_id = valid_targets.get(target_option)
-    
-    if target_option != "sender" and target_msg_id:
+    # 2. AI Specified Target Message ID - fetch the message and get its author
+    if target_id:
         try:
-            # Fetch message to get user
-            t_msg = await client.get_messages(msg.chat.id, target_msg_id)
-            if t_msg and t_msg.from_user:
+            t_msg = await client.get_messages(msg.chat.id, target_id)
+            if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
                 return t_msg.from_user
         except Exception as e:
-            logger.error(f"Failed to fetch target message for kick: {e}")
+            logger.error(f"Failed to fetch target message {target_id} for kick: {e}")
 
-    # 3. Check mentions in the message (User intent)
+    # 3. Check mentions in the user's message
     entities_to_check = []
     if msg.entities:
         entities_to_check.extend([(e, msg.text) for e in msg.entities])
@@ -246,16 +238,14 @@ async def _resolve_kick_target(
         except Exception as e:
             logger.error(f"Error resolving mention: {e}")
 
-    # 4. Fallback to reply target in trigger message
+    # 4. Fallback to reply target in trigger message (skip bot itself)
     if msg.reply_to_message and msg.reply_to_message.from_user:
-        # Prevent kicking self (the bot) if the user is replying to the bot
         if not msg.reply_to_message.from_user.is_self:
             return msg.reply_to_message.from_user
     
-    # 5. Last Resort: If target option is sender, kick the sender
-    if target_option == "sender" and target_msg_id:
-        if msg.from_user:
-            return msg.from_user
+    # 5. Last resort: kick the sender (self-defense)
+    if msg.from_user:
+        return msg.from_user
     
     return None
 

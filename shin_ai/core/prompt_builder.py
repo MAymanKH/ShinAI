@@ -80,14 +80,16 @@ def build_system_prompt(
         *   **ACTION**: `action:kick` (See Kicking Protocol)
 
         **Targeting Syntax**:
-        To reply to a specific user (if asked to "tell HIM" or in a reply chain), append `target:<option>` to the end of any message.
+        To reply to a specific message (if asked to "tell HIM" or in a reply chain), append `target:<message_id>` to the end of any message.
+        Each message in the chat history has an `(id:XXXXX)` tag - use that number.
+        If you don't specify a target, your reply goes to the user who messaged you (default).
         Options: {target_instructions}
         
         Example with targeting:
         ```
         اوكي فهمت
         ---
-        target:parent
+        target:48291
         شكرا على التوضيح
         ---
         react:👍
@@ -183,42 +185,35 @@ def build_target_instructions(
     msg_id: int,
     sender_name: str,
     reply_msg: Optional[object] = None,
-    recent_messages: Optional[list[dict]] = None,
-) -> tuple[dict[str, int], str]:
+) -> str:
     """
-    Build target instructions and valid targets mapping.
+    Build target instructions for the AI prompt.
+    
+    The bot sees actual message IDs (id:XXXXX) in the chat history and can
+    use them directly with `target:<id>` to reply to any message.
     
     Args:
         msg_id: Current message ID
         sender_name: Name of the message sender
         reply_msg: The reply_to_message object if any
-        recent_messages: List of recent messages from context (dicts with msg_id, user_name, text)
         
     Returns:
-        Tuple of (valid_targets dict, target_instructions string)
+        Target instructions string for the system prompt
     """
-    valid_targets = {"sender": msg_id}
-    target_instructions = f"- `target:sender` (Default): Reply to {sender_name}"
+    parts = [f"- `target:{msg_id}` (Default): Reply to {sender_name} (the user talking to you)"]
 
     if reply_msg:
         parent_name = "Unknown"
         if hasattr(reply_msg, 'from_user') and reply_msg.from_user:
             parent_name = reply_msg.from_user.first_name or "Unknown"
         
-        valid_targets["parent"] = reply_msg.id
-        target_instructions += f"\n            - `target:parent`: Reply to {parent_name} (the message you are replying to)"
+        parts.append(f"- `target:{reply_msg.id}`: Reply to {parent_name} (the message the user replied to)")
         
         if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
-            valid_targets["grandparent"] = reply_msg.reply_to_message_id
-            target_instructions += f"\n            - `target:grandparent`: Reply to the user BEFORE {parent_name} (the specific message {parent_name} replied to)"
+            parts.append(f"- `target:{reply_msg.reply_to_message_id}`: Reply to the message before {parent_name}")
     
-    # Add recent context messages as targets (target tags are already embedded in chat history)
-    if recent_messages:
-        target_instructions += "\n\n            **RECENT CONTEXT TARGETS**:\n            You can reply to any specific past message by appending `target:msgX` (e.g., `target:msg1`). Look for [target:msgX] tags in the chat history."
-        
-        # Build the valid_targets mapping
-        for idx, msg_data in enumerate(recent_messages, 1):
-            target_key = f"msg{idx}"
-            valid_targets[target_key] = msg_data["msg_id"]
+    parts.append("- `target:<id>`: Reply to ANY message from the chat history. Use the (id:XXXXX) shown next to each message.")
+    
+    target_instructions = "\n            ".join(parts)
 
-    return valid_targets, target_instructions
+    return target_instructions
