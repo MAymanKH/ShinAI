@@ -216,7 +216,7 @@ async def _execute_mod_action(
     
     action = parsed.mod_action
     
-    # Unban and Add don't need target resolution from context - they need a username
+    # Unban and Invite don't need target resolution from context - they need a username
     if action in ("unban", "add"):
         target = await _resolve_mod_target_simple(client, msg, parsed.mod_target_username)
         if not target:
@@ -225,8 +225,14 @@ async def _execute_mod_action(
         try:
             if action == "unban":
                 await client.unban_chat_member(msg.chat.id, target.id)
-            else:  # add
-                await client.add_chat_members(msg.chat.id, target.id)
+            else:  # add - generate invite link and DM it to the user
+                invite_link = await client.create_chat_invite_link(
+                    msg.chat.id, member_limit=1
+                )
+                await client.send_message(
+                    target.id,
+                    f"You've been invited to join the group:\n{invite_link.invite_link}"
+                )
             return None
         except Exception as e:
             logger.error(f"{action} failed: {e}")

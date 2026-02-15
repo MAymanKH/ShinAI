@@ -83,7 +83,7 @@ def build_system_prompt(
             - `action:unban:@username` - Lift a ban (requires @username)
             - `action:mute` - Silence a user (they can't send messages)
             - `action:unmute` - Restore a muted user's permissions
-            - `action:add:@username` - Add/invite a member to the group (requires @username)
+            - `action:add:@username` - Generate a one-time invite link and DM it to the user (requires @username)
             - Optionally specify target: `action:kick:@username`
 
         **Targeting Syntax**:
