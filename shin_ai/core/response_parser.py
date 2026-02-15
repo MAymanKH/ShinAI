@@ -8,14 +8,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+# Valid moderation actions the bot can perform
+VALID_MOD_ACTIONS = {"kick", "ban", "unban", "mute", "unmute"}
+
+
 @dataclass
 class ParsedResponse:
     """Structured representation of a parsed AI response."""
     text_content: str = ""
     reaction: Optional[str] = None
     sticker_id: Optional[str] = None
-    kick_action: bool = False
-    kick_target_username: Optional[str] = None
+    mod_action: Optional[str] = None  # kick, ban, unban, mute, unmute
+    mod_target_username: Optional[str] = None
     target_id: Optional[int] = None  # Actual Telegram message ID to reply to
     
     @property
@@ -25,7 +29,7 @@ class ParsedResponse:
             self.text_content or 
             self.reaction or 
             self.sticker_id or 
-            self.kick_action
+            self.mod_action
         )
 
 
@@ -38,8 +42,8 @@ def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
     - Plain text
     - react:<emoji>
     - sticker:<file_id>
-    - action:kick or action:kick:@username
-    - target:<sender|parent|grandparent>
+    - action:<kick|ban|unban|mute|unmute> with optional :@username
+    - target:<message_id>
     
     Args:
         answer: Raw response string from the AI
@@ -64,14 +68,14 @@ def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
     for text_content in raw_messages:
         result = ParsedResponse()
         
-        # Extract Action with optional target
-        # Matches "action:kick" or "action:kick:@username" or "action:kick:username"
-        kick_match = re.search(r"action:kick(?::(@?[\w_]+))?", text_content)
-        if kick_match:
-            result.kick_action = True
-            if kick_match.group(1):
-                result.kick_target_username = kick_match.group(1)
-            text_content = text_content.replace(kick_match.group(0), "").strip()
+        # Extract Moderation Action with optional target username
+        # Matches "action:kick", "action:ban:@username", "action:mute", etc.
+        action_match = re.search(r"action:(kick|ban|unban|mute|unmute)(?::(@?[\w_]+))?", text_content)
+        if action_match:
+            result.mod_action = action_match.group(1)
+            if action_match.group(2):
+                result.mod_target_username = action_match.group(2)
+            text_content = text_content.replace(action_match.group(0), "").strip()
 
         # Extract Target Option - now expects actual message IDs (e.g. target:48291)
         target_match = re.search(r"target:(\d+)", text_content)

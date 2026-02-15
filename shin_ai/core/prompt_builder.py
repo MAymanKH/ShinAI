@@ -77,7 +77,13 @@ def build_system_prompt(
         *   **TEXT**: Just the raw text response (1-20 words max)
         *   **REACT**: `react:<emoji>` (Valid: 👍, ❤️, 🔥, 😢, 🤮, 👎, 🤯, 👀)
         *   **STICKER**: `sticker:<file_id>` (See Mappings Below)
-        *   **ACTION**: `action:kick` (See Kicking Protocol)
+        *   **ACTION**: `action:<kick|ban|unban|mute|unmute>` (See Moderation Protocol)
+            - `action:kick` - Remove from group (can rejoin)
+            - `action:ban` - Permanently remove from group (cannot rejoin)
+            - `action:unban:@username` - Lift a ban (requires @username)
+            - `action:mute` - Silence a user (they can't send messages)
+            - `action:unmute` - Restore a muted user's permissions
+            - Optionally specify target: `action:kick:@username`
 
         **Targeting Syntax**:
         To reply to a specific message (if asked to "tell HIM" or in a reply chain), append `target:<message_id>` to the end of any message.
@@ -95,9 +101,10 @@ def build_system_prompt(
         react:👍
         ```
         
-        5. **KICKING PROTOCOL**
-        - **TRIGGER**: {PERSONALITY.get("kicking_protocol_trigger_conditions", "")}
-        - **RESTRICTION**: {PERSONALITY.get("kicking_protocol_restrictions", "")}
+        5. **MODERATION PROTOCOL**
+        - **TRIGGER**: {PERSONALITY.get("moderation_trigger_conditions", "")}
+        - **RESTRICTION**: {PERSONALITY.get("moderation_restrictions", "")}
+        - **ESCALATION**: {PERSONALITY.get("moderation_escalation", "")}
 
         6. **STICKER LIBRARY**
         Select stickers from this list or any sticker in the Telegram system library.

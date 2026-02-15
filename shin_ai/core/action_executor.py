@@ -1,7 +1,7 @@
 """
 Action Executor Module
 
-Executes parsed AI response actions (reactions, stickers, text, kicks).
+Executes parsed AI response actions (reactions, stickers, text, moderation).
 """
 import asyncio
 from pyrogram import Client, enums
@@ -68,7 +68,7 @@ async def execute_response(
         await _execute_reaction(msg, single_parsed.reaction)
         await _execute_sticker(client, msg, single_parsed.sticker_id, reply_to_id)
         await _execute_text(client, msg, single_parsed.text_content, reply_to_id)
-        await _execute_kick(client, msg, single_parsed)
+        await _execute_mod_action(client, msg, single_parsed)
 
 
 async def _execute_reaction(msg: Message, reaction: str | None) -> None:
@@ -146,57 +146,143 @@ async def _execute_text(
         return None
 
 
-async def _execute_kick(
+# ===========================================
+# Moderation Actions
+# ===========================================
+
+_MOD_ACTION_LABELS = {
+    "kick": ("نطرت", "أنطر"),
+    "ban": ("بانيت", "أبان"),
+    "unban": ("شلت البان عن", "أشيل البان عن"),
+    "mute": ("سكّتت", "أسكّت"),
+    "unmute": ("فكيت الميوت عن", "أفك الميوت عن"),
+}
+
+
+async def _execute_mod_action(
     client: Client, 
     msg: Message, 
     parsed: ParsedResponse,
 ) -> None:
-    """Execute a kick action if requested."""
-    if not parsed.kick_action:
+    """Execute a moderation action (kick, ban, unban, mute, unmute) if requested."""
+    if not parsed.mod_action:
         return
     
-    target = await _resolve_kick_target(
-        client, 
-        msg, 
-        parsed.kick_target_username,
-        parsed.target_id,
+    action = parsed.mod_action
+    success_label, fail_label = _MOD_ACTION_LABELS.get(action, (action, action))
+    
+    # Unban doesn't need target resolution from context - it needs a username
+    if action == "unban":
+        target = await _resolve_mod_target_simple(client, msg, parsed.mod_target_username)
+        if not target:
+            logger.warning(f"Unban action requested but no target could be resolved")
+            await msg.reply_text(f"مين أشيل البان عنه؟")
+            return
+        try:
+            await client.unban_chat_member(msg.chat.id, target.id)
+            await msg.reply_text(f"{success_label} {target.first_name}")
+        except Exception as e:
+            logger.error(f"Unban failed: {e}")
+            await msg.reply_text(f"ما عرفت {fail_label} {target.first_name}")
+        return
+    
+    # For kick/ban/mute/unmute - resolve the target from context
+    target = await _resolve_mod_target(
+        client, msg, parsed.mod_target_username, parsed.target_id
     )
     
     if not target:
-        logger.warning("Kick action requested but no target could be resolved")
+        logger.warning(f"{action} action requested but no target could be resolved")
         return
     
     try:
-        # Check status before kicking
+        # Check status before acting - can't act on admins/owners
         chat_member = await client.get_chat_member(msg.chat.id, target.id)
         if chat_member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-            await msg.reply_text("مبعرفش أنطر أدمنز")
-        else:
-            # Kick = Ban then Unban
+            await msg.reply_text(f"ما أقدر أسوي كذا على أدمن")
+            return
+        
+        if action == "kick":
             await client.ban_chat_member(msg.chat.id, target.id)
             await client.unban_chat_member(msg.chat.id, target.id)
-            # Notify who was kicked
-            await msg.reply_text(f"نطرت {target.first_name} بناءً على طلبك")
+        elif action == "ban":
+            await client.ban_chat_member(msg.chat.id, target.id)
+        elif action == "mute":
+            from pyrogram.types import ChatPermissions
+            await client.restrict_chat_member(
+                msg.chat.id, target.id,
+                ChatPermissions()  # All permissions False = fully muted
+            )
+        elif action == "unmute":
+            from pyrogram.types import ChatPermissions
+            await client.restrict_chat_member(
+                msg.chat.id, target.id,
+                ChatPermissions(
+                    can_send_messages=True,
+                    can_send_media_messages=True,
+                    can_send_other_messages=True,
+                    can_add_web_page_previews=True,
+                )
+            )
+        
+        await msg.reply_text(f"{success_label} {target.first_name}")
+        
     except Exception as e:
-        logger.error(f"Kick failed: {e}")
-        await msg.reply_text("معرفتش أنطر")
+        logger.error(f"{action} failed: {e}")
+        await msg.reply_text(f"ما عرفت {fail_label} {target.first_name}")
 
 
-async def _resolve_kick_target(
+async def _resolve_mod_target_simple(
+    client: Client,
+    msg: Message, 
+    ai_specified_username: str | None,
+):
+    """Resolve target from username only (used for unban where user isn't in chat)."""
+    if ai_specified_username:
+        try:
+            clean_username = ai_specified_username.replace("@", "")
+            return await client.get_users(clean_username)
+        except Exception as e:
+            logger.error(f"Failed to resolve username {ai_specified_username}: {e}")
+    
+    # Check mentions in the user's message
+    entities_to_check = []
+    if msg.entities:
+        entities_to_check.extend([(e, msg.text) for e in msg.entities])
+    if msg.caption_entities:
+        entities_to_check.extend([(e, msg.caption) for e in msg.caption_entities])
+
+    for entity, source_text in entities_to_check:
+        try:
+            candidate = None
+            if entity.type == enums.MessageEntityType.MENTION:
+                username = source_text[entity.offset:entity.offset + entity.length]
+                candidate = await client.get_users(username)
+            elif entity.type == enums.MessageEntityType.TEXT_MENTION:
+                candidate = entity.user
+            if candidate and not candidate.is_self:
+                return candidate
+        except Exception as e:
+            logger.error(f"Error resolving mention: {e}")
+    
+    return None
+
+
+async def _resolve_mod_target(
     client: Client, 
     msg: Message, 
     ai_specified_username: str | None,
     target_id: int | None,
 ):
     """
-    Resolve the target user for a kick action.
+    Resolve the target user for a moderation action.
     
     Priority:
     1. AI-specified username (action:kick:@user)
     2. AI-specified target message ID (target:<id>) - fetch message, get author
     3. Mentions in the user's message
     4. Reply target of the trigger message (skip if it's the bot itself)
-    5. Fallback to the sender (self-defense kick)
+    5. Fallback to the sender (self-defense)
     """
     # 1. AI Specified Username
     if ai_specified_username:
@@ -206,7 +292,7 @@ async def _resolve_kick_target(
             if target:
                 return target
         except Exception as e:
-            logger.error(f"Failed to resolve kick target {ai_specified_username}: {e}")
+            logger.error(f"Failed to resolve mod target {ai_specified_username}: {e}")
 
     # 2. AI Specified Target Message ID - fetch the message and get its author
     if target_id:
@@ -215,7 +301,7 @@ async def _resolve_kick_target(
             if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
                 return t_msg.from_user
         except Exception as e:
-            logger.error(f"Failed to fetch target message {target_id} for kick: {e}")
+            logger.error(f"Failed to fetch target message {target_id} for mod action: {e}")
 
     # 3. Check mentions in the user's message
     entities_to_check = []
@@ -243,7 +329,7 @@ async def _resolve_kick_target(
         if not msg.reply_to_message.from_user.is_self:
             return msg.reply_to_message.from_user
     
-    # 5. Last resort: kick the sender (self-defense)
+    # 5. Last resort: target the sender (self-defense)
     if msg.from_user:
         return msg.from_user
     
