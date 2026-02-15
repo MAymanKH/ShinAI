@@ -3,7 +3,9 @@ Chat Handler Module
 
 Main message handler for the bot's conversational AI functionality.
 """
+import asyncio
 import random
+import time
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message
 
@@ -188,77 +190,83 @@ async def yalbot(client: Client, msg: Message):
     logger.info(f"runtime context: {runtime_context}")
     logger.info(f"reply_text: {reply_text}")
 
-    # Call AI provider
-    answer = await _call_ai_provider(
-        client=client,
-        msg=msg,
-        system_prompt=system_prompt,
-        prompt=prompt,
-        media_list=media_list,
-    )
+    # Keep typing indicator active until response is fully sent
+    typing_task = _start_typing(client, msg.chat.id)
 
-    logger.info(f"Answer: {answer}")
-
-    # Fallback to manual if AI failed
-    if not is_ai_response_valid(answer):
-        logger.warning("AI failed, falling back to manual response")
-        await msg.react("😢")
-        from shin_ai.providers.manual import manual_response
-        answer = await manual_response(prompt, msg.from_user)
-
-    if not answer:
-        return await msg.react("👎")
-
-    # Parse and execute response
-    parsed = parse_ai_response(answer)
-    
-    mod_errors = await execute_response(
-        client=client,
-        msg=msg,
-        parsed=parsed,
-        default_target_id=msg.id,
-        original_prompt=prompt,
-        raw_answer=answer,
-        reply_text=reply_text,
-    )
-    
-    # If moderation actions failed, re-call the LLM with the error context
-    if mod_errors:
-        error_context = "\n".join(f"- {err}" for err in mod_errors)
-        error_prompt = (
-            "[INTERNAL SYSTEM ERROR - NOT A USER MESSAGE]\n"
-            "The following moderation action(s) you attempted have FAILED:\n"
-            f"{error_context}\n\n"
-            "Respond naturally to the user about this failure. "
-            "Do NOT use any action: commands in your response. "
-            "Just send a text message reacting to the failure in your usual style."
-        )
-        
-        logger.info(f"Re-calling LLM with mod action errors: {error_context}")
-        
-        error_answer = await _call_ai_provider(
+    try:
+        # Call AI provider
+        answer = await _call_ai_provider(
             client=client,
             msg=msg,
             system_prompt=system_prompt,
-            prompt=error_prompt,
-            media_list=[],
+            prompt=prompt,
+            media_list=media_list,
         )
-        
-        if error_answer and is_ai_response_valid(error_answer):
-            error_parsed = parse_ai_response(error_answer)
-            # Filter out any action commands from the error response to prevent loops
-            for p in error_parsed:
-                p.mod_action = None
-                p.mod_target_username = None
-            await execute_response(
+
+        logger.info(f"Answer: {answer}")
+
+        # Fallback to manual if AI failed
+        if not is_ai_response_valid(answer):
+            logger.warning("AI failed, falling back to manual response")
+            await msg.react("😢")
+            from shin_ai.providers.manual import manual_response
+            answer = await manual_response(prompt, msg.from_user)
+
+        if not answer:
+            return await msg.react("👎")
+
+        # Parse and execute response
+        parsed = parse_ai_response(answer)
+
+        mod_errors = await execute_response(
+            client=client,
+            msg=msg,
+            parsed=parsed,
+            default_target_id=msg.id,
+            original_prompt=prompt,
+            raw_answer=answer,
+            reply_text=reply_text,
+        )
+
+        # If moderation actions failed, re-call the LLM with the error context
+        if mod_errors:
+            error_context = "\n".join(f"- {err}" for err in mod_errors)
+            error_prompt = (
+                "[INTERNAL SYSTEM ERROR - NOT A USER MESSAGE]\n"
+                "The following moderation action(s) you attempted have FAILED:\n"
+                f"{error_context}\n\n"
+                "Respond naturally to the user about this failure. "
+                "Do NOT use any action: commands in your response. "
+                "Just send a text message reacting to the failure in your usual style."
+            )
+
+            logger.info(f"Re-calling LLM with mod action errors: {error_context}")
+
+            error_answer = await _call_ai_provider(
                 client=client,
                 msg=msg,
-                parsed=error_parsed,
-                default_target_id=msg.id,
-                original_prompt=prompt,
-                raw_answer=error_answer,
-                reply_text=reply_text,
+                system_prompt=system_prompt,
+                prompt=error_prompt,
+                media_list=[],
             )
+
+            if error_answer and is_ai_response_valid(error_answer):
+                error_parsed = parse_ai_response(error_answer)
+                # Filter out any action commands from the error response to prevent loops
+                for p in error_parsed:
+                    p.mod_action = None
+                    p.mod_target_username = None
+                await execute_response(
+                    client=client,
+                    msg=msg,
+                    parsed=error_parsed,
+                    default_target_id=msg.id,
+                    original_prompt=prompt,
+                    raw_answer=error_answer,
+                    reply_text=reply_text,
+                )
+    finally:
+        await _stop_typing(client, msg.chat.id, typing_task)
 
 
 # ===========================================
@@ -528,6 +536,31 @@ def _get_recent_context(msg: Message) -> str:
         return ""
 
 
+def _start_typing(client: Client, chat_id: int) -> asyncio.Task:
+    """Start a background task that refreshes the typing indicator every 4s."""
+    async def _loop():
+        try:
+            while True:
+                await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+                await asyncio.sleep(4.0)
+        except asyncio.CancelledError:
+            pass
+    return asyncio.create_task(_loop())
+
+
+async def _stop_typing(client: Client, chat_id: int, task: asyncio.Task):
+    """Cancel the typing indicator task and send CANCEL action."""
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await client.send_chat_action(chat_id, enums.ChatAction.CANCEL)
+    except Exception:
+        pass
+
+
 async def _call_ai_provider(
     client: Client,
     msg: Message,
@@ -535,10 +568,10 @@ async def _call_ai_provider(
     prompt: str,
     media_list: list[dict],
 ) -> str | None:
-    """Call the configured AI provider."""
+    """Call the configured AI provider and log the duration."""
     try:
-        await client.send_chat_action(msg.chat.id, enums.ChatAction.TYPING)
-        
+        start_time = time.monotonic()
+
         if AI_CHOICE == "local":
             answer = await local_llm(system_prompt, prompt)
         elif AI_CHOICE == "gemini":
@@ -555,8 +588,10 @@ async def _call_ai_provider(
         else:
             logger.error(f"Unknown AI_CHOICE: {AI_CHOICE}")
             answer = None
-            
-        await client.send_chat_action(msg.chat.id, enums.ChatAction.CANCEL)
+
+        duration = time.monotonic() - start_time
+        logger.info(f"AI provider '{AI_CHOICE}' finished in {duration:.2f}s")
+
         return answer
     except Exception as e:
         logger.error(f"AI error: {e}")
