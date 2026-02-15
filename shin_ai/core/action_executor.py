@@ -206,7 +206,7 @@ async def _execute_mod_action(
     msg: Message, 
     parsed: ParsedResponse,
 ) -> str | None:
-    """Execute a moderation action (kick, ban, unban, mute, unmute) if requested.
+    """Execute a moderation action (kick, ban, unban, mute, unmute, add) if requested.
     
     Returns:
         Error description string if the action failed, None if succeeded or no action.
@@ -216,18 +216,21 @@ async def _execute_mod_action(
     
     action = parsed.mod_action
     
-    # Unban doesn't need target resolution from context - it needs a username
-    if action == "unban":
+    # Unban and Add don't need target resolution from context - they need a username
+    if action in ("unban", "add"):
         target = await _resolve_mod_target_simple(client, msg, parsed.mod_target_username)
         if not target:
-            logger.warning(f"Unban action requested but no target could be resolved")
-            return f"UNBAN FAILED: Could not find the user to unban. No username was specified. Use action:unban:@username to specify who to unban."
+            logger.warning(f"{action} action requested but no target could be resolved")
+            return f"{action.upper()} FAILED: Could not find the user. No username was specified. Use action:{action}:@username to specify who to {action}."
         try:
-            await client.unban_chat_member(msg.chat.id, target.id)
+            if action == "unban":
+                await client.unban_chat_member(msg.chat.id, target.id)
+            else:  # add
+                await client.add_chat_members(msg.chat.id, target.id)
             return None
         except Exception as e:
-            logger.error(f"Unban failed: {e}")
-            return f"UNBAN FAILED on {target.first_name} (@{target.username or 'N/A'}): {e}"
+            logger.error(f"{action} failed: {e}")
+            return f"{action.upper()} FAILED on {target.first_name} (@{target.username or 'N/A'}): {e}"
     
     # For kick/ban/mute/unmute - resolve the target from context
     target = await _resolve_mod_target(

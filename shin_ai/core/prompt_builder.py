@@ -77,12 +77,13 @@ def build_system_prompt(
         *   **TEXT**: Just the raw text response (1-20 words max)
         *   **REACT**: `react:<emoji>` (Valid: 👍, ❤️, 🔥, 😢, 🤮, 👎, 🤯, 👀)
         *   **STICKER**: `sticker:<file_id>` (See Mappings Below)
-        *   **ACTION**: `action:<kick|ban|unban|mute|unmute>` (See Moderation Protocol)
+        *   **ACTION**: `action:<kick|ban|unban|mute|unmute|add>` (See Moderation Protocol)
             - `action:kick` - Remove from group (can rejoin)
             - `action:ban` - Permanently remove from group (cannot rejoin)
             - `action:unban:@username` - Lift a ban (requires @username)
             - `action:mute` - Silence a user (they can't send messages)
             - `action:unmute` - Restore a muted user's permissions
+            - `action:add:@username` - Add/invite a member to the group (requires @username)
             - Optionally specify target: `action:kick:@username`
 
         **Targeting Syntax**:

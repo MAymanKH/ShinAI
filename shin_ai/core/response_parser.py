@@ -9,7 +9,7 @@ from typing import Optional
 
 
 # Valid moderation actions the bot can perform
-VALID_MOD_ACTIONS = {"kick", "ban", "unban", "mute", "unmute"}
+VALID_MOD_ACTIONS = {"kick", "ban", "unban", "mute", "unmute", "add"}
 
 
 @dataclass
@@ -18,7 +18,7 @@ class ParsedResponse:
     text_content: str = ""
     reaction: Optional[str] = None
     sticker_id: Optional[str] = None
-    mod_action: Optional[str] = None  # kick, ban, unban, mute, unmute
+    mod_action: Optional[str] = None  # kick, ban, unban, mute, unmute, add
     mod_target_username: Optional[str] = None
     target_id: Optional[int] = None  # Actual Telegram message ID to reply to
     
@@ -42,7 +42,7 @@ def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
     - Plain text
     - react:<emoji>
     - sticker:<file_id>
-    - action:<kick|ban|unban|mute|unmute> with optional :@username
+    - action:<kick|ban|unban|mute|unmute|add> with optional :@username
     - target:<message_id>
     
     Args:
@@ -70,7 +70,7 @@ def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
         
         # Extract Moderation Action with optional target username
         # Matches "action:kick", "action:ban:@username", "action:mute", etc.
-        action_match = re.search(r"action:(kick|ban|unban|mute|unmute)(?::(@?[\w_]+))?", text_content)
+        action_match = re.search(r"action:(kick|ban|unban|mute|unmute|add)(?::(@?[\w_]+))?", text_content)
         if action_match:
             result.mod_action = action_match.group(1)
             if action_match.group(2):
