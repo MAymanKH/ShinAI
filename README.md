@@ -33,7 +33,7 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Intelligent Reply Targeting](#intelligent-reply-targeting)
   - [Sticker Integration](#sticker-integration)
   - [Telegram Reactions](#telegram-reactions)
-  - [Kick Protocol](#kick-protocol)
+  - [Moderation System](#moderation-system)
   - [Context Awareness](#context-awareness)
   - [Loop Prevention](#loop-prevention)
 - [AI Provider Details](#ai-provider-details)
@@ -56,8 +56,8 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 📌 **Sticker Support**: Send stickers as responses with custom mappings
 - 😀 **Emoji Reactions**: React to messages with emojis instead of text
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
-- 🎯 **Smart Reply Targeting**: Choose who to reply to in conversation threads
-- 👢 **Action Execution**: Perform moderation actions like kicking users
+- 🎯 **Smart Reply Targeting**: Target any message in the chat by its real Telegram ID
+- 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with configurable escalation
 - ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
 
 ## Quick Start
@@ -190,16 +190,22 @@ The personality system is **extremely flexible** - you can transform the bot fro
 - **Mention format**: How to reference users
 - **Roasting style**: Gentle teasing vs. brutal honesty vs. no roasting
 
-**`kicking_protocol_trigger_conditions`** - Moderation triggers:
-- Orders from specific users
+**`moderation_trigger_conditions`** - When moderation actions are allowed:
+- Orders from specific users (admins/owners)
 - Self-defense scenarios
 - Rule violations
 - Custom conditions
 
-**`kicking_protocol_restrictions`** - Protection rules:
-- Who cannot be kicked (admins, special users)
-- Whose kick commands to ignore
+**`moderation_restrictions`** - Protection rules:
+- Who cannot be moderated (admins, special users, creators)
+- Whose moderation commands to ignore
+- Escalation hierarchy (mute → kick → ban)
 - Safety overrides
+
+**`moderation_escalation`** - Action severity guidance:
+- Which action to use for different situations
+- How to undo actions (unmute, unban)
+- How to invite users (add)
 
 #### Customization Examples
 
@@ -371,7 +377,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Action Executor                             │
-│        Sends messages, reactions, stickers, or kicks            │
+│    Sends messages, reactions, stickers, or moderates users      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -439,7 +445,7 @@ The AI chooses the most appropriate response format:
 | **Text** | Plain message | `"lol nice one"` |
 | **Reaction** | `react:<emoji>` | `react:🔥` → Adds 🔥 reaction |
 | **Sticker** | `sticker:<file_id>` | Sends a sticker from the configured library |
-| **Action** | `action:kick` | Kicks a user (with restrictions) |
+| **Moderation** | `action:<type>` | `action:kick`, `action:ban`, `action:mute`, etc. |
 
 ### Multi-Message Responses
 
@@ -458,11 +464,11 @@ Multiple questions:
 ---
 "What's the capital of France? Paris!"
 
-Replying to different people:
-target:parent
-"Hello Ahmad! 👋"
+Replying to different people using real message IDs:
+target:48291
+"Hello Ahmad!"
 ---
-target:grandparent
+target:48288
 "Goodbye Sarah!"
 
 Reaction + explanation:
@@ -475,17 +481,20 @@ This enables storytelling, step-by-step instructions, and complex multi-person i
 
 ### Intelligent Reply Targeting
 
-When responding in a reply chain, the bot can choose who to reply to:
+The bot uses **real Telegram message IDs** for precise reply targeting. Each message in the chat history is tagged with its actual ID (e.g., `(id:48291)`), and the AI can target any of them:
 
 ```
-target:sender      → Reply to the person who triggered the bot
-target:parent      → Reply to the message being replied to
-target:grandparent → Reply to the message before that
+target:48291  → Reply to a specific message by its Telegram ID
+(no target)   → Reply to the user who triggered the bot (default)
 ```
 
-This enables conversations like:
-> **User A**: "Tell him he's wrong"  
-> **Bot**: *replies directly to User B* "you're wrong lol"
+The AI sees the full chat history with embedded IDs and can pick exactly which message to reply to:
+
+> **User A** `(id:48291)`: "Tell him he's wrong"  
+> **User B** `(id:48288)`: "I think the earth is flat"  
+> **Bot**: `target:48288` "you're wrong lol" → *replies directly to User B's message*
+
+This enables precise multi-person interactions where the bot can address different participants in the same response.
 
 ### Sticker Integration
 
@@ -514,25 +523,43 @@ Reactions are preferred when:
 - Responding to stickers (sticker → reaction only)
 - Ending a conversation naturally
 
-### Kick Protocol
+### Moderation System
 
-The bot can kick users, but with strict safeguards:
+The bot has a full moderation suite with configurable escalation and strict safeguards:
+
+**Available Actions:**
+
+| Action | Syntax | Effect |
+|--------|--------|--------|
+| **Mute** | `action:mute` | Silence a user (can't send messages) |
+| **Unmute** | `action:unmute` | Restore a muted user's permissions |
+| **Kick** | `action:kick` | Remove from group (can rejoin) |
+| **Ban** | `action:ban` | Permanently remove (cannot rejoin) |
+| **Unban** | `action:unban:@username` | Lift a ban (requires @username) |
+| **Invite** | `action:add:@username` | Generate a one-time invite link and DM it to the user |
+
+All actions support optional explicit targeting with `action:kick:@username`. The bot also resolves targets from social context — it can match nicknames and display names to usernames using the configured member profiles.
 
 **Triggers:**
 - Direct order from the creator/admin
 - Self-defense (user is extremely annoying)
+- Configurable escalation: mute → kick → ban
 
-**Restrictions:**
-- Cannot kick admins or owners
-- Cannot kick protected users (creator, etc.)
-- Ignores kick requests from random users
+**Safeguards:**
+- Cannot act on admins or owners
+- Cannot moderate protected users (creator, etc.)
+- Ignores moderation requests from random users
+- Failed actions are sent back to the AI for a natural error response (no hardcoded messages)
 
 ```
 User: "kick him"
-Bot: *ignores* (random users can't command kicks)
+Bot: *ignores* (random users can't command moderation)
 
-Creator: "kick @spammer"
-Bot: *kicks @spammer*
+Creator: "mute @spammer"
+Bot: *mutes @spammer*
+
+Creator: "add @friend"
+Bot: *generates invite link and DMs it to @friend*
 ```
 
 ### Context Awareness
