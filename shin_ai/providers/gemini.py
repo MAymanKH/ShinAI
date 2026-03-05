@@ -303,7 +303,8 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 # Gemini 3 models may have issues with Google Search in some configurations
                 if "gemini-3" in model:
                     config = genai.types.GenerateContentConfig(
-                        system_instruction=system_prompt
+                        system_instruction=system_prompt,
+                        thinking_config=genai.types.ThinkingConfig(thinking_level="high")
                     )
                     logger.info(f"Using {model} without Google Search")
                 else:
