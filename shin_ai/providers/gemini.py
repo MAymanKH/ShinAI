@@ -187,7 +187,7 @@ API_KEYS_MAP = load_keys()
 
 
 MODELS_LIST = [
-    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash"
 ]
 
@@ -262,7 +262,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
     
     # Intelligently reorder models based on query requirements
     if needs_google_search(prompt):
-        models_to_try = ["gemini-2.5-flash", "gemini-3-flash-preview"]  # Prioritize 2.5 for search
+        models_to_try = ["gemini-2.5-flash", "gemini-3.1-flash-lite-preview"]  # Prioritize 2.5 for search
         logger.info("🔍 Query needs Google Search - prioritizing Gemini 2.5 Flash")
     else:
         models_to_try = list(MODELS_LIST)  # Use default order (3 first)
