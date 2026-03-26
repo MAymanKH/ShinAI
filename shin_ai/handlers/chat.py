@@ -63,8 +63,15 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
     - @mention of the bot
     - Replies to bot messages
     - Random 1% chance
+    - Any non-command message in DMs
     """
     text = msg.text or msg.caption
+    
+    # Direct messages (DMs) - respond to any non-command message
+    if msg.chat.type == enums.ChatType.PRIVATE:
+        if text and text.startswith('/'):
+            return False
+        return True
     
     # No text/caption - check for supported media in reply chain
     if not text:
