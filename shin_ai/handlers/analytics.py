@@ -8,7 +8,7 @@ from shin_ai.config import ADMIN_USER_ID
 from shin_ai.utils.memory import memory_collection
 from shin_ai.utils.logger_config import logger
 
-@app.on_message(filters.command("analytics"))
+@app.on_message(filters.command("shin_analytics"))
 async def show_analytics(client: Client, msg: Message):
     if msg.from_user.id != ADMIN_USER_ID:
         return
