@@ -8,7 +8,7 @@ from shin_ai.utils.logger_config import logger
 # Create the collection for chat memories
 memory_collection = client.get_or_create_collection("chat_memories")
 
-def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = ""):
+def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = "", chat_id: int = 0, chat_title: str = ""):
     """
     Saves a user-bot interaction to the vector database.
     """
@@ -44,6 +44,10 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
             "date_string": now_str,
             "type": "conversation"
         }
+        if chat_id:
+            meta["chat_id"] = str(chat_id)
+        if chat_title:
+            meta["chat_title"] = chat_title
         
         # Unique Memory ID
         mem_id = str(uuid.uuid4())

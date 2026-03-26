@@ -453,7 +453,9 @@ async def _save_interaction_memory(
             msg.from_user.username, 
             original_prompt, 
             final_memory, 
-            context=short_context
+            context=short_context,
+            chat_id=msg.chat.id,
+            chat_title=msg.chat.title or "Private Chat"
         )
     except Exception as e:
         logger.error(f"Failed to save long-term memory: {e}")
