@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: shin_ai_bot
+    restart: unless-stopped
+    volumes:
+      # Data and database persistence
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+      
+      # Environment variables
+      # Make sure .env exists in the same directory as docker-compose.yml
+      # - ./.env:/app/.env
+      
+      # Telegram session files
+      # WARNING: Touch these files to create them locally before starting the container
+      # using `touch shin_ai_bot.session shin_ai_bot.session-journal`
+      # Otherwise docker will create them as directories!
+      - ./shin_ai_bot.session:/app/shin_ai_bot.session
+      - ./shin_ai_bot.session-journal:/app/shin_ai_bot.session-journal
