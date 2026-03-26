@@ -481,6 +481,9 @@ async def _get_reply_chain_text(client: Client, msg: Message) -> str:
 
 async def _is_direct_interaction(client: Client, msg: Message) -> bool:
     """Check if this is a direct interaction with the bot."""
+    if msg.chat.type == enums.ChatType.PRIVATE:
+        return True
+        
     text_content = msg.text or msg.caption or ""
     if "يالبوت" in text_content:
         return True
