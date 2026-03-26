@@ -127,8 +127,23 @@ python -m shin_ai.stylers.style_indexer
 
 ### 7. Run the Bot
 
+**Option A: Native installation (Python)**
 ```bash
 python main.py
+```
+
+**Option B: Docker**
+If you prefer to use Docker and Docker Compose, make sure they are installed on your system.
+
+```bash
+# 1. First time setup: create empty session files so Docker maps them as files, not directories
+touch shin_ai_bot.session shin_ai_bot.session-journal
+
+# 2. Build and start the container in the background
+docker-compose up -d --build
+
+# (Optional) View logs
+docker-compose logs -f
 ```
 
 ## Configuration
@@ -328,6 +343,7 @@ The bot responds when:
 - Mentioned the bot
 - Mentioned the word "يالبوت"
 - Replied to on its previous messages
+- Any non-command DM
 - Random 1% chance on any group message
 
 ---
