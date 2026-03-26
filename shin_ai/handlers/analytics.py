@@ -5,12 +5,11 @@ from pyrogram.types import Message
 
 from shin_ai.core.client import app
 from shin_ai.config import ADMIN_USER_ID
+from shin_ai.utils.memory import memory_collection
 from shin_ai.utils.logger_config import logger
 
 @app.on_message(filters.command("shin_analytics"))
 async def show_analytics(client: Client, msg: Message):
-    logger.info(f"/shin_analytics received from user_id={getattr(msg.from_user, 'id', 'unknown')}")
-
     if not msg.from_user:
         return
 
@@ -19,9 +18,6 @@ async def show_analytics(client: Client, msg: Message):
         return
 
     try:
-        # Lazy import so handler registration cannot fail at module import time.
-        from shin_ai.utils.memory import memory_collection
-
         # Fetch all metadatas from ChromaDB
         # We can just request metadatas and empty documents to save bandwidth
         # We might have a lot, so we just get all by calling get()
