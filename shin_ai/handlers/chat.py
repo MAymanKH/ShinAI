@@ -67,6 +67,10 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
     """
     text = msg.text or msg.caption
     
+    # Ignore messages from the bot itself
+    if msg.from_user and msg.from_user.is_self:
+        return False
+    
     # Direct messages (DMs) - respond to any non-command message
     if msg.chat.type == enums.ChatType.PRIVATE:
         if text and text.startswith('/'):
