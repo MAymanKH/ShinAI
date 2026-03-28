@@ -38,6 +38,9 @@ AI_CHOICE = os.getenv("AI_CHOICE", "gemini")
 # AI Provider Configuration
 # ===========================================
 
+AI_PROVIDER_TIMEOUT_SECONDS = float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "30"))
+AI_PROVIDER_MAX_RETRIES = int(os.getenv("AI_PROVIDER_MAX_RETRIES", "3"))
+
 # Gemini
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 

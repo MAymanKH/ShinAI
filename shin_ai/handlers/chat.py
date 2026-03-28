@@ -19,6 +19,7 @@ from shin_ai.core.prompt_builder import (
 from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
 from shin_ai.core.action_executor import execute_response
 from shin_ai.config import AI_CHOICE
+from shin_ai.config import AI_PROVIDER_TIMEOUT_SECONDS, AI_PROVIDER_MAX_RETRIES
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
@@ -582,31 +583,88 @@ async def _call_ai_provider(
     prompt: str,
     media_list: list[dict],
 ) -> str | None:
-    """Call the configured AI provider and log the duration."""
-    try:
+    """Call the configured AI provider with timeout and retry handling."""
+    max_attempts = max(1, AI_PROVIDER_MAX_RETRIES)
+    base_prompt = prompt
+    retry_prompt = base_prompt
+
+    for attempt in range(1, max_attempts + 1):
         start_time = time.monotonic()
+        try:
+            logger.info(
+                f"AI provider '{AI_CHOICE}' attempt {attempt}/{max_attempts} started"
+            )
+            answer = await asyncio.wait_for(
+                _execute_ai_provider_once(
+                    client=client,
+                    msg=msg,
+                    system_prompt=system_prompt,
+                    prompt=retry_prompt,
+                    media_list=media_list,
+                ),
+                timeout=AI_PROVIDER_TIMEOUT_SECONDS,
+            )
 
-        if AI_CHOICE == "local":
-            answer = await local_llm(system_prompt, prompt)
-        elif AI_CHOICE == "gemini":
-            answer = await gemini_api(system_prompt, prompt, media_list=media_list)
-        elif AI_CHOICE == "cerebras":
-            answer = await cerebras_api(system_prompt, prompt)
-        elif AI_CHOICE == "groq":
-            answer = await groq_api(system_prompt, prompt)
-        elif AI_CHOICE == "openrouter":
-            answer = await openrouter_api(system_prompt, prompt)
-        elif AI_CHOICE == "manual":
-            from shin_ai.providers.manual import manual_response
-            answer = await manual_response(prompt, msg.from_user)
-        else:
-            logger.error(f"Unknown AI_CHOICE: {AI_CHOICE}")
-            answer = None
+            duration = time.monotonic() - start_time
+            logger.info(
+                f"AI provider '{AI_CHOICE}' attempt {attempt}/{max_attempts} finished in {duration:.2f}s"
+            )
+            return answer
+        except asyncio.TimeoutError:
+            duration = time.monotonic() - start_time
+            logger.warning(
+                f"AI provider '{AI_CHOICE}' attempt {attempt}/{max_attempts} timed out after {duration:.2f}s"
+            )
+            if attempt >= max_attempts:
+                break
+            retry_prompt = base_prompt
+        except Exception as e:
+            duration = time.monotonic() - start_time
+            logger.error(
+                f"AI provider '{AI_CHOICE}' attempt {attempt}/{max_attempts} failed after {duration:.2f}s: {e}"
+            )
+            if attempt >= max_attempts:
+                break
 
-        duration = time.monotonic() - start_time
-        logger.info(f"AI provider '{AI_CHOICE}' finished in {duration:.2f}s")
+            error_text = str(e).strip() or "Unknown error"
+            error_text = error_text[:400]
+            retry_prompt = (
+                f"{base_prompt}\n\n"
+                "[INTERNAL RETRY CONTEXT - NOT A USER MESSAGE]\n"
+                f"Previous attempt failed with {type(e).__name__}: {error_text}\n"
+                "If needed, adapt your response approach to avoid the same failure."
+            )
+            logger.info(
+                f"Retrying AI provider '{AI_CHOICE}' with added error context on attempt {attempt + 1}/{max_attempts}"
+            )
 
-        return answer
-    except Exception as e:
-        logger.error(f"AI error: {e}")
-        return None
+    logger.error(
+        f"AI provider '{AI_CHOICE}' exhausted all {max_attempts} attempts"
+    )
+    return None
+
+
+async def _execute_ai_provider_once(
+    client: Client,
+    msg: Message,
+    system_prompt: str,
+    prompt: str,
+    media_list: list[dict],
+) -> str | None:
+    """Execute one AI provider call attempt without retries."""
+    if AI_CHOICE == "local":
+        return await local_llm(system_prompt, prompt)
+    if AI_CHOICE == "gemini":
+        return await gemini_api(system_prompt, prompt, media_list=media_list)
+    if AI_CHOICE == "cerebras":
+        return await cerebras_api(system_prompt, prompt)
+    if AI_CHOICE == "groq":
+        return await groq_api(system_prompt, prompt)
+    if AI_CHOICE == "openrouter":
+        return await openrouter_api(system_prompt, prompt)
+    if AI_CHOICE == "manual":
+        from shin_ai.providers.manual import manual_response
+        return await manual_response(prompt, msg.from_user)
+
+    logger.error(f"Unknown AI_CHOICE: {AI_CHOICE}")
+    return None
