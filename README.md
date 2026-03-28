@@ -364,11 +364,11 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 │                      Context Collection                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐    │
 │  │ Recent Chat   │  │ Long-term     │  │ Social Context    │    │
-│  │ (50 messages) │  │ Memory (RAG)  │  │ (Member Profiles) │    │
+│  │ Context       │  │ Memory (RAG)  │  │ (Member Profiles) │    │
 │  └───────────────┘  └───────────────┘  └───────────────────┘    │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐    │
 │  │ Reply Chain   │  │ Style         │  │ Runtime Metadata  │    │
-│  │ Context       │  │ Examples      │  │ (User Status)     │    │
+│  │ Context       │  │ Examples      │  │ (User/Chat Info)  │    │
 │  └───────────────┘  └───────────────┘  └───────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                                 │
@@ -584,13 +584,13 @@ The bot maintains awareness of:
 
 | Context Type | Window | Purpose |
 | -------------- | -------- | --------- |
-| **Recent Messages** | Last 50 messages | Understand ongoing conversation |
+| **Recent Messages** | Last sent messages | Understand ongoing conversation |
 | **Reply Chain** | Up to 10 levels deep | Follow threaded discussions |
 | **User Status** | Real-time | Know if user is admin/owner |
 | **Interaction Type** | Per-message | Direct mention vs. random interjection |
 
 **Visual Context (Gemini only):**
-When using Gemini as the AI provider, the bot can "see" and understand images and stickers in the conversation. All photos, stickers, and visual content from the last 50 messages are sent to Gemini along with text, enabling responses like:
+When using Gemini as the AI provider, the bot can "see" and understand images and stickers in the conversation. All photos, stickers, and visual content from the last sent messages are sent to Gemini along with text, enabling responses like:
 
 - Commenting on shared photos
 - Understanding sticker emotions/context
