@@ -542,7 +542,7 @@ def _get_recent_context(msg: Message) -> str:
         )
         
         if context_str:
-            return f"RECENT GROUP ACTIVITY (Last 50 messages):\n{context_str}"
+            return f"RECENT GROUP ACTIVITY:\n{context_str}"
         else:
             return "RECENT GROUP ACTIVITY: None recorded yet."
     except Exception as e:

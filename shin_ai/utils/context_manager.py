@@ -4,9 +4,9 @@ import time
 from datetime import datetime
 from pyrogram.types import Message
 
-# Store last 50 messages per chat
+# Store last 100 messages per chat
 # Map chat_id -> deque of message dicts
-_context_buffer = defaultdict(lambda: deque(maxlen=50))
+_context_buffer = defaultdict(lambda: deque(100))
 
 def add_message_to_context(msg: Message):
     """
