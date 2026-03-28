@@ -6,7 +6,7 @@ from pyrogram.types import Message
 
 # Store last 100 messages per chat
 # Map chat_id -> deque of message dicts
-_context_buffer = defaultdict(lambda: deque(100))
+_context_buffer = defaultdict(lambda: deque(maxlen=100))
 
 def add_message_to_context(msg: Message):
     """

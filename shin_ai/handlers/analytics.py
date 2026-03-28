@@ -138,8 +138,8 @@ def _subview_keyboard(view: str, page: int, total_items: int):
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Previous 20", callback_data=f"analytics:{view}:{prev_page}"),
-                InlineKeyboardButton("Next 20", callback_data=f"analytics:{view}:{next_page}"),
+                InlineKeyboardButton("Previous", callback_data=f"analytics:{view}:{prev_page}"),
+                InlineKeyboardButton("Next", callback_data=f"analytics:{view}:{next_page}"),
             ],
             [InlineKeyboardButton("Back to Main", callback_data="analytics:main:0")],
         ]
