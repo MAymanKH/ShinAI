@@ -8,8 +8,8 @@ from shin_ai.config import ADMIN_USER_ID
 from shin_ai.utils.memory import memory_collection
 from shin_ai.utils.logger_config import logger
 
-PAGE_SIZE = 10
-MAX_RECENT_ACTIVITY = 50
+PAGE_SIZE = 20
+MAX_RECENT_ACTIVITY = 100
 
 
 def _safe_int(value, default=0):
@@ -126,23 +126,34 @@ def _main_keyboard():
         [
             [InlineKeyboardButton("All Users", callback_data="analytics:users:0")],
             [InlineKeyboardButton("All Chats/Groups", callback_data="analytics:chats:0")],
-            [InlineKeyboardButton("Last 50 Recent Activity", callback_data="analytics:activity:0")],
+            [InlineKeyboardButton("Last 100 Recent Activity", callback_data="analytics:activity:0")],
         ]
     )
 
 
 def _subview_keyboard(view: str, page: int, total_items: int):
-    max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
-    prev_page = page - 1 if page > 0 else 0
-    next_page = page + 1 if page < max_page else max_page
+    prev_page = page - 1
+    next_page = page + 1
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("Back to Main", callback_data="analytics:main:0")],
-            [InlineKeyboardButton("Next 10", callback_data=f"analytics:{view}:{next_page}")],
-            [InlineKeyboardButton("Previous 10", callback_data=f"analytics:{view}:{prev_page}")],
+            [
+                InlineKeyboardButton("Previous 20", callback_data=f"analytics:{view}:{prev_page}"),
+                InlineKeyboardButton("Next 20", callback_data=f"analytics:{view}:{next_page}"),
+                InlineKeyboardButton("Back to Main", callback_data="analytics:main:0"),
+            ],
         ]
     )
+
+
+def _view_item_count(analytics, view: str) -> int:
+    if view == "users":
+        return len(analytics["user_counts"])
+    if view == "chats":
+        return len(analytics["chat_counts"])
+    if view == "activity":
+        return len(analytics["recent_activities"][:MAX_RECENT_ACTIVITY])
+    return 0
 
 
 def _main_view_text(analytics):
@@ -273,7 +284,7 @@ def _render_activity_view(analytics, requested_page: int):
         body = "No activity found."
 
     text = (
-        "🕒 **Last 50 Recent Activity**\n"
+        "🕒 **Last 100 Recent Activity**\n"
         f"{page_label}\n"
         f"Showing {start + 1 if total_items else 0}-{min(end, total_items)} of {total_items}\n\n"
         f"{body}"
@@ -338,6 +349,17 @@ async def analytics_callback(client: Client, callback: CallbackQuery):
         page = 0
 
     try:
+        if view in {"users", "chats", "activity"}:
+            analytics = _load_analytics_data()
+            total_items = _view_item_count(analytics, view)
+            max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
+            if page < 0:
+                page = 0
+                await callback.answer("You are already on the first page.")
+            elif page > max_page:
+                page = max_page
+                await callback.answer("No more results to show.")
+
         text, keyboard = _render_view(view, page)
         if not callback.message:
             await callback.answer("Unable to update this analytics message.", show_alert=True)
