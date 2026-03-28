@@ -31,6 +31,7 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Smart Response Types](#smart-response-types)
   - [Multi-Message Responses](#multi-message-responses)
   - [Intelligent Reply Targeting](#intelligent-reply-targeting)
+  - [Reliability & Retry Behavior](#reliability--retry-behavior)
   - [Sticker Integration](#sticker-integration)
   - [Telegram Reactions](#telegram-reactions)
   - [Moderation System](#moderation-system)
@@ -58,6 +59,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
 - 🎯 **Smart Reply Targeting**: Target any message in the chat by its real Telegram ID
 - 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with configurable escalation
+- 🔁 **Reliability Layer**: Per-attempt timeout, retries mechanism, and error-aware retry context injection
 - ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
 
 ## Quick Start
@@ -157,6 +159,8 @@ docker-compose logs -f
 | `BOT_TOKEN` | Bot token from @BotFather | ✅ |
 | `ADMIN_USER_ID` | Your Telegram user ID | ✅ |
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
+| `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 30) | Optional |
+| `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request, including first try (default: 3) | Optional |
 | `GEMINI_MODEL` | Gemini model name | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
@@ -511,6 +515,14 @@ The AI sees the full chat history with embedded IDs and can pick exactly which m
 > **Bot**: `target:48288` "you're wrong lol" → *replies directly to User B's message*
 
 This enables precise multi-person interactions where the bot can address different participants in the same response.
+
+### Reliability & Retry Behavior
+
+- Every AI provider call is wrapped with a per-attempt timeout
+- On timeout or error, the bot retries automatically.
+- If a retry is triggered by an error, the next attempt includes the previous exception message as internal retry context.
+- If all attempts fail or the final answer is invalid, the existing fallback flow is used.
+- Local Ollama calls are also protected with timeout handling and subprocess cleanup.
 
 ### Sticker Integration
 
