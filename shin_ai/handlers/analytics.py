@@ -88,6 +88,10 @@ def _load_analytics_data():
     current_time = int(time.time())
     user_counts = Counter()
     chat_counts = Counter()
+    last_1h_interactions = 0
+    last_7d_interactions = 0
+    last_30d_interactions = 0
+    last_year_interactions = 0
     last_24h_interactions = 0
 
     for meta in metadatas:
@@ -100,8 +104,18 @@ def _load_analytics_data():
             chat_counts[chat_id] += 1
 
         timestamp = _safe_int(meta.get("timestamp", 0), 0)
-        if timestamp and current_time - timestamp <= 86400:
-            last_24h_interactions += 1
+        if timestamp:
+            elapsed = current_time - timestamp
+            if elapsed <= 3600:
+                last_1h_interactions += 1
+            if elapsed <= 86400:
+                last_24h_interactions += 1
+            if elapsed <= 604800:
+                last_7d_interactions += 1
+            if elapsed <= 2592000:
+                last_30d_interactions += 1
+            if elapsed <= 31536000:
+                last_year_interactions += 1
 
     chat_label_by_id = _build_chat_labels(metadatas)
     recent_activities = sorted(
@@ -115,7 +129,11 @@ def _load_analytics_data():
         "user_counts": user_counts,
         "chat_counts": chat_counts,
         "chat_label_by_id": chat_label_by_id,
+        "last_1h_interactions": last_1h_interactions,
         "last_24h_interactions": last_24h_interactions,
+        "last_7d_interactions": last_7d_interactions,
+        "last_30d_interactions": last_30d_interactions,
+        "last_year_interactions": last_year_interactions,
         "recent_activities": recent_activities,
         "total_interactions": len(metadatas),
     }
@@ -185,7 +203,11 @@ def _main_view_text(analytics):
     return (
         f"📊 **Bot Analytics**\n\n"
         f"**Total Interactions:** {analytics['total_interactions']}\n"
+        f"**Last Year:** {analytics['last_year_interactions']}\n"
+        f"**Last 30 Days:** {analytics['last_30d_interactions']}\n"
+        f"**Last 7 Days:** {analytics['last_7d_interactions']}\n"
         f"**Last 24 Hours:** {analytics['last_24h_interactions']}\n\n"
+        f"**Last 1 Hour:** {analytics['last_1h_interactions']}\n"
         f"👤 **Top 10 Users:**\n{user_text}\n\n"
         f"💬 **Top 10 Chats/Groups:**\n{chat_text}\n\n"
         f"🕒 **Recent Activity:**\n{recent_text}\n"
