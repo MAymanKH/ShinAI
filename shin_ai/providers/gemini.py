@@ -13,6 +13,7 @@ import json
 import os
 import time
 import asyncio
+import re
 from datetime import datetime
 
 # File paths for key management
@@ -233,13 +234,84 @@ logger.info("Pre-computing example embeddings...")
 search_needed_embeddings = embedder.encode([f"query: {q}" for q in SEARCH_NEEDED_EXAMPLES])
 no_search_embeddings = embedder.encode([f"query: {q}" for q in NO_SEARCH_EXAMPLES])
 
-def needs_google_search(prompt: str, threshold: float = 0.65) -> bool:
+REALTIME_KEYWORDS = {
+    "latest", "recent", "today", "now", "current", "currently", "breaking", "live",
+    "this week", "this month", "this year", "yesterday", "tomorrow", "update", "updates",
+    "news", "weather", "temperature", "forecast", "score", "scores", "match", "game",
+    "price", "prices", "stock", "stocks", "market", "exchange rate", "rate", "rates",
+    "trending", "release date", "launch date", "earnings", "headline", "headlines"
+}
+
+WEB_LOOKUP_PHRASES = {
+    "search web", "search the web", "search online", "look up", "find online",
+    "check online", "use google", "browse", "web search", "internet"
+}
+
+NO_SEARCH_KEYWORDS = {
+    "explain", "tutorial", "example code", "debug", "refactor", "translate",
+    "summarize this", "poem", "story", "joke", "brainstorm", "idea", "meaning"
+}
+
+
+def _extract_focus_text(prompt: str) -> str:
+    """Use the most recent user-like segment for intent classification."""
+    normalized = (prompt or "").strip()
+    if not normalized:
+        return ""
+
+    # Prefer the last non-empty line to avoid embedding full conversation/system context.
+    lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+    if lines:
+        last_line = lines[-1]
+        if len(last_line) >= 12:
+            return last_line
+
+    # Fall back to the tail section where the newest request usually appears.
+    return normalized[-700:]
+
+
+def _contains_any_phrase(text: str, phrases: set[str]) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
+def _contains_year_like_reference(text: str) -> bool:
+    years = re.findall(r"\b(20\d{2})\b", text)
+    if not years:
+        return False
+
+    current_year = datetime.now().year
+    # Asking about a specific modern year often implies recency-sensitive information.
+    return any(abs(int(year) - current_year) <= 2 for year in years)
+
+
+def needs_google_search(prompt: str, threshold: float = 0.58) -> bool:
     """
     Semantically detect if a query needs real-time web information using embeddings.
     Returns True if Google Search would be beneficial.
     """
-    # Encode the user's query with E5 query prefix
-    query_embedding = embedder.encode(f"query: {prompt}").reshape(1, -1)
+    focus_text = _extract_focus_text(prompt)
+    lowered = focus_text.lower()
+
+    has_web_lookup_phrase = _contains_any_phrase(lowered, WEB_LOOKUP_PHRASES)
+    has_realtime_keyword = _contains_any_phrase(lowered, REALTIME_KEYWORDS)
+    has_year_reference = _contains_year_like_reference(lowered)
+    has_no_search_keyword = _contains_any_phrase(lowered, NO_SEARCH_KEYWORDS)
+
+    # Strong deterministic signals first.
+    if has_web_lookup_phrase:
+        logger.debug("Search intent: explicit web lookup phrase detected")
+        return True
+
+    if has_realtime_keyword or has_year_reference:
+        logger.debug("Search intent: realtime keyword/year reference detected")
+        return True
+
+    if has_no_search_keyword and not (has_realtime_keyword or has_web_lookup_phrase):
+        logger.debug("Search intent: static/creative task keyword detected")
+        return False
+
+    # Encode the most relevant user query segment with E5 query prefix.
+    query_embedding = embedder.encode(f"query: {focus_text}").reshape(1, -1)
     
     # Calculate similarity to "search needed" examples
     search_similarities = cosine_similarity(query_embedding, search_needed_embeddings)[0]
@@ -249,11 +321,25 @@ def needs_google_search(prompt: str, threshold: float = 0.65) -> bool:
     no_search_similarities = cosine_similarity(query_embedding, no_search_embeddings)[0]
     max_no_search_similarity = np.max(no_search_similarities)
     
-    # Decision logic: needs search if it's more similar to search examples
-    # and exceeds threshold
-    needs_search = max_search_similarity > max_no_search_similarity and max_search_similarity > threshold
+    similarity_delta = max_search_similarity - max_no_search_similarity
+
+    # Confidence rules:
+    # 1) Standard positive match with reduced threshold.
+    # 2) Low-confidence tie-breaker biased toward enabling search to reduce false negatives.
+    needs_search = (
+        (max_search_similarity >= threshold and similarity_delta >= -0.02)
+        or (max_search_similarity >= 0.52 and similarity_delta >= 0.06)
+        or (max_search_similarity >= 0.50 and abs(similarity_delta) <= 0.02)
+    )
     
-    logger.debug(f"Query similarity - Search: {max_search_similarity:.3f}, No-Search: {max_no_search_similarity:.3f}, Needs search: {needs_search}")
+    logger.debug(
+        "Query similarity - Focus: '%s' | Search: %.3f | No-Search: %.3f | Delta: %.3f | Needs search: %s",
+        focus_text[:120],
+        max_search_similarity,
+        max_no_search_similarity,
+        similarity_delta,
+        needs_search,
+    )
     
     return needs_search
 
