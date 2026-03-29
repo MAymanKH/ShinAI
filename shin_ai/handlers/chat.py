@@ -605,6 +605,9 @@ async def _call_ai_provider(
                 timeout=AI_PROVIDER_TIMEOUT_SECONDS,
             )
 
+            if not (isinstance(answer, str) and answer.strip()):
+                raise RuntimeError("AI provider returned empty response")
+
             duration = time.monotonic() - start_time
             logger.info(
                 f"AI provider '{AI_CHOICE}' attempt {attempt}/{max_attempts} finished in {duration:.2f}s"

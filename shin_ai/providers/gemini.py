@@ -21,6 +21,28 @@ GEMINI_KEYS_FILE = DATA_DIR / "gemini_keys.json"
 STATS_FILE = DATA_DIR / "gemini_stats.json"
 
 
+def _extract_gemini_text(response) -> str:
+    """Extract text from Gemini response, including candidate parts fallback."""
+    direct_text = getattr(response, "text", None)
+    if isinstance(direct_text, str) and direct_text.strip():
+        return direct_text.strip()
+
+    candidates = getattr(response, "candidates", None) or []
+    collected_parts = []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        if not content:
+            continue
+
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str) and part_text.strip():
+                collected_parts.append(part_text.strip())
+
+    return "\n".join(collected_parts).strip()
+
+
 def load_keys() -> dict[str, str]:
     """Load API keys from JSON file or environment variables."""
     # Ensure data directory exists
@@ -406,9 +428,16 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     config=config
                 )
 
+                response_text = _extract_gemini_text(response)
+                if not response_text:
+                    logger.warning(
+                        f"Gemini response had no text content (model: {model}, Key: {key_name})"
+                    )
+                    continue
+
                 logger.info(f"Gemini API call successful (model: {model}, Key: {key_name})")
                 update_key_status(key_name, "active", model)
-                return response.text
+                return response_text
             except Exception as e:
                 failed_keys_count += 1
                 # Move the failed key to the end of the dictionary
