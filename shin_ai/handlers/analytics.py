@@ -207,7 +207,7 @@ def _main_view_text(analytics):
         f"**Last 30 Days:** {analytics['last_30d_interactions']}\n"
         f"**Last 7 Days:** {analytics['last_7d_interactions']}\n"
         f"**Last 24 Hours:** {analytics['last_24h_interactions']}\n"
-        f"**Last 1 Hour:** {analytics['last_1h_interactions']}\n"
+        f"**Last 1 Hour:** {analytics['last_1h_interactions']}\n\n"
         f"👤 **Top 10 Users:**\n{user_text}\n\n"
         f"💬 **Top 10 Chats/Groups:**\n{chat_text}\n\n"
         f"🕒 **Recent Activity:**\n{recent_text}\n"
