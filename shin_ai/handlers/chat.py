@@ -39,7 +39,7 @@ from shin_ai.services.replies import check_reply_chain, get_reply_chain, save_re
 # Context Recorder
 # ===========================================
 
-@app.on_message(filters.group, group=-1)
+@app.on_message(filters.group | filters.private, group=-1)
 async def context_recorder(client: Client, msg: Message):
     """
     Records messages in the short-term rolling buffer.
@@ -543,9 +543,9 @@ def _get_recent_context(msg: Message) -> str:
         )
         
         if context_str:
-            return f"RECENT GROUP ACTIVITY:\n{context_str}"
+            return f"RECENT CHAT ACTIVITY:\n{context_str}"
         else:
-            return "RECENT GROUP ACTIVITY: None recorded yet."
+            return "RECENT CHAT ACTIVITY: None recorded yet."
     except Exception as e:
         logger.error(f"Error getting recent context: {e}")
         return ""
