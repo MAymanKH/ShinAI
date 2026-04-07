@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from shin_ai.utils.logger_config import logger
 import json
 
@@ -35,7 +35,6 @@ async def search_web_tool(query: str) -> str:
     """
     logger.info(f"Executing web search tool for query: '{query}'")
     try:
-        # duckduckgo-search >=6.0 removed AsyncDDGS, so we wrap the sync call in to_thread
         results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
         
         if not results_list:
