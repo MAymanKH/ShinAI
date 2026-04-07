@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-from duckduckgo_search import AsyncDDGS
+from duckduckgo_search import DDGS
 from shin_ai.utils.logger_config import logger
 import json
 
@@ -35,26 +35,28 @@ async def search_web_tool(query: str) -> str:
     """
     logger.info(f"Executing web search tool for query: '{query}'")
     try:
-        results = await AsyncDDGS().text(query, max_results=3)
-        if not results:
+        # duckduckgo-search >=6.0 removed AsyncDDGS, so we wrap the sync call in to_thread
+        results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
+        
+        if not results_list:
             return json.dumps({"error": "No results found for the query."})
             
         final_results = []
         async with httpx.AsyncClient(verify=False) as client:
             tasks = []
-            for res in results:
+            for res in results_list:
                 url = res.get('href')
                 if url:
                     tasks.append(_fetch_url_content(client, url))
                     
             contents = await asyncio.gather(*tasks, return_exceptions=True)
             
-            for index, res in enumerate(results):
+            for index, res in enumerate(results_list):
                 content = contents[index] if index < len(contents) and not isinstance(contents[index], Exception) else ""
                 final_results.append({
                     "title": res.get("title", ""),
                     "url": res.get("href", ""),
-                    "snippet": res.get("body", ""),
+                    "snippet": res.get("body", "") or res.get("snippet", ""),
                     "content": content
                 })
                 
