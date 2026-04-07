@@ -1,5 +1,6 @@
 import uuid
 import time
+import asyncio
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.metrics.pairwise import cosine_similarity
@@ -153,7 +154,7 @@ _no_time_embeddings = embedder.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES]
 TIME_DETECTION_MIN_SIMILARITY = 0.55
 
 
-def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
+async def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
     """
     Semantically detect time references in the query using the local E5 model.
     Returns (start_epoch, end_epoch) or (None, None) if no time reference found.
@@ -163,8 +164,9 @@ def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
     """
     now = datetime.now().astimezone()
     
-    # Encode the query
-    query_emb = embedder.encode(f"query: {query}").reshape(1, -1)
+    # Encode the query off-thread to avoid blocking event loop
+    query_emb_tensor = await asyncio.to_thread(embedder.encode, f"query: {query}")
+    query_emb = query_emb_tensor.reshape(1, -1)
     
     # Compare against time examples
     time_similarities = cosine_similarity(query_emb, _time_example_embeddings)[0]
@@ -215,7 +217,7 @@ def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
 
 
 # Memory Storage
-def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = "", chat_id: int = 0, chat_title: str = ""):
+async def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = "", chat_id: int = 0, chat_title: str = ""):
     """
     Saves a user-bot interaction to the vector database.
     """
@@ -266,7 +268,9 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
         # E5 requires "passage: " prefix for documents to be stored
         # We include the timestamp and chat_title in the passage so it's nominally searchable.
         searchable_text = f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
-        embedding = embedder.encode(searchable_text).tolist()
+        # Off-thread to avoid blocking event loop
+        embedding_tensor = await asyncio.to_thread(embedder.encode, searchable_text)
+        embedding = embedding_tensor.tolist()
         
         memory_collection.add(
             ids=[mem_id],
@@ -280,18 +284,19 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
 
 
 # Memory Retrieval
-def retrieve_memories(query: str, limit: int = 5):
+async def retrieve_memories(query: str, limit: int = 5):
     """
     Retrieves semantically relevant past interactions.
     If the query contains a time reference (e.g. "2 days ago", "قبل ساعة"),
     results are constrained to that time window via ChromaDB metadata filtering.
     """
     try:
-        # E5 requires "query: " prefix for search queries
-        query_emb = embedder.encode(f"query: {query}").tolist()
+        # E5 requires "query: " prefix for search queries, off-thread
+        query_emb_tensor = await asyncio.to_thread(embedder.encode, f"query: {query}")
+        query_emb = query_emb_tensor.tolist()
 
         # Check for time references in the query
-        start_epoch, end_epoch = _detect_time_filter(query)
+        start_epoch, end_epoch = await _detect_time_filter(query)
 
         where_filter = None
         if start_epoch is not None and end_epoch is not None:
@@ -330,7 +335,7 @@ def retrieve_memories(query: str, limit: int = 5):
         # If time filter was applied but returned nothing, fall back to unfiltered
         if where_filter and not filtered_memories:
             logger.info("Time-filtered search returned no results, falling back to unfiltered")
-            return _retrieve_memories_unfiltered(query_emb, limit)
+            return await _retrieve_memories_unfiltered(query_emb, limit)
 
         return filtered_memories
     except Exception as e:
@@ -338,7 +343,7 @@ def retrieve_memories(query: str, limit: int = 5):
         return []
 
 
-def _retrieve_memories_unfiltered(query_emb: list, limit: int = 5):
+async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 5):
     """
     Fallback: pure semantic retrieval without any time filter.
     Accepts a pre-computed embedding to avoid re-encoding.

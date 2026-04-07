@@ -452,7 +452,7 @@ async def _save_interaction_memory(
         
         final_memory = " ".join(mem_parts) if mem_parts else raw_answer
 
-        save_memory(
+        await save_memory(
             msg.from_user.id, 
             msg.from_user.username, 
             original_prompt, 

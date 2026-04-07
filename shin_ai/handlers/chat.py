@@ -170,7 +170,7 @@ async def yalbot(client: Client, msg: Message):
     )
     
     # Get memory and context sections
-    memory_section = _get_memory_section(prompt)
+    memory_section = await _get_memory_section(prompt)
     
     # Get recent context with embedded message IDs
     recent_context_section = _get_recent_context(msg)
@@ -523,10 +523,10 @@ async def _get_member_statuses(client: Client, msg: Message) -> tuple[str, str]:
     return user_status, reply_target_status
 
 
-def _get_memory_section(prompt: str) -> str:
+async def _get_memory_section(prompt: str) -> str:
     """Retrieve relevant memories for the prompt."""
     try:
-        retrieved_mems = retrieve_memories(prompt)
+        retrieved_mems = await retrieve_memories(prompt)
         if retrieved_mems:
             return "PAST RELEVANT MEMORIES:\n" + "\n".join([f"- {m}" for m in retrieved_mems])
     except Exception as e:
