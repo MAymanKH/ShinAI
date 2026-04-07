@@ -1,6 +1,6 @@
 # Telegram Bot Framework
 pyrofork
-tgcrypto
+tgcrypto-pyrofork
 
 # Vector Database for Memory/Context
 chromadb
