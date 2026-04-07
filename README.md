@@ -35,6 +35,7 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Sticker Integration](#sticker-integration)
   - [Telegram Reactions](#telegram-reactions)
   - [Moderation System](#moderation-system)
+  - [Real-Time Web Search](#real-time-web-search)
   - [Context Awareness](#context-awareness)
   - [Loop Prevention](#loop-prevention)
 - [AI Provider Details](#ai-provider-details)
