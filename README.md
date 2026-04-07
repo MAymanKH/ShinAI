@@ -432,15 +432,23 @@ The bot uses RAG in three key areas:
 
 ### Memory System
 
-Every interaction is saved to the vector database:
+Every interaction and moderation action is saved to the vector database, fully embedded with its chat origin and timestamp:
 
-```
-[2026-01-30 14:30:00 UTC]
+```text
+[2026-01-30 14:30:00 UTC] [Chat: General Discussion]
 User (@username) said: What's your favorite anime?
 Bot replied: steins gate obviously, are you even asking?
 ```
+```text
+[2026-01-30 15:00:00 UTC] [Chat: Meme Room]
+User (@admin) said: mute the spammer
+Bot replied: [Action: mute on @spammer]
+```
 
-When a relevant topic comes up later, this memory is retrieved and injected into the prompt, giving the AI context about past interactions.
+When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system goes deeply beyond basic semantic keyword matching:
+- **Semantic Time-Filtering**: It uses the local E5 model to naturally understand time phrases across dialects (e.g., "what happened 2 weeks ago?", "مين انطرد امبارح؟"). If a time context is detected, it narrows the database search to that exact chronological epoch window and increases the memory retrieval limit so the AI has full chronological awareness.
+- **Cross-Chat Memory**: Because group titles are embedded directly into the vectors, you can talk to the bot in a private DM and ask *"What did Ahmed say in General Discussion today?"*. The semantic engine will magically route and pull the exact events from the target group.
+- **Action Tracking**: The bot logs its own moderation decisions natively, which means it fundamentally remembers when it mutes, kicks, or bans someone, and can recall it later if investigated.
 
 ---
 
@@ -598,7 +606,8 @@ The bot maintains awareness of:
 | -------------- | -------- | --------- |
 | **Recent Messages** | Last sent messages | Understand ongoing conversation |
 | **Reply Chain** | Up to 10 levels deep | Follow threaded discussions |
-| **User Status** | Real-time | Know if user is admin/owner |
+| **User Status** | Real-time | Know user and chat info  |
+| **Long-term Memory** | Semantic RAG | Searches through memories and pulls relevant ones |
 | **Interaction Type** | Per-message | Direct mention vs. random interjection |
 
 **Visual Context (Gemini only):**
@@ -626,13 +635,13 @@ The bot avoids awkward endless conversations:
 ### Gemini (Recommended)
 
 - Supports **image understanding** (photos, stickers)
-- Multiple API key rotation for quota management
+- Multiple API key round-robin rotation for quota management
 - Tracks key health with `/gstats` command
 - **Semantic model switching**: Uses embeddings to intelligently route queries between Gemini 3 Flash and Gemini 2.5 Flash for Google Search (Better quota management)
 
 ### OpenRouter
 
-- Access to multiple models (Claude, GPT-4, Llama, etc.)
+- Access to multiple models (Claude, GPT-5.4, Llama, etc.)
 - Pay-per-token pricing
 - Good fallback option
 
