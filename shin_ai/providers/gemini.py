@@ -437,6 +437,12 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
 
                 logger.info(f"Gemini API call successful (model: {model}, Key: {key_name})")
                 update_key_status(key_name, "active", model)
+                
+                # Move the successfully used key to the end of the dictionary for round-robin load balancing
+                if key_name in API_KEYS_MAP:
+                    API_KEYS_MAP[key_name] = API_KEYS_MAP.pop(key_name)
+                    save_keys(API_KEYS_MAP)
+                    
                 return response_text
             except Exception as e:
                 failed_keys_count += 1
