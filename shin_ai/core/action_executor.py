@@ -42,10 +42,10 @@ async def execute_response(
     # Normalize to list
     parsed_list = [parsed] if isinstance(parsed, ParsedResponse) else parsed
     
-    # Save interaction to memory first (using the first message)
+    # Save interaction to memory first (using all messages to capture actions)
     await _save_interaction_memory(
         msg=msg,
-        parsed=parsed_list[0] if parsed_list else ParsedResponse(),
+        parsed_list=parsed_list,
         original_prompt=original_prompt,
         raw_answer=raw_answer,
         reply_text=reply_text,
