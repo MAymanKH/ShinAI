@@ -41,7 +41,12 @@ async def search_web_tool(query: str) -> str:
             return json.dumps({"error": "No results found for the query."})
             
         final_results = []
-        async with httpx.AsyncClient(verify=False) as client:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
+        async with httpx.AsyncClient(verify=False, headers=headers) as client:
             tasks = []
             for res in results_list:
                 url = res.get('href')
