@@ -418,7 +418,7 @@ async def _resolve_mod_target(
 
 async def _save_interaction_memory(
     msg: Message,
-    parsed: ParsedResponse,
+    parsed_list: list[ParsedResponse],
     original_prompt: str,
     raw_answer: str,
     reply_text: str,
@@ -436,15 +436,19 @@ async def _save_interaction_memory(
             else:
                 short_context = reply_text.strip()
 
-        # Build memory string
+        # Build memory string from all parsed messages
         mem_parts = []
-        if parsed.text_content:
-            mem_parts.append(parsed.text_content)
-        if parsed.reaction:
-            mem_parts.append(f"[Reacted: {parsed.reaction}]")
-        if parsed.sticker_id:
-            sticker_desc = STICKER_TO_DESCRIPTION.get(parsed.sticker_id, "Unknown Sticker")
-            mem_parts.append(f"[Sent Sticker: {sticker_desc}]")
+        for parsed in parsed_list:
+            if parsed.text_content:
+                mem_parts.append(parsed.text_content)
+            if parsed.reaction:
+                mem_parts.append(f"[Reacted: {parsed.reaction}]")
+            if parsed.sticker_id:
+                sticker_desc = STICKER_TO_DESCRIPTION.get(parsed.sticker_id, "Unknown Sticker")
+                mem_parts.append(f"[Sent Sticker: {sticker_desc}]")
+            if parsed.mod_action:
+                target = parsed.mod_target_username or "the reply target"
+                mem_parts.append(f"[Action: {parsed.mod_action} on {target}]")
         
         final_memory = " ".join(mem_parts) if mem_parts else raw_answer
 

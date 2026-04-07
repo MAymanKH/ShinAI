@@ -11,12 +11,9 @@ from shin_ai.utils.logger_config import logger
 memory_collection = client.get_or_create_collection("chat_memories")
 
 
-# ===========================================
 # Semantic Time Detection
-# ===========================================
 
 # Time buckets: each bucket has a timedelta and example phrases in multiple languages/dialects.
-# The E5 multilingual model handles Arabic dialects natively — no regex needed.
 # "dynamic_today" means "from midnight to now" and is computed at query time.
 TIME_BUCKETS = [
     {
@@ -85,17 +82,17 @@ TIME_BUCKETS = [
         ],
     },
     {
-        "delta_hours": 720,  # ~1 month
-        "examples": [
-            "last month", "a month ago", "in the past month", "30 days ago", "this month",
-            "الشهر اللي فات", "الشهر الماضي", "قبل شهر", "من شهر", "هالشهر",
-        ],
-    },
-    {
         "delta_hours": 504,  # 3 weeks
         "examples": [
             "3 weeks ago", "three weeks ago", "about three weeks ago",
             "قبل ثلاث أسابيع", "قبل ثلاث اسابيع", "من ثلاث اسابيع",
+        ],
+    },
+    {
+        "delta_hours": 720,  # ~1 month
+        "examples": [
+            "last month", "a month ago", "in the past month", "30 days ago", "this month",
+            "الشهر اللي فات", "الشهر الماضي", "قبل شهر", "من شهر", "هالشهر",
         ],
     },
     {
@@ -217,10 +214,7 @@ def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
     return start_epoch, end_epoch
 
 
-# ===========================================
 # Memory Storage
-# ===========================================
-
 def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = "", chat_id: int = 0, chat_title: str = ""):
     """
     Saves a user-bot interaction to the vector database.
@@ -246,8 +240,9 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
         elif response.startswith("sticker:"):
             memory_text = f"User ({username}) said: {prompt}\nBot sent a sticker."
 
-        # Add timestamp to the readable memory text
-        memory_text = f"[{now_str}]\n{memory_text}"
+        # Add timestamp and chat title to the readable memory text
+        chat_prefix = f" [Chat: {chat_title}]" if chat_title else ""
+        memory_text = f"[{now_str}]{chat_prefix}\n{memory_text}"
 
         # Metadata for filtering/context
         meta = {
@@ -269,8 +264,8 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
         # We specifically embed the interaction itself, ignoring the previous context prefix
         # This ensures that searching for "What did I say?" matches the actual content, not the context noise.
         # E5 requires "passage: " prefix for documents to be stored
-        # We include the timestamp in the passage so it's nominally searchable, though semantic match is primary.
-        searchable_text = f"passage: [{now_str}] User ({username}) said: {prompt}\nBot replied: {response}"
+        # We include the timestamp and chat_title in the passage so it's nominally searchable.
+        searchable_text = f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
         embedding = embedder.encode(searchable_text).tolist()
         
         memory_collection.add(
@@ -284,10 +279,7 @@ def save_memory(user_id: int, username: str, prompt: str, response: str, context
         logger.error(f"Failed to save memory: {e}")
 
 
-# ===========================================
 # Memory Retrieval
-# ===========================================
-
 def retrieve_memories(query: str, limit: int = 5):
     """
     Retrieves semantically relevant past interactions.
