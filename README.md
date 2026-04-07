@@ -54,6 +54,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 🔄 **Reply Chain Tracking**: Understands conversation context
 - 📝 **Long-term Memory**: Remembers past conversations using vector embeddings
 - 🎨 **Style Learning**: Learns communication patterns from example messages
+- 🌐 **Real-Time Web Search**: Web searching, fetching, and scraping capabilities used when needed
 - 📌 **Sticker Support**: Send stickers as responses with custom mappings
 - 😀 **Emoji Reactions**: React to messages with emojis instead of text
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
@@ -598,6 +599,13 @@ Creator: "add @friend"
 Bot: *generates invite link and DMs it to @friend*
 ```
 
+### Real-Time Web Search
+
+The bot features a comprehensive **Universal Native Web Search Integration** that works across all AI providers:
+
+- **Intelligent Execution**: The AI naturally detects when a user asks about live events, current information, or facts that require searching the internet, and delegates the query without any hardcoded thresholds.
+- **Deep Scraping**: Unlike standard bots that just parse headlines, the bot concurrently extracts the actual readable text content of the top websites retrieved, allowing it to give highly precise and fully contextual answers.
+
 ### Context Awareness
 
 The bot maintains awareness of:
@@ -637,7 +645,6 @@ The bot avoids awkward endless conversations:
 - Supports **image understanding** (photos, stickers)
 - Multiple API key round-robin rotation for quota management
 - Tracks key health with `/gstats` command
-- **Semantic model switching**: Uses embeddings to intelligently route queries between Gemini 3 Flash and Gemini 2.5 Flash for Google Search (Better quota management)
 
 ### OpenRouter
 
@@ -656,6 +663,7 @@ The bot avoids awkward endless conversations:
 - Fully private, no data is sent outside
 - No API costs
 - Requires decent GPU and RAM
+- Uses `http://localhost:11434/v1` OpenAI-compatible API loops
 
 ---
 
