@@ -284,7 +284,57 @@ async def save_memory(user_id: int, username: str, prompt: str, response: str, c
 
 
 # Memory Retrieval
-async def retrieve_memories(query: str, limit: int = 5):
+
+def _apply_mmr(query_emb: list, candidate_docs: list, candidate_embs: list, limit: int, lambda_param: float = 0.65) -> list:
+    """
+    Maximal Marginal Relevance (MMR) for diverse retrieval.
+    Selects documents that are highly relevant but mutually diverse.
+    """
+    if not candidate_docs:
+        return []
+        
+    query_tensor = np.array(query_emb).reshape(1, -1)
+    cand_tensor = np.array(candidate_embs)
+    
+    # Calculate similarity between query and all candidates
+    sim_to_query = cosine_similarity(query_tensor, cand_tensor)[0]
+    
+    selected_indices = []
+    available_indices = list(range(len(candidate_docs)))
+    
+    # Pre-calculate similarity between all candidates for speed
+    cand_sim_matrix = cosine_similarity(cand_tensor)
+    
+    while len(selected_indices) < limit and available_indices:
+        best_score = -float('inf')
+        best_idx = -1
+        
+        for idx in available_indices:
+            rel_score = sim_to_query[idx]
+            
+            # Diversity penalty: max similarity to already selected docs
+            if selected_indices:
+                div_score = max([cand_sim_matrix[idx][s_idx] for s_idx in selected_indices])
+            else:
+                div_score = 0.0
+                
+            # MMR formula
+            mmr_score = lambda_param * rel_score - (1.0 - lambda_param) * div_score
+            
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+                
+        if best_idx != -1:
+            selected_indices.append(best_idx)
+            available_indices.remove(best_idx)
+        else:
+            break
+            
+    return [candidate_docs[i] for i in selected_indices]
+
+
+async def retrieve_memories(query: str, limit: int = 15):
     """
     Retrieves semantically relevant past interactions.
     If the query contains a time reference (e.g. "2 days ago", "قبل ساعة"),
@@ -308,42 +358,45 @@ async def retrieve_memories(query: str, limit: int = 5):
             }
             logger.info(f"Time-filtered memory search: {start_epoch} → {end_epoch}")
 
-        # When time-filtering, fetch more results since the user is asking
-        # to recall from a specific period (could have hundreds of interactions).
-        effective_limit = 15 if where_filter else limit
-
+        # Fetch a large pool for MMR deduplication
         results = memory_collection.query(
             query_embeddings=[query_emb],
-            n_results=effective_limit,
+            n_results=40,
             where=where_filter,
-            include=["documents", "distances"]
+            include=["documents", "distances", "embeddings"]
         )
         
-        filtered_memories = []
+        filtered_docs = []
+        filtered_embs = []
+        
         if results['documents']:
             docs = results['documents'][0]
             dists = results['distances'][0]
+            embs = results['embeddings'][0]
 
-            # Use a more lenient threshold when time-filtering,
-            # since the time window already constrains results.
+            # Use a more lenient threshold when time-filtering
             threshold = 1.5 if where_filter else 1.3
 
-            for doc, dist in zip(docs, dists):
+            for doc, dist, emb in zip(docs, dists, embs):
                 if dist < threshold:
-                    filtered_memories.append(doc)
+                    filtered_docs.append(doc)
+                    filtered_embs.append(emb)
+
+        # Apply MMR Deduplication
+        final_memories = _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
 
         # If time filter was applied but returned nothing, fall back to unfiltered
-        if where_filter and not filtered_memories:
+        if where_filter and not final_memories:
             logger.info("Time-filtered search returned no results, falling back to unfiltered")
             return await _retrieve_memories_unfiltered(query_emb, limit)
 
-        return filtered_memories
+        return final_memories
     except Exception as e:
         logger.error(f"Failed to retrieve memories: {e}")
         return []
 
 
-async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 5):
+async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
     """
     Fallback: pure semantic retrieval without any time filter.
     Accepts a pre-computed embedding to avoid re-encoding.
@@ -351,15 +404,19 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 5):
     try:
         results = memory_collection.query(
             query_embeddings=[query_emb],
-            n_results=limit,
-            include=["documents", "distances"]
+            n_results=40,
+            include=["documents", "distances", "embeddings"]
         )
-        filtered = []
+        filtered_docs = []
+        filtered_embs = []
+        
         if results['documents']:
-            for doc, dist in zip(results['documents'][0], results['distances'][0]):
+            for doc, dist, emb in zip(results['documents'][0], results['distances'][0], results['embeddings'][0]):
                 if dist < 1.3:
-                    filtered.append(doc)
-        return filtered
+                    filtered_docs.append(doc)
+                    filtered_embs.append(emb)
+                    
+        return _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
     except Exception as e:
         logger.error(f"Failed to retrieve memories (unfiltered fallback): {e}")
         return []
