@@ -10,7 +10,7 @@ _last_used: dict[int, float] = {}
 COOLDOWN_SECONDS = 7  # adjust as you like
 
 
-def check_rate_limit(user_id: int) -> bool:
+def check_rate_limit(user_id: int | str) -> bool:
     """Check if user can make a request based on cooldown."""
     now = time.time()
     last = _last_used.get(user_id, 0)
@@ -26,7 +26,7 @@ _last_gstats_time = 0.0
 GSTATS_COOLDOWN = 1200  # 20 minutes
 
 
-def check_gstats_rate_limit(user_id: int) -> int:
+def check_gstats_rate_limit(user_id: int | str) -> int:
     """
     Returns the number of seconds the user needs to wait.
     Returns 0 if the request is allowed.

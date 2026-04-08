@@ -1,14 +1,13 @@
-from collections import deque
-from collections import defaultdict
+from collections import deque, defaultdict
 import time
 from datetime import datetime
-from pyrogram.types import Message
+from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia
 
 # Store last 100 messages per chat
-# Map chat_id -> deque of message dicts
+# Map f"{platform}_{chat_id}" -> deque of message dicts
 _context_buffer = defaultdict(lambda: deque(maxlen=100))
 
-def add_message_to_context(msg: Message):
+def add_message_to_context(msg: UnifiedMessage):
     """
     Adds a message to the short-term context buffer.
     """
@@ -46,6 +45,7 @@ def add_message_to_context(msg: Message):
         text_content = msg.text or msg.caption or "[Other Media]"
 
     entry = {
+        "platform": msg.platform,
         "msg_id": msg.id,
         "user_id": msg.from_user.id,
         "user_name": user_name,
@@ -53,26 +53,28 @@ def add_message_to_context(msg: Message):
         "media_type": media_type,
         "reply_to_id": replied_to_id,
         "reply_to_user": replied_to_user,
-        "timestamp": getattr(msg, "date", time.time())
+        "timestamp": msg.date or time.time()
     }
     
-    _context_buffer[msg.chat.id].append(entry)
+    chat_key = f"{msg.platform}_{msg.chat.id}"
+    _context_buffer[chat_key].append(entry)
 
-def get_recent_context_string(chat_id: int, current_msg_id: int = None) -> str:
+def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id: int | str = None) -> str:
     """
     Returns a formatted string of the recent conversation history.
     Excludes the current message if provided (to avoid duplication in prompt).
-    Each message is tagged with its actual Telegram message ID (id:XXXXX)
+    Each message is tagged with its actual message ID (id:XXXXX)
     so the AI can directly reference them for targeting.
     """
-    if chat_id not in _context_buffer:
+    chat_key = f"{platform}_{chat_id}"
+    if chat_key not in _context_buffer:
         return ""
 
     lines = []
-    msgs = list(_context_buffer[chat_id])
+    msgs = list(_context_buffer[chat_key])
     
     for m in msgs:
-        if current_msg_id and m["msg_id"] == current_msg_id:
+        if current_msg_id and str(m["msg_id"]) == str(current_msg_id):
             continue
             
         # Format Timestamp
@@ -95,19 +97,20 @@ def get_recent_context_string(chat_id: int, current_msg_id: int = None) -> str:
     
     return "\n".join(lines)
 
-def get_recent_media_messages(chat_id: int, max_count: int = 10) -> list[dict]:
+def get_recent_media_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
     """
     Returns a list of recent messages that contain photos or stickers.
     Limited to max_count most recent media messages.
     
     Returns list of dicts with: msg_id, user_name, media_type, timestamp
     """
-    if chat_id not in _context_buffer:
+    chat_key = f"{platform}_{chat_id}"
+    if chat_key not in _context_buffer:
         return []
     
     media_messages = []
     # Iterate in reverse to get most recent first
-    for m in reversed(list(_context_buffer[chat_id])):
+    for m in reversed(list(_context_buffer[chat_key])):
         if m.get("media_type") and m["media_type"] in ["photo"] or (m.get("media_type") and m["media_type"].startswith("sticker")):
             media_messages.append({
                 "msg_id": m["msg_id"],
@@ -120,5 +123,3 @@ def get_recent_media_messages(chat_id: int, max_count: int = 10) -> list[dict]:
                 break
     
     return media_messages
-
-

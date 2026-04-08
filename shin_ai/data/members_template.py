@@ -18,7 +18,9 @@
 MEMBERS = {
     # Example: Bot creator
     "yourusername": {
-        "names": ["@yourusername", "YourName", "YourNickname"],
+        "names": ["YourName", "YourNickname"],
+        "telegram_username": "@yourusername",
+        "discord_username": "@yourusername",
         "trigger_keywords": ["creator", "father", "owner", "admin"],
         "preferred_name": "YourName",
         "role": "Group member. Bot creator.",
@@ -28,7 +30,9 @@ MEMBERS = {
     
     # Example: Regular group member
     "friendusername": {
-        "names": ["@friendusername", "FriendName"],
+        "names": ["FriendName"],
+        "telegram_username": "@friendusername",
+        "discord_username": "@friendusername",
         "trigger_keywords": [],
         "preferred_name": "FriendName",
         "role": "Group member.",

@@ -4,7 +4,7 @@ Social Context Service
 Manages semantic retrieval of member information for contextual responses.
 """
 import re
-from pyrogram.types import Message
+from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
 from shin_ai.stylers.style_retriever import embedder
@@ -18,6 +18,57 @@ except:
     pass
 social_collection = client.get_or_create_collection("social_context_members")
 
+
+def _username_field_for_platform(platform: str) -> str:
+    """Returns the member dict key holding the username for a given platform."""
+    if platform == "discord":
+        return "discord_username"
+    return "telegram_username"
+
+
+def resolve_username_to_key(username: str, platform: str = "") -> str | None:
+    """
+    Resolve a platform username to a MEMBERS dict key.
+    
+    If platform is provided, check the platform-specific username field first.
+    Falls back to checking both fields and the names list.
+    """
+    clean = username.lower().strip().lstrip("@")
+    
+    # 1. Platform-specific field (prioritised)
+    if platform:
+        field = _username_field_for_platform(platform)
+        for key, data in MEMBERS.items():
+            if data.get(field, "").lower() == clean:
+                return key
+
+    # 2. Check both platform fields
+    for key, data in MEMBERS.items():
+        if data.get("telegram_username", "").lower() == clean:
+            return key
+        if data.get("discord_username", "").lower() == clean:
+            return key
+
+    # 3. Fallback: names list and dict key
+    for key, data in MEMBERS.items():
+        if clean in [n.lower().lstrip("@") for n in data.get("names", [])]:
+            return key
+        if key.lower() == clean:
+            return key
+
+    return None
+
+
+def get_platform_username_for_member(member_key: str, platform: str) -> str | None:
+    """Given a member key, return the username they use on the specified platform."""
+    data = MEMBERS.get(member_key)
+    if not data:
+        return None
+    field = _username_field_for_platform(platform)
+    username = data.get(field, "")
+    return username if username else None
+
+
 def index_social_context():
     """Indexes members into ChromaDB for semantic retrieval."""
     ids = []
@@ -26,12 +77,14 @@ def index_social_context():
     
     for key, data in MEMBERS.items():
         # Create a rich text representation for semantic matching
-        # blending keywords, role, names, and backstory
+        # blending keywords, role, names, usernames, and backstory
         keywords = " ".join(data.get("trigger_keywords", []))
         names = " ".join(data.get("names", []))
+        tg_user = data.get("telegram_username", "")
+        dc_user = data.get("discord_username", "")
         
         # We index the 'meaning' of the person relative to the bot
-        text = f"{names} {data['preferred_name']} {data['role']} {keywords} {data.get('backstory', '')}"
+        text = f"{names} {tg_user} {dc_user} {data['preferred_name']} {data['role']} {keywords} {data.get('backstory', '')}"
         
         ids.append(key)
         documents.append(text)
@@ -45,23 +98,24 @@ def index_social_context():
         social_collection.upsert(ids=ids, embeddings=keywords_embeddings, documents=documents, metadatas=metadatas)
         logger.info(f"Indexed {len(ids)} members for social context.")
 
-def get_social_context(msg: Message, reply_chain_text: str = "") -> str:
+def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
     """
     Analyzes the message and reply chain to decide which members' lore to inject.
     Returns a string containing the relevant social context.
     """
+    platform = msg.platform
     
     active_keys = set()
     sender_key = None
     target_key = None
     
-    # 1. Add the Sender & Identify
+    # 1. Add the Sender & Identify (platform-aware)
     if msg.from_user:
         if msg.from_user.username:
-            u_name = msg.from_user.username.lower()
-            if u_name in MEMBERS:
-                active_keys.add(u_name)
-                sender_key = u_name
+            resolved = resolve_username_to_key(msg.from_user.username, platform)
+            if resolved:
+                active_keys.add(resolved)
+                sender_key = resolved
         
         # Fallback Name Check if username didn't match
         if not sender_key and msg.from_user.first_name:
@@ -70,13 +124,13 @@ def get_social_context(msg: Message, reply_chain_text: str = "") -> str:
                  active_keys.add(listbox[0])
                  sender_key = listbox[0]
 
-    # 2. Add the Reply Target (if any) & Identify
+    # 2. Add the Reply Target (if any) & Identify (platform-aware)
     if msg.reply_to_message and msg.reply_to_message.from_user:
         if msg.reply_to_message.from_user.username:
-            ru_name = msg.reply_to_message.from_user.username.lower()
-            if ru_name in MEMBERS:
-                active_keys.add(ru_name)
-                target_key = ru_name
+            resolved = resolve_username_to_key(msg.reply_to_message.from_user.username, platform)
+            if resolved:
+                active_keys.add(resolved)
+                target_key = resolved
         
         if not target_key and msg.reply_to_message.from_user.first_name:
              fname = msg.reply_to_message.from_user.first_name.lower().strip()
@@ -114,9 +168,6 @@ def get_social_context(msg: Message, reply_chain_text: str = "") -> str:
             dists = results['distances'][0]
             
             for i, member_id in enumerate(ids):
-                # distance threshold: lower is better. 
-                # < 1.0 implies decent similarity for L2 on normalized vectors
-                # Adjust based on real world testing. 1.1 is a safe starting point.
                 if dists[i] < 1.1: 
                     active_keys.add(member_id)
                     

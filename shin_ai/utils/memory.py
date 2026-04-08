@@ -217,7 +217,7 @@ async def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
 
 
 # Memory Storage
-async def save_memory(user_id: int, username: str, prompt: str, response: str, context: str = "", chat_id: int = 0, chat_title: str = ""):
+async def save_memory(platform: str, user_id: int | str, username: str, prompt: str, response: str, context: str = "", chat_id: int | str = 0, chat_title: str = ""):
     """
     Saves a user-bot interaction to the vector database.
     """
@@ -243,11 +243,12 @@ async def save_memory(user_id: int, username: str, prompt: str, response: str, c
             memory_text = f"User ({username}) said: {prompt}\nBot sent a sticker."
 
         # Add timestamp and chat title to the readable memory text
-        chat_prefix = f" [Chat: {chat_title}]" if chat_title else ""
+        chat_prefix = f" [Chat: {chat_title} on {platform.title()}]" if chat_title else f" [Platform: {platform.title()}]"
         memory_text = f"[{now_str}]{chat_prefix}\n{memory_text}"
 
         # Metadata for filtering/context
         meta = {
+            "platform": platform,
             "user_id": str(user_id),
             "username": username or "Unknown",
             "timestamp": int(time.time()),

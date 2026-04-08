@@ -22,6 +22,7 @@ SHIN_AI_DATA_DIR = Path(__file__).parent / "data"
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # ===========================================
 # Admin Configuration

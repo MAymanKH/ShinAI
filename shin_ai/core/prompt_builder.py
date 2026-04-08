@@ -151,26 +151,26 @@ def build_runtime_context(
     *,
     username: Optional[str],
     full_name: str,
-    user_id: int,
+    user_id: int | str,
     user_status: str,
     reply_target_status: str,
     chat_type: str,
     chat_title: Optional[str],
-    chat_id: int,
+    chat_id: int | str,
     interaction_type: str,
 ) -> str:
     """
     Build the runtime context metadata string.
     
     Args:
-        username: User's Telegram username
+        username: User's Platform username
         full_name: User's full name
-        user_id: User's Telegram ID
+        user_id: User's Platform ID
         user_status: User's status in the chat (admin, member, etc.)
         reply_target_status: Status of the user being replied to
-        chat_type: Type of chat (group, supergroup, private)
+        chat_type: Type of chat
         chat_title: Title of the chat/group
-        chat_id: Chat's Telegram ID
+        chat_id: Chat's Platform ID
         interaction_type: Type of interaction (DIRECT or RANDOM)
         
     Returns:
