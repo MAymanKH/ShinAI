@@ -14,16 +14,9 @@ An intelligent multi-platform bot that acts like a real group member - not an as
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
-  - [Environment Variables](#environment-variables)
-  - [Personality Configuration](#personality-configuration)
-  - [Sticker Configuration](#sticker-configuration)
-  - [Member Configuration](#member-configuration)
 - [Project Structure](#project-structure)
 - [Multi-Platform Support](#multi-platform-support)
-- [Technology Deep Dive](#technology-deep-dive)
-  - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
-  - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
-  - [Memory System](#memory-system)
+- [Triggers](#triggers)
 - [Bot Capabilities](#bot-capabilities)
   - [Group Chat Member Persona](#group-chat-member-persona)
   - [Smart Response Types](#smart-response-types)
@@ -34,10 +27,11 @@ An intelligent multi-platform bot that acts like a real group member - not an as
   - [Moderation System](#moderation-system)
   - [Real-Time Web Search](#real-time-web-search)
   - [Context Awareness](#context-awareness)
-- [Commands](#commands)
-- [Triggers](#triggers)
 - [How It Works](#how-it-works)
   - [Architecture Overview](#architecture-overview)
+  - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
+  - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
+  - [Memory System](#memory-system)
   - [Real-Time Web Search](#real-time-web-search-1)
   - [Context Awareness](#context-awareness-1)
   - [Loop Prevention](#loop-prevention)
@@ -362,51 +356,16 @@ ShinAI/
  | **Identity** | Unified via Telegram ID | Unified via Discord ID |
  
  The most powerful feature of this architecture is **Unified Memory**. If you talk to the bot on Discord about a conversation that happened on Telegram, the bot will retrieve those memories and answer correctly, understanding exactly which interaction occurred on which platform.
- 
- ---
- 
- ## Technology Deep Dive
- 
- ### Vector Embeddings & ChromaDB
- 
- ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
- 
- 1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model.
- 2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching.
- 3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search.
- 
- ```python
- # Example: "Who created you?" matches the creator's profile
- # even without exact keyword matches like "creator"
- query = "Who made this bot?"
- # → Semantically matches member with role "Bot creator"
- ```
- 
- ### RAG (Retrieval-Augmented Generation)
- 
- The bot uses RAG in three key areas:
- 
- | Component | What's Retrieved | How It's Used |
- |-----------|------------------|---------------|
- | **Long-term Memory** | Past conversations with the user | Provides continuity ("Remember when you said...") |
- | **Social Context** | Member profiles matching the conversation | Injects relationship info ("This is your creator") |
- | **Style Examples** | Similar past responses | Helps maintain consistent voice/tone |
- 
- ### Memory System
- 
- Every interaction and moderation action is saved to the vector database, tagged with its platform and chat origin:
- 
- ```text
- [2026-01-30 14:30:00 UTC] [Platform: Discord] [Chat: General]
- User (@username) said: What's your favorite anime?
- Bot replied: steins gate obviously, are you even asking?
- ```
- 
- When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system is platform-aware but not platform-isolated:
- - **Cross-Platform Retrieval**: You can ask on Telegram *"What did Sarah say on Discord yesterday?"* and the bot will pull the correct fragments from the Discord history.
- - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
- - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
- 
+
+## Triggers
+
+The bot responds when:
+- Mentioned the bot
+- Mentioned the word "يالبوت"
+- Replied to on its previous messages
+- Any non-command DM
+- Random chance on any group message
+
  ---
  
  ## Bot Capabilities
@@ -416,7 +375,7 @@ ShinAI/
  Unlike typical "assistant" bots, ShinAI acts like a **real group member**:
  
  - **No "How can I help you?"** – Responds naturally without formal greetings.
- - **Random Interjections** – Sometimes jumps into conversations uninvited (1% chance).
+ - **Random Interjections** – Sometimes jumps into conversations uninvited.
  - **Matches Dialect** – Adapts to the group's language style.
  - **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling).
  - **Teasing & Sarcasm** – Can roast users effectively.
@@ -447,7 +406,7 @@ ShinAI/
  target:12345  → Reply to a specific message ID from the platform
  (no target)   → Reply to the user who triggered the bot (default)
  ```
- 
+
  ### Reliability & Retry Behavior
  
  - Every AI provider call is protected with a per-attempt timeout and automatic retries.
@@ -488,22 +447,6 @@ ShinAI/
  | **Reply Chain** | Deeply follows threaded discussions (up to 10 levels) |
  | **Long-term Memory** | Semantic retrieval from the entire history database |
  | **Visual Context** | (Gemini only) Sees photos and stickers on Telegram |
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/gstats` | Show Gemini API key statistics |
-| `/gstats_details` | Detailed stats (admin only) |
-
-## Triggers
-
-The bot responds when:
-- Mentioned the bot
-- Mentioned the word "يالبوت"
-- Replied to on its previous messages
-- Any non-command DM
-- Random 1% chance on any group message
 
 ---
 
@@ -579,9 +522,49 @@ Creator: "add @friend"
 Bot: *generates invite link and DMs it to @friend*
 ```
 
+### Vector Embeddings & ChromaDB
+ 
+ ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
+ 
+ 1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model.
+ 2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching.
+ 3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search.
+ 
+ ```python
+ # Example: "Who created you?" matches the creator's profile
+ # even without exact keyword matches like "creator"
+ query = "Who made this bot?"
+ # → Semantically matches member with role "Bot creator"
+ ```
+ 
+ ### RAG (Retrieval-Augmented Generation)
+ 
+ The bot uses RAG in three key areas:
+ 
+ | Component | What's Retrieved | How It's Used |
+ |-----------|------------------|---------------|
+ | **Long-term Memory** | Past conversations with the user | Provides continuity ("Remember when you said...") |
+ | **Social Context** | Member profiles matching the conversation | Injects relationship info ("This is your creator") |
+ | **Style Examples** | Similar past responses | Helps maintain consistent voice/tone |
+ 
+ ### Memory System
+ 
+ Every interaction and moderation action is saved to the vector database, tagged with its platform and chat origin:
+ 
+ ```text
+ [2026-01-30 14:30:00 UTC] [Platform: Discord] [Chat: General]
+ User (@username) said: What's your favorite anime?
+ Bot replied: steins gate obviously, are you even asking?
+ ```
+ 
+ When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system is platform-aware but not platform-isolated:
+ - **Cross-Platform Retrieval**: You can ask on Telegram *"What did Sarah say on Discord yesterday?"* and the bot will pull the correct fragments from the Discord history.
+ - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
+ - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
+
 ### Real-Time Web Search
 
-The bot features a comprehensive **Universal Native Web Search Integration** that works across all AI providers:
+The bot features a comprehensive **Native Web Search Integration** that works across all AI providers using the `duckduckgo-search` library paired with `beautifulsoup4` and `httpx`.
 
 - **Intelligent Execution**: The AI naturally detects when a user asks about live events, current information, or facts that require searching the internet, and delegates the query without any hardcoded thresholds.
 - **Deep Scraping**: Unlike standard bots that just parse headlines, the bot concurrently extracts the actual readable text content of the top websites retrieved, allowing it to give highly precise and fully contextual answers.
