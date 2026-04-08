@@ -39,7 +39,7 @@ def build_system_prompt(
     # Get current timestamp with timezone
     now = datetime.now()
     tz_offset = datetime.now(tzlocal()).utcoffset()
-    timestamp = f"{now.strftime('%Y-%m-%d %H:%M:%S')} {tz_offset}"
+    timestamp = f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC+{tz_offset}"
     
     system_prompt = f"""
         ### SYSTEM INSTRUCTIONS
