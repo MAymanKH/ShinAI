@@ -5,7 +5,6 @@
 An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram and Discord.
 
 [![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
-[![Join Discord](https://img.shields.io/badge/Join%20Discord-Discord-5865F2?logo=discord)](https://discord.gg/your-invite-link)
 
 </div>
 
