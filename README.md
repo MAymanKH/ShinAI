@@ -4,8 +4,8 @@
 
 An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram and Discord.
 
-[![Chat on Telegram](https://img.shields.io/badge/Chat%20on%20Telegram-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
-[![Add to Discord](https://img.shields.io/badge/Add%20to%20Discord-Discord-5865F2?logo=discord)](https://discordapp.com/users/855437723166703616)
+[![Chat on Telegram](https://img.shields.io/badge/Chat%20on-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
+[![Add to Discord](https://img.shields.io/badge/Add%20to-Discord-5865F2?logo=discord)](https://discordapp.com/users/855437723166703616)
 
 </div>
 
@@ -497,29 +497,6 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 │                     Action Executor                             │
 │    Sends messages, reactions, stickers, or moderates users      │
 └─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-- Direct order from the creator/admin
-- Self-defense (user is extremely annoying)
-- Configurable escalation: mute → kick → ban
-
-**Safeguards:**
-- Cannot act on admins or owners
-- Cannot moderate protected users (creator, etc.)
-- Ignores moderation requests from random users
-- Failed actions are sent back to the AI for a natural error response (no hardcoded messages)
-
-```
-User: "kick him"
-Bot: *ignores* (random users can't command moderation)
-
-Creator: "mute @spammer"
-Bot: *mutes @spammer*
-
-Creator: "add @friend"
-Bot: *generates invite link and DMs it to @friend*
 ```
 
 ### Vector Embeddings & ChromaDB
