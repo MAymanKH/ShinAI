@@ -4,7 +4,8 @@
 
 An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram and Discord.
 
-[![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
+[![Chat on Telegram](https://img.shields.io/badge/Chat%20on%20Telegram-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
+[![Add to Discord](https://img.shields.io/badge/Add%20to%20Discord-Discord-5865F2?logo=discord)](https://discordapp.com/users/855437723166703616)
 
 </div>
 
@@ -64,7 +65,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 
 ## Quick Start
 
-You can either [chat with the bot](https://t.me/shinobi7kbot) using its [triggers](#triggers) and add it to your group chats, or build it from source yourself:
+You can either chat with the bot on [Telegram](https://t.me/shinobi7kbot) or [Discord](https://discordapp.com/users/855437723166703616) using its [triggers](#triggers) and add it to your groups/servers, or build it from source yourself:
 
 ### 0. Install Prerequisites
 
