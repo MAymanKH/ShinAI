@@ -2,14 +2,14 @@
 
 # ShinAI
 
-An intelligent Telegram bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across multiple AI providers.
+An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram and Discord.
 
 [![Chat With The Bot](https://img.shields.io/badge/Chat%20With%20The%20Bot-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
+[![Join Discord](https://img.shields.io/badge/Join%20Discord-Discord-5865F2?logo=discord)](https://discord.gg/your-invite-link)
 
 </div>
 
 ## Table of Contents
-
 - [Inspiration](#inspiration)
 - [Features](#features)
 - [Quick Start](#quick-start)
@@ -19,10 +19,8 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Sticker Configuration](#sticker-configuration)
   - [Member Configuration](#member-configuration)
 - [Project Structure](#project-structure)
-- [Commands](#commands)
-- [Triggers](#triggers)
-- [How It Works](#how-it-works)
-  - [Architecture Overview](#architecture-overview)
+- [Multi-Platform Support](#multi-platform-support)
+- [Technology Deep Dive](#technology-deep-dive)
   - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
   - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
   - [Memory System](#memory-system)
@@ -32,14 +30,20 @@ An intelligent Telegram bot that acts like a real group member - not an assistan
   - [Multi-Message Responses](#multi-message-responses)
   - [Intelligent Reply Targeting](#intelligent-reply-targeting)
   - [Reliability & Retry Behavior](#reliability--retry-behavior)
-  - [Sticker Integration](#sticker-integration)
-  - [Telegram Reactions](#telegram-reactions)
+  - [Reactions & Stickers](#reactions--stickers)
   - [Moderation System](#moderation-system)
   - [Real-Time Web Search](#real-time-web-search)
   - [Context Awareness](#context-awareness)
+- [Commands](#commands)
+- [Triggers](#triggers)
+- [How It Works](#how-it-works)
+  - [Architecture Overview](#architecture-overview)
+  - [Real-Time Web Search](#real-time-web-search-1)
+  - [Context Awareness](#context-awareness-1)
   - [Loop Prevention](#loop-prevention)
 - [AI Provider Details](#ai-provider-details)
 - [License](#license)
+
 
 ## Inspiration
 
@@ -50,17 +54,18 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 ## Features
 
 - 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, or local LLM (Ollama)
+- 🧩 **Multi-Platform Support**: Seamlessly functions on **Telegram** and **Discord** simultaneously.
 - 💬 **Personality System**: Fully customizable bot personality and behavior
-- 🎭 **Social Context**: Recognizes group members and adapts responses
-- 🔄 **Reply Chain Tracking**: Understands conversation context
-- 📝 **Long-term Memory**: Remembers past conversations using vector embeddings
+- 🎭 **Social Context**: Recognizes group members across platforms and adapts responses
+- 🔄 **Reply Chain Tracking**: Understands conversation context with deep history retrieval
+- 📝 **Long-term Memory**: Remembers past conversations using vector embeddings (cross-platform awareness)
 - 🎨 **Style Learning**: Learns communication patterns from example messages
 - 🌐 **Real-Time Web Search**: Web searching, fetching, and scraping capabilities used when needed
 - 📌 **Sticker Support**: Send stickers as responses with custom mappings
 - 😀 **Emoji Reactions**: React to messages with emojis instead of text
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
-- 🎯 **Smart Reply Targeting**: Target any message in the chat by its real Telegram ID
-- 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with configurable escalation
+- 🎯 **Smart Reply Targeting**: Target any message in the chat by its real platform ID
+- 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with platform-native actions
 - 🔁 **Reliability Layer**: Per-attempt timeout, retries mechanism, and error-aware retry context injection
 - ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
 
@@ -124,7 +129,7 @@ cp shin_ai/data/members_template.py shin_ai/data/members.py
 If you want the bot to learn from a specific group's communication style:
 
 ```bash
-# 1. Add STYLE_GROUP_ID to your .env (get group ID from @RawDataBot)
+# 1. Add STYLE_GROUP_ID to your .env (get group ID from @RawDataBot or Discord Developer Portal)
 # 2. Run the style indexer
 python -m shin_ai.stylers.style_indexer
 ```
@@ -140,7 +145,7 @@ python main.py
 If you prefer to use Docker and Docker Compose, make sure they are installed on your system.
 
 ```bash
-# 1. First time setup: create empty session files so Docker maps them as files, not directories
+# 1. First time setup: create empty session files for Telegram
 touch shin_ai_bot.session shin_ai_bot.session-journal
 
 # 2. Build and start the container in the background
@@ -156,13 +161,14 @@ docker-compose logs -f
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `API_ID` | Telegram API ID from my.telegram.org | ✅ |
-| `API_HASH` | Telegram API Hash | ✅ |
-| `BOT_TOKEN` | Bot token from @BotFather | ✅ |
-| `ADMIN_USER_ID` | Your Telegram user ID | ✅ |
+| `API_ID` | Telegram API ID from my.telegram.org | For Telegram |
+| `API_HASH` | Telegram API Hash | For Telegram |
+| `BOT_TOKEN` | Telegram Bot token from @BotFather | For Telegram |
+| `DISCORD_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
+| `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
-| `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 30) | Optional |
-| `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request, including first try (default: 3) | Optional |
+| `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
+| `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
 | `GEMINI_MODEL` | Gemini model name | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
@@ -286,8 +292,15 @@ You're not just configuring a bot - you're **creating a character** with depth, 
 Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map sticker file IDs to descriptions. Get sticker file IDs by forwarding stickers to @RawDataBot.
 
 ### Member Configuration
-
-Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them and adapt its responses accordingly.
+ 
+ Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them across Telegram and Discord and adapt its responses accordingly.
+ 
+ #### Platform Mapping
+ You can define platform-specific handles for each member:
+ - `telegram_username`: The user's Telegram handle (without @).
+ - `discord_username`: The user's Discord username (not display name).
+ 
+ This allows the bot to remember someone on Telegram even if they are using a different username on Discord.
 
 ## Project Structure
 
@@ -335,6 +348,146 @@ ShinAI/
     ├── gemini_stats.json
     └── bot_replies.json
 ```
+
+## Multi-Platform Support
+ 
+ ShinAI is architected as a **Multi-Platform AI Agent**. It uses a specialized Platform Adapter layer that decouples the AI logic from the specific platform SDK.
+ 
+ | Feature | Telegram Capability | Discord Capability |
+ |---------|--------------------|--------------------|
+ | **Reactions** | Native Emoji Reactions | Native Emoji Reactions |
+ | **Stickers** | Full Support (mapped) | Not supported (Text fallback) |
+ | **Media** | Photo/Video Awareness | Attachment Awareness (Text context) |
+ | **Moderation** | Ban, Kick, Mute, Invite | Native Ban, Kick, Timeout |
+ | **Identity** | Unified via Telegram ID | Unified via Discord ID |
+ 
+ The most powerful feature of this architecture is **Unified Memory**. If you talk to the bot on Discord about a conversation that happened on Telegram, the bot will retrieve those memories and answer correctly, understanding exactly which interaction occurred on which platform.
+ 
+ ---
+ 
+ ## Technology Deep Dive
+ 
+ ### Vector Embeddings & ChromaDB
+ 
+ ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
+ 
+ 1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model.
+ 2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching.
+ 3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search.
+ 
+ ```python
+ # Example: "Who created you?" matches the creator's profile
+ # even without exact keyword matches like "creator"
+ query = "Who made this bot?"
+ # → Semantically matches member with role "Bot creator"
+ ```
+ 
+ ### RAG (Retrieval-Augmented Generation)
+ 
+ The bot uses RAG in three key areas:
+ 
+ | Component | What's Retrieved | How It's Used |
+ |-----------|------------------|---------------|
+ | **Long-term Memory** | Past conversations with the user | Provides continuity ("Remember when you said...") |
+ | **Social Context** | Member profiles matching the conversation | Injects relationship info ("This is your creator") |
+ | **Style Examples** | Similar past responses | Helps maintain consistent voice/tone |
+ 
+ ### Memory System
+ 
+ Every interaction and moderation action is saved to the vector database, tagged with its platform and chat origin:
+ 
+ ```text
+ [2026-01-30 14:30:00 UTC] [Platform: Discord] [Chat: General]
+ User (@username) said: What's your favorite anime?
+ Bot replied: steins gate obviously, are you even asking?
+ ```
+ 
+ When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system is platform-aware but not platform-isolated:
+ - **Cross-Platform Retrieval**: You can ask on Telegram *"What did Sarah say on Discord yesterday?"* and the bot will pull the correct fragments from the Discord history.
+ - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
+ - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
+ 
+ ---
+ 
+ ## Bot Capabilities
+ 
+ ### Group Chat Member Persona
+ 
+ Unlike typical "assistant" bots, ShinAI acts like a **real group member**:
+ 
+ - **No "How can I help you?"** – Responds naturally without formal greetings.
+ - **Random Interjections** – Sometimes jumps into conversations uninvited (1% chance).
+ - **Matches Dialect** – Adapts to the group's language style.
+ - **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling).
+ - **Teasing & Sarcasm** – Can roast users effectively.
+ 
+ ### Smart Response Types
+ 
+ The AI chooses the most appropriate response format for the platform:
+ 
+ | Response Type | Format | Platform Notes |
+ |---------------|--------|----------------|
+ | **Text** | Plain message | Supported everywhere |
+ | **Reaction** | `react:<emoji>` | Supported on Telegram & Discord |
+ | **Sticker** | `sticker:<id>` | Telegram Only (ignored on Discord) |
+ | **Moderation** | `action:<type>` | Translated to native actions (e.g. Timeout on Discord) |
+ 
+ ### Multi-Message Responses
+ 
+ The bot can send multiple messages in a single interaction for more natural pacing:
+ - AI can split responses using `---` or `message:` separators.
+ - A few seconds delay between messages.
+ - Each message can target different users or perform different actions.
+ 
+ ### Intelligent Reply Targeting
+ 
+ The bot uses **Unified Message IDs** for precise reply targeting. The AI sees the chat history with embedded IDs and can pick exactly which message to reply to:
+ 
+ ```
+ target:12345  → Reply to a specific message ID from the platform
+ (no target)   → Reply to the user who triggered the bot (default)
+ ```
+ 
+ ### Reliability & Retry Behavior
+ 
+ - Every AI provider call is protected with a per-attempt timeout and automatic retries.
+ - If an attempt fails, the previous error context is injected into the next attempt so the AI can adapt.
+ - If all attempts fail, a graceful fallback or manual mode is triggered.
+ 
+ ### Reactions & Stickers
+ 
+ - **Reactions**: Preferred for acknowledging messages or ending conversations without text.
+ - **Stickers (Telegram)**: Selected based on emotional context from a custom library. On Discord, these are automatically converted to natural text or emoji responses.
+ 
+ ### Moderation System
+ 
+ The bot features a full moderation suite with platform-native actions:
+ 
+ | Action | Telegram Effect | Discord Effect |
+ |--------|-----------------|----------------|
+ | **Mute** | Restricted Permissions | Native Timeout |
+ | **Kick** | Remove from Group | Native Kick |
+ | **Ban** | Permanent Ban | Native Ban |
+ | **Unban** | Lift Ban | Native Unban |
+ | **Invite** | Invite Link | DM Invite Link |
+ 
+ **Safeguards**:
+ - Cannot act on admins or owners.
+ - Ignores moderation commands from unauthorized users.
+ - Failed actions result in a natural AI-driven explanation.
+ 
+ ### Real-Time Web Search
+ 
+ All AI providers can trigger web searches when real-time information is needed. The bot fetches and scrapes top search results to provide grounded, factual responses.
+ 
+ ### Context Awareness
+ 
+ | Context Type | Purpose |
+ | -------------- | --------- |
+ | **Recent Context** | Recent messages in the chat for immediate flow |
+ | **Reply Chain** | Deeply follows threaded discussions (up to 10 levels) |
+ | **Long-term Memory** | Semantic retrieval from the entire history database |
+ | **Visual Context** | (Gemini only) Sees photos and stickers on Telegram |
 
 ## Commands
 
@@ -405,180 +558,6 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 
 ---
 
-## Technology Deep Dive
-
-### Vector Embeddings & ChromaDB
-
-ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
-
-1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model
-2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching
-3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search
-
-```python
-# Example: "Who created you?" matches the creator's profile
-# even without exact keyword matches like "father" or "creator"
-query = "Who made this bot?"
-# → Semantically matches member with role "Bot creator"
-```
-
-### RAG (Retrieval-Augmented Generation)
-
-The bot uses RAG in three key areas:
-
-| Component | What's Retrieved | How It's Used |
-|-----------|------------------|---------------|
-| **Long-term Memory** | Past conversations with the user | Provides continuity ("Remember when you said...") |
-| **Social Context** | Member profiles matching the conversation | Injects relationship info ("This is your creator") |
-| **Style Examples** | Similar past responses | Helps maintain consistent voice/tone |
-
-### Memory System
-
-Every interaction and moderation action is saved to the vector database, fully embedded with its chat origin and timestamp:
-
-```text
-[2026-01-30 14:30:00 UTC] [Chat: General Discussion]
-User (@username) said: What's your favorite anime?
-Bot replied: steins gate obviously, are you even asking?
-```
-```text
-[2026-01-30 15:00:00 UTC] [Chat: Meme Room]
-User (@admin) said: mute the spammer
-Bot replied: [Action: mute on @spammer]
-```
-
-When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system goes deeply beyond basic semantic keyword matching:
-- **Semantic Time-Filtering**: It uses the local E5 model to naturally understand time phrases across dialects (e.g., "what happened 2 weeks ago?", "مين انطرد امبارح؟"). If a time context is detected, it narrows the database search to that exact chronological epoch window and increases the memory retrieval limit so the AI has full chronological awareness.
-- **Cross-Chat Memory**: Because group titles are embedded directly into the vectors, you can talk to the bot in a private DM and ask *"What did Ahmed say in General Discussion today?"*. The semantic engine will magically route and pull the exact events from the target group.
-- **Action Tracking**: The bot logs its own moderation decisions natively, which means it fundamentally remembers when it mutes, kicks, or bans someone, and can recall it later if investigated.
-
----
-
-## Bot Capabilities
-
-### Group Chat Member Persona
-
-Unlike typical "assistant" bots, ShinAI can act like a **real group member** (depending on your personality configuration):
-
-- **No "How can I help you?"** – Responds naturally without formal greetings
-- **Random Interjections** – Sometimes jumps into conversations uninvited (1% chance)
-- **Matches Dialect** – Adapts to the group's language style (e.g., Egyptian Arabic slang)
-- **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling)
-- **Teasing & Sarcasm** – Can roast users
-
-### Smart Response Types
-
-The AI chooses the most appropriate response format:
-
-| Response Type | Format | Example |
-|---------------|--------|---------|
-| **Text** | Plain message | `"lol nice one"` |
-| **Reaction** | `react:<emoji>` | `react:🔥` → Adds 🔥 reaction |
-| **Sticker** | `sticker:<file_id>` | Sends a sticker from the configured library |
-| **Moderation** | `action:<type>` | `action:kick`, `action:ban`, `action:mute`, etc. |
-
-### Multi-Message Responses
-
-The bot can send multiple messages in a single interaction, enabling more complex and natural conversations:
-
-**How it works:**
-- AI can split responses using `---` or `message:` separators
-- Each message can have its own text, reaction, sticker, target, or action
-- First message replies to the trigger, subsequent messages sent normally
-- 1.5 second delay between messages for natural pacing
-
-**Example use cases:**
-```
-Multiple questions:
-"What's 2+2?"
----
-"What's the capital of France? Paris!"
-
-Replying to different people using real message IDs:
-target:48291
-"Hello Ahmad!"
----
-target:48288
-"Goodbye Sarah!"
-
-Reaction + explanation:
-react:🔥
----
-"This is absolutely incredible!"
-```
-
-This enables storytelling, step-by-step instructions, and complex multi-person interactions.
-
-### Intelligent Reply Targeting
-
-The bot uses **real Telegram message IDs** for precise reply targeting. Each message in the chat history is tagged with its actual ID (e.g., `(id:48291)`), and the AI can target any of them:
-
-```
-target:48291  → Reply to a specific message by its Telegram ID
-(no target)   → Reply to the user who triggered the bot (default)
-```
-
-The AI sees the full chat history with embedded IDs and can pick exactly which message to reply to:
-
-> **User A** `(id:48291)`: "Tell him he's wrong"  
-> **User B** `(id:48288)`: "I think the earth is flat"  
-> **Bot**: `target:48288` "you're wrong lol" → *replies directly to User B's message*
-
-This enables precise multi-person interactions where the bot can address different participants in the same response.
-
-### Reliability & Retry Behavior
-
-- Every AI provider call is wrapped with a per-attempt timeout
-- On timeout or error, the bot retries automatically.
-- If a retry is triggered by an error, the next attempt includes the previous exception message as internal retry context.
-- If all attempts fail or the final answer is invalid, the existing fallback flow is used.
-- Local Ollama calls are also protected with timeout handling and subprocess cleanup.
-
-### Sticker Integration
-
-The bot has access to a custom sticker library with semantic descriptions:
-
-```python
-STICKER_MAPPINGS = {
-    "Laughing": "<file_id>",      # For funny moments
-    "Confused": "<file_id>",      # When puzzled
-    "Annoyed": "<file_id>",       # When irritated
-    "Deal": "<file_id>",          # Handshake/agreement
-    # ... more stickers
-}
-```
-
-The AI selects stickers based on emotional context, not just keywords.
-
-### Telegram Reactions
-
-Instead of cluttering chat with text, the bot can react with emojis:
-
-- 👍 👎 ❤️ 🔥 😢 🤮 🤯 👀
-
-Reactions are preferred when:
-- Acknowledging a message without adding new content
-- Responding to stickers (sticker → reaction only)
-- Ending a conversation naturally
-
-### Moderation System
-
-The bot has a full moderation suite with configurable escalation and strict safeguards:
-
-**Available Actions:**
-
-| Action | Syntax | Effect |
-|--------|--------|--------|
-| **Mute** | `action:mute` | Silence a user (can't send messages) |
-| **Unmute** | `action:unmute` | Restore a muted user's permissions |
-| **Kick** | `action:kick` | Remove from group (can rejoin) |
-| **Ban** | `action:ban` | Permanently remove (cannot rejoin) |
-| **Unban** | `action:unban:@username` | Lift a ban (requires @username) |
-| **Invite** | `action:add:@username` | Generate a one-time invite link and DM it to the user |
-
-All actions support optional explicit targeting with `action:kick:@username`. The bot also resolves targets from social context — it can match nicknames and display names to usernames using the configured member profiles.
-
-**Triggers:**
 - Direct order from the creator/admin
 - Self-defense (user is extremely annoying)
 - Configurable escalation: mute → kick → ban
