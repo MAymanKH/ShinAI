@@ -1,5 +1,7 @@
-# Telegram Bot Framework
+# Bot Frameworks
+discord.py
 pyrofork
+tgcrypto
 tgcrypto-pyrofork
 
 # Vector Database for Memory/Context
