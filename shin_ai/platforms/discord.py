@@ -38,7 +38,8 @@ class DiscordPlatform(PlatformAdapter):
         return self._bot_user
 
     async def start(self) -> None:
-        asyncio.create_task(self.client.start(self.token))
+        await self.client.login(self.token)
+        asyncio.create_task(self.client.connect())
         await self.client.wait_until_ready()
         logger.info(f"Discord Platform started as {self.client.user}")
 
