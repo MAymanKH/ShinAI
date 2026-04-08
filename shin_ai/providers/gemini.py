@@ -294,6 +294,12 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     save_keys(API_KEYS_MAP)
                     
                 return response_text
+            except asyncio.CancelledError:
+                if key_name in API_KEYS_MAP:
+                    logger.warning(f"Gemini timed out/cancelled (model: {model}, Key: {key_name}). Rotating key.")
+                    API_KEYS_MAP[key_name] = API_KEYS_MAP.pop(key_name)
+                    save_keys(API_KEYS_MAP)
+                raise
             except Exception as e:
                 failed_keys_count += 1
                 if key_name in API_KEYS_MAP:
