@@ -3,14 +3,72 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from threading import RLock
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
 
-from neonize import NewClient
-from neonize.proto import Neonize_pb2 as neonize_proto
-from neonize.proto.Neonize_pb2 import JID, Message as MessageEvent
-from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo, Message as WaMessage
-from neonize.utils import Jid2String, build_jid
-from neonize.utils.enum import ChatPresence, ChatPresenceMedia, ParticipantChange
+def _load_neonize_symbols():
+    restore_validate = None
+    runtime_version = None
+
+    try:
+        import google.protobuf
+        from google.protobuf import runtime_version
+
+        major_version = int(str(google.protobuf.__version__).split(".", 1)[0])
+        if major_version < 7:
+            restore_validate = runtime_version.ValidateProtobufRuntimeVersion
+            runtime_version.ValidateProtobufRuntimeVersion = lambda *args, **kwargs: None
+    except Exception:
+        restore_validate = None
+
+    try:
+        from neonize import NewClient
+        from neonize.proto import Neonize_pb2 as neonize_proto
+        from neonize.proto.Neonize_pb2 import JID, Message as MessageEvent
+        from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo, Message as WaMessage
+        from neonize.utils import Jid2String, build_jid
+        from neonize.utils.enum import ChatPresence, ChatPresenceMedia, ParticipantChange
+
+        return (
+            NewClient,
+            neonize_proto,
+            JID,
+            MessageEvent,
+            ContextInfo,
+            WaMessage,
+            Jid2String,
+            build_jid,
+            ChatPresence,
+            ChatPresenceMedia,
+            ParticipantChange,
+        )
+    finally:
+        if restore_validate is not None and runtime_version is not None:
+            runtime_version.ValidateProtobufRuntimeVersion = restore_validate
+
+
+(
+    NewClient,
+    neonize_proto,
+    JID,
+    MessageEvent,
+    ContextInfo,
+    WaMessage,
+    Jid2String,
+    build_jid,
+    ChatPresence,
+    ChatPresenceMedia,
+    ParticipantChange,
+) = _load_neonize_symbols()
+
+if TYPE_CHECKING:
+    from neonize.proto.Neonize_pb2 import JID as JIDType, Message as MessageEventType, SendResponse as SendResponseType
+    from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo as ContextInfoType, Message as WaMessageType
+else:
+    JIDType = Any
+    MessageEventType = Any
+    SendResponseType = Any
+    ContextInfoType = Any
+    WaMessageType = Any
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
@@ -31,7 +89,7 @@ class WhatsAppPlatform(PlatformAdapter):
         self._connect_task: Optional[asyncio.Task] = None
         self._bot_user_cache: Optional[UnifiedUser] = None
         self._cache_lock = RLock()
-        self._raw_message_cache: OrderedDict[tuple[str, str], MessageEvent] = OrderedDict()
+        self._raw_message_cache: OrderedDict[tuple[str, str], MessageEventType] = OrderedDict()
         self._unified_message_cache: OrderedDict[tuple[str, str], UnifiedMessage] = OrderedDict()
         self._cache_limit = 2000
 
@@ -59,17 +117,17 @@ class WhatsAppPlatform(PlatformAdapter):
             while len(self._unified_message_cache) > self._cache_limit:
                 self._unified_message_cache.popitem(last=False)
 
-    def _jid_to_user_id(self, jid: JID) -> str:
+    def _jid_to_user_id(self, jid: JIDType) -> str:
         if jid.User:
             return jid.User
         return Jid2String(jid)
 
-    def _jid_to_username(self, jid: JID) -> str:
+    def _jid_to_username(self, jid: JIDType) -> str:
         if jid.User:
             return jid.User
         return Jid2String(jid)
 
-    def _chat_id_to_jid(self, chat_id: int | str) -> JID:
+    def _chat_id_to_jid(self, chat_id: int | str) -> JIDType:
         chat = str(chat_id)
         if "@" in chat:
             user, server = chat.split("@", 1)
@@ -78,14 +136,14 @@ class WhatsAppPlatform(PlatformAdapter):
             return build_jid(chat, "g.us")
         return build_jid(chat, "s.whatsapp.net")
 
-    def _user_id_to_jid(self, user_id: int | str) -> JID:
+    def _user_id_to_jid(self, user_id: int | str) -> JIDType:
         user = str(user_id)
         if "@" in user:
             raw_user, server = user.split("@", 1)
             return build_jid(raw_user, server)
         return build_jid(user, "s.whatsapp.net")
 
-    def _unwrap_message(self, message: WaMessage) -> WaMessage:
+    def _unwrap_message(self, message: WaMessageType) -> WaMessageType:
         current = message
 
         while True:
@@ -115,7 +173,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return current
 
-    def _extract_context_info(self, message: WaMessage) -> Optional[ContextInfo]:
+    def _extract_context_info(self, message: WaMessageType) -> Optional[ContextInfoType]:
         for field_name in (
             "extendedTextMessage",
             "imageMessage",
@@ -131,7 +189,7 @@ class WhatsAppPlatform(PlatformAdapter):
                     return context_info
         return None
 
-    def _extract_text_and_caption(self, message: WaMessage) -> tuple[Optional[str], Optional[str]]:
+    def _extract_text_and_caption(self, message: WaMessageType) -> tuple[Optional[str], Optional[str]]:
         text: Optional[str] = None
         caption: Optional[str] = None
 
@@ -149,7 +207,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return text, caption
 
-    def _apply_media(self, unified_msg: UnifiedMessage, message: WaMessage) -> None:
+    def _apply_media(self, unified_msg: UnifiedMessage, message: WaMessageType) -> None:
         native_payload = {"wa_message": message}
 
         if message.imageMessage.ListFields():
@@ -171,7 +229,7 @@ class WhatsAppPlatform(PlatformAdapter):
         if message.documentMessage.ListFields():
             unified_msg.document = UnifiedMedia(type="DOCUMENT", id="wa-document", native_obj=native_payload)
 
-    def _build_quoted_message(self, context_info: ContextInfo, chat: UnifiedChat) -> Optional[UnifiedMessage]:
+    def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> Optional[UnifiedMessage]:
         if not context_info.stanzaID:
             return None
         if not context_info.quotedMessage.ListFields():
@@ -203,7 +261,7 @@ class WhatsAppPlatform(PlatformAdapter):
         self._apply_media(quoted, quoted_body)
         return quoted
 
-    def _build_entities_from_context(self, context_info: Optional[ContextInfo], source_text: str) -> list[UnifiedMessageEntity]:
+    def _build_entities_from_context(self, context_info: Optional[ContextInfoType], source_text: str) -> list[UnifiedMessageEntity]:
         entities: list[UnifiedMessageEntity] = []
         if not context_info:
             return entities
@@ -228,7 +286,7 @@ class WhatsAppPlatform(PlatformAdapter):
             )
         return entities
 
-    def _cache_message(self, unified: UnifiedMessage, event_msg: MessageEvent) -> None:
+    def _cache_message(self, unified: UnifiedMessage, event_msg: MessageEventType) -> None:
         cache_key = (str(unified.chat.id), str(unified.id))
         with self._cache_lock:
             self._raw_message_cache[cache_key] = event_msg
@@ -237,17 +295,17 @@ class WhatsAppPlatform(PlatformAdapter):
             self._unified_message_cache.move_to_end(cache_key)
         self._trim_cache_if_needed()
 
-    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> Optional[MessageEvent]:
+    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> Optional[MessageEventType]:
         cache_key = (str(chat_id), str(message_id))
         with self._cache_lock:
             return self._raw_message_cache.get(cache_key)
 
-    def ingest_event_message(self, event_msg: MessageEvent) -> UnifiedMessage:
+    def ingest_event_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         unified = self.to_unified_message(event_msg)
         self._cache_message(unified, event_msg)
         return unified
 
-    def to_unified_message(self, event_msg: MessageEvent) -> UnifiedMessage:
+    def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         source = event_msg.Info.MessageSource
         chat_jid = source.Chat
         sender_jid = source.Sender
@@ -349,7 +407,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         logger.info("WhatsApp Platform stopped.")
 
-    async def _cache_outgoing_message(self, chat_jid: JID, send_response: neonize_proto.SendResponse) -> None:
+    async def _cache_outgoing_message(self, chat_jid: JIDType, send_response: SendResponseType) -> None:
         if not send_response.ID:
             return
 
