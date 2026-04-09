@@ -1,5 +1,6 @@
 import asyncio
 import random
+from typing import Any
 
 from shin_ai.core import state
 from shin_ai.config import WHATSAPP_ENABLED, WHATSAPP_SESSION_NAME
@@ -12,12 +13,11 @@ whatsapp_platform = None
 
 if WHATSAPP_ENABLED:
     try:
-        from neonize.proto.Neonize_pb2 import Message as MessageEvent
-        from shin_ai.platforms.whatsapp import WhatsAppPlatform
+        from shin_ai.platforms.whatsapp import MessageEventType, WhatsAppPlatform
 
         whatsapp_platform = WhatsAppPlatform(WHATSAPP_SESSION_NAME)
 
-        async def _handle_whatsapp_message(event_msg: MessageEvent) -> None:
+        async def _handle_whatsapp_message(event_msg: MessageEventType) -> None:
             unified_msg = whatsapp_platform.ingest_event_message(event_msg)
 
             if not unified_msg.from_user or unified_msg.from_user.is_self:
@@ -64,8 +64,8 @@ if WHATSAPP_ENABLED:
             if should_respond and not state.IS_CHECKING_KEYS:
                 await process_message(whatsapp_platform, unified_msg)
 
-        @whatsapp_platform.client.event(MessageEvent)
-        def on_whatsapp_message(_, event_msg: MessageEvent) -> None:
+        @whatsapp_platform.client.event(MessageEventType)
+        def on_whatsapp_message(_, event_msg: MessageEventType) -> None:
             loop = whatsapp_platform.event_loop
             if loop is None:
                 logger.warning("Skipping WhatsApp message because platform loop is not ready yet.")
@@ -73,7 +73,7 @@ if WHATSAPP_ENABLED:
 
             future = asyncio.run_coroutine_threadsafe(_handle_whatsapp_message(event_msg), loop)
 
-            def _log_failure(done_future):
+            def _log_failure(done_future: Any) -> None:
                 try:
                     done_future.result()
                 except Exception as e:
