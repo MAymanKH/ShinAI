@@ -18,12 +18,19 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
     telegram_platform = TelegramPlatform(app)
     logger.info("Telegram handlers registered.")
 
-    @app.on_message(filters.group | filters.private, group=-1)
+    def _is_supported_chat(msg: Message) -> bool:
+        chat_type = str(getattr(msg.chat, "type", "")).lower()
+        return any(kind in chat_type for kind in ("private", "group", "supergroup"))
+
+    @app.on_message(filters.incoming, group=-1)
     async def context_recorder(client: Client, msg: Message):
         """
         Records messages in the short-term rolling buffer.
         Runs in group -1 to execute before the main handler.
         """
+        if not _is_supported_chat(msg):
+            return
+
         try:
             unified_msg = telegram_platform.to_unified_message(msg)
             add_message_to_context(unified_msg)
@@ -46,7 +53,9 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
             _debug("skip:self")
             return False
 
-        if msg.chat.type == enums.ChatType.PRIVATE:
+        chat_type = str(getattr(msg.chat, "type", "")).lower()
+
+        if "private" in chat_type:
             if text and text.startswith('/'):
                 _debug("skip:private_command")
                 return False
@@ -85,9 +94,18 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
         _debug("skip:no_trigger")
         return False
 
-    @app.on_message(filters.group | filters.private)
+    @app.on_message(filters.incoming)
     async def yalbot(client: Client, msg: Message):
         """Main message handler translating Pyrogram out to unified layer."""
+        if not _is_supported_chat(msg):
+            return
+
+        if DEBUG:
+            chat_type = str(getattr(msg.chat, "type", "")).lower()
+            chat_id = getattr(msg.chat, "id", "unknown")
+            user_id = getattr(msg.from_user, "id", "unknown") if msg.from_user else "unknown"
+            logger.info(f"[TelegramRecv] chat={chat_id} type={chat_type} user={user_id}")
+
         try:
             should_respond = await yalbot_filter_func(None, client, msg)
         except Exception as e:

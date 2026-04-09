@@ -1,5 +1,6 @@
 from typing import Optional, List
 import asyncio
+import httpx
 from pyrogram import Client, enums
 from pyrogram.types import Message, ChatPermissions
 
@@ -57,8 +58,21 @@ class TelegramPlatform(PlatformAdapter):
 
         # Ensure polling works even if a webhook was previously configured.
         try:
-            await self.client.delete_webhook(drop_pending_updates=False)
-            logger.info("Telegram webhook cleared for long polling.")
+            if hasattr(self.client, "delete_webhook"):
+                await self.client.delete_webhook(drop_pending_updates=False)
+                logger.info("Telegram webhook cleared for long polling (pyrogram API).")
+            elif TELEGRAM_BOT_TOKEN:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook",
+                        data={"drop_pending_updates": "false"},
+                    )
+                if resp.is_success:
+                    logger.info("Telegram webhook cleared for long polling (Bot API fallback).")
+                else:
+                    logger.warning(f"Telegram Bot API deleteWebhook failed: HTTP {resp.status_code}")
+            else:
+                logger.warning("Skipping webhook clear because TELEGRAM_BOT_TOKEN is empty.")
         except Exception as e:
             logger.warning(f"Unable to clear Telegram webhook: {e}")
 
