@@ -7,7 +7,12 @@ neonize==0.3.15.post0
 protobuf==6.33.6
 
 # Vector Database for Memory/Context
-chromadb
+chromadb==1.5.5
+opentelemetry-api==1.40.0
+opentelemetry-sdk==1.40.0
+opentelemetry-proto==1.40.0
+opentelemetry-exporter-otlp-proto-common==1.40.0
+opentelemetry-exporter-otlp-proto-grpc==1.40.0
 sentence-transformers
 
 # AI Providers
