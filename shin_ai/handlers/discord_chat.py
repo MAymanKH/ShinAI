@@ -49,8 +49,8 @@ if DISCORD_TOKEN:
         if not should_respond and await check_reply_chain(unified_msg):
             should_respond = True
             
-        # 1% chance
-        if not should_respond and random.random() < 0.01:
+        # 5% chance
+        if not should_respond and random.random() < 0.05:
             should_respond = True
             
         if should_respond and not state.IS_CHECKING_KEYS:

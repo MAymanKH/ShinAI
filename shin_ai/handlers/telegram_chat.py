@@ -54,7 +54,8 @@ async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
     if await check_reply_chain(unified_msg):
         return True
     
-    if random.random() < 0.01:
+    # 5% chance
+    if random.random() < 0.05:
         return True
     
     return False
