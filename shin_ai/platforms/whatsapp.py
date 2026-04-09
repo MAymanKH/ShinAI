@@ -129,6 +129,20 @@ class WhatsAppPlatform(PlatformAdapter):
             return jid.User
         return Jid2String(jid)
 
+    def _normalize_jid_identity(self, jid_value: str) -> str:
+        raw = (jid_value or "").strip().lower()
+        if not raw:
+            return ""
+
+        # Normalize device-scoped IDs like 201234567890:12@s.whatsapp.net to
+        # the stable user identity 201234567890@s.whatsapp.net.
+        if "@" in raw:
+            user, server = raw.split("@", 1)
+            user = user.split(":", 1)[0]
+            return f"{user}@{server}"
+
+        return raw.split(":", 1)[0]
+
     def _chat_id_to_jid(self, chat_id: int | str) -> JIDType:
         chat = str(chat_id)
         if "@" in chat:
@@ -362,9 +376,20 @@ class WhatsAppPlatform(PlatformAdapter):
         if context_info:
             unified_msg.entities = self._build_entities_from_context(context_info, source_text)
             if self.client.me and self.client.me.JID.ListFields():
-                my_jid = Jid2String(self.client.me.JID)
-                if any(jid == my_jid for jid in context_info.mentionedJID):
+                my_jid = self._normalize_jid_identity(Jid2String(self.client.me.JID))
+                mentioned_jids = {
+                    self._normalize_jid_identity(jid)
+                    for jid in context_info.mentionedJID
+                }
+                if my_jid and my_jid in mentioned_jids:
                     unified_msg.mentioned = True
+
+                # Fallback: if JID format differs (e.g., s.whatsapp.net vs lid),
+                # match by the local user id represented in parsed entities.
+                if not unified_msg.mentioned and self.client.me.JID.User:
+                    my_user = str(self.client.me.JID.User)
+                    if any(ent.user and str(ent.user.id) == my_user for ent in unified_msg.entities):
+                        unified_msg.mentioned = True
 
         return unified_msg
 
