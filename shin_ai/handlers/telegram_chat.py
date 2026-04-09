@@ -9,7 +9,7 @@ from shin_ai.utils.context_manager import add_message_to_context
 from shin_ai.utils.logger_config import logger
 from shin_ai.services.replies import check_reply_chain
 from shin_ai.core import state
-from shin_ai.config import TELEGRAM_CONFIGURED, TELEGRAM_ENABLED
+from shin_ai.config import DEBUG, TELEGRAM_CONFIGURED, TELEGRAM_ENABLED
 
 # Single instance definition for the platform wrapper
 telegram_platform = None
@@ -32,36 +32,56 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
     async def yalbot_filter_func(_, client: Client, msg: Message) -> bool:
         text = msg.text or msg.caption
 
+        def _debug(reason: str) -> None:
+            if DEBUG:
+                chat_id = getattr(msg.chat, "id", "unknown")
+                user_id = getattr(msg.from_user, "id", "unknown") if msg.from_user else "unknown"
+                text_preview = (text or "<no text>").replace("\n", " ")[:80]
+                logger.info(
+                    f"[TelegramFilter] chat={chat_id} user={user_id} reason={reason} text='{text_preview}'"
+                )
+
         if msg.from_user and msg.from_user.is_self:
+            _debug("skip:self")
             return False
 
         if msg.chat.type == enums.ChatType.PRIVATE:
             if text and text.startswith('/'):
+                _debug("skip:private_command")
                 return False
+            _debug("pass:private")
             return True
 
         if not text:
             if not (msg.photo or msg.sticker):
+                _debug("skip:no_text_no_media")
                 return False
             unified_msg = telegram_platform.to_unified_message(msg)
             if await check_reply_chain(unified_msg):
+                _debug("pass:reply_chain_media")
                 return True
+            _debug("skip:media_without_reply_chain")
             return False
 
         if "يالبوت" in text and text.count("يالبوت") > text.count("يالبوتة"):
+            _debug("pass:keyword")
             return True
 
         if getattr(msg, "mentioned", False):
+            _debug("pass:mentioned")
             return True
 
         unified_msg = telegram_platform.to_unified_message(msg)
         if await check_reply_chain(unified_msg):
+            _debug("pass:reply_chain")
             return True
 
         # 5% chance
         if random.random() < 0.05:
+            _debug("pass:random")
             return True
 
+        _debug("skip:no_trigger")
         return False
 
     yalbot_filter = filters.create(yalbot_filter_func)
@@ -70,9 +90,14 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
     async def yalbot(client: Client, msg: Message):
         """Main message handler translating Pyrogram out to unified layer."""
         if state.IS_CHECKING_KEYS:
+            if DEBUG:
+                logger.info("[TelegramHandler] skip because IS_CHECKING_KEYS is true")
             return
         unified_msg = telegram_platform.to_unified_message(msg)
-        await process_message(telegram_platform, unified_msg)
+        try:
+            await process_message(telegram_platform, unified_msg)
+        except Exception as e:
+            logger.error(f"Telegram process_message failed: {e}")
 elif TELEGRAM_ENABLED and not TELEGRAM_CONFIGURED:
     logger.warning(
         "Telegram handlers were not registered because Telegram credentials are incomplete."
