@@ -19,12 +19,18 @@ SHIN_AI_DATA_DIR = Path(__file__).parent / "data"
 # ===========================================
 # Telegram API Credentials
 # ===========================================
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID")
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+WHATSAPP_SESSION_NAME = "shin_ai_whatsapp"
+
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "true").lower() == "true"
+DISCORD_ENABLED = os.getenv("DISCORD_ENABLED", "false").lower() == "true"
 WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
-WHATSAPP_SESSION_NAME = os.getenv("WHATSAPP_SESSION_NAME", "shin_ai_whatsapp")
+
+TELEGRAM_CONFIGURED = bool(TELEGRAM_API_ID and TELEGRAM_API_HASH and TELEGRAM_BOT_TOKEN)
+DISCORD_CONFIGURED = bool(DISCORD_BOT_TOKEN)
 
 # ===========================================
 # Admin Configuration

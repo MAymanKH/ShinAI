@@ -3,7 +3,7 @@ from sentence_transformers import SentenceTransformer
 import asyncio
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
-from shin_ai.config import API_ID, API_HASH, STYLE_GROUP_ID
+from shin_ai.config import TELEGRAM_API_ID, TELEGRAM_API_HASH, STYLE_GROUP_ID
 
 if not STYLE_GROUP_ID:
     raise ValueError("STYLE_GROUP_ID must be set in .env file. Get your group ID by forwarding a message to @RawDataBot")
@@ -21,7 +21,7 @@ except Exception:
 collection = client.get_or_create_collection("style_group")
 
 async def main():
-    app = Client("style_session", api_id=API_ID, api_hash=API_HASH)
+    app = Client("style_session", api_id=TELEGRAM_API_ID, api_hash=TELEGRAM_API_HASH)
     logger.info("🚀 Starting style indexer...")
     async with app:
         logger.info("📥 Fetching messages from style group...")

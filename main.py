@@ -1,8 +1,9 @@
 import asyncio
 from pyrogram import idle
-from shin_ai.bot import app
+import shin_ai.bot
 from shin_ai.utils.logger_config import logger
 from shin_ai.services.social import index_social_context
+from shin_ai.handlers.telegram_chat import telegram_platform
 from shin_ai.handlers.discord_chat import discord_platform
 from shin_ai.handlers.whatsapp_chat import whatsapp_platform
 
@@ -13,30 +14,38 @@ async def main():
     except Exception as e: 
         logger.error(f"Failed to index social context: {e}")
 
-    logger.info("Starting Telegram Platform...")
-    await app.start()
-    
-    if discord_platform:
-        logger.info("Starting Discord Platform...")
-        # Since Discord relies on discord.py, discord._get_running_loop() 
-        # is okay because we are in an async function running within asyncio loop.
-        await discord_platform.start()
+    active_platforms = []
+    configured_platforms = [
+        ("Telegram", telegram_platform),
+        ("Discord", discord_platform),
+        ("WhatsApp", whatsapp_platform),
+    ]
 
-    if whatsapp_platform:
-        logger.info("Starting WhatsApp Platform...")
-        await whatsapp_platform.start()
+    for platform_label, platform in configured_platforms:
+        if platform is None:
+            logger.info(f"{platform_label} platform is disabled or unavailable.")
+            continue
+
+        logger.info(f"Starting {platform_label} Platform...")
+        try:
+            await platform.start()
+            active_platforms.append((platform_label, platform))
+        except Exception as e:
+            logger.error(f"Failed to start {platform_label} platform: {e}")
 
     logger.info("ShinAI Started Successfully. Listening for messages...")
+    if not active_platforms:
+        logger.warning("No chat platforms are active. Configure TELEGRAM_ENABLED, DISCORD_ENABLED, WHATSAPP_ENABLED and credentials.")
     
     # Wait until interrupted
     await idle()
     
     logger.info("Stopping platforms...")
-    if whatsapp_platform:
-        await whatsapp_platform.stop()
-    if discord_platform:
-        await discord_platform.stop()
-    await app.stop()
+    for platform_label, platform in reversed(active_platforms):
+        try:
+            await platform.stop()
+        except Exception as e:
+            logger.error(f"Failed to stop {platform_label} platform cleanly: {e}")
 
 if __name__ == "__main__":
-    app.run(main())
+    asyncio.run(main())

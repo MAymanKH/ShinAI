@@ -84,3 +84,5 @@ if WHATSAPP_ENABLED:
     except Exception as e:
         logger.error(f"Failed to initialize WhatsApp handler: {e}")
         whatsapp_platform = None
+else:
+    logger.info("WhatsApp handler is disabled by configuration.")

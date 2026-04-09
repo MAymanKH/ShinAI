@@ -6,12 +6,12 @@ from shin_ai.utils.context_manager import add_message_to_context
 from shin_ai.utils.logger_config import logger
 from shin_ai.services.replies import check_reply_chain
 from shin_ai.core import state
-from shin_ai.config import DISCORD_TOKEN
+from shin_ai.config import DISCORD_BOT_TOKEN, DISCORD_CONFIGURED, DISCORD_ENABLED
 
 # Initialize Discord Platform
 discord_platform = None
-if DISCORD_TOKEN:
-    discord_platform = DiscordPlatform(DISCORD_TOKEN)
+if DISCORD_ENABLED and DISCORD_CONFIGURED:
+    discord_platform = DiscordPlatform(DISCORD_BOT_TOKEN)
 
     @discord_platform.client.event
     async def on_message(message: discord.Message):
@@ -58,4 +58,8 @@ if DISCORD_TOKEN:
                 await process_message(discord_platform, unified_msg)
             except Exception as e:
                 logger.error(f"Error processing Discord message: {e}")
+elif DISCORD_ENABLED and not DISCORD_CONFIGURED:
+    logger.warning("Discord is enabled but DISCORD_BOT_TOKEN is missing; Discord handler is disabled.")
+else:
+    logger.info("Discord handler is disabled by configuration.")
 

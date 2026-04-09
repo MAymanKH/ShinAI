@@ -155,10 +155,13 @@ docker-compose logs -f
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `API_ID` | Telegram API ID from my.telegram.org | For Telegram |
-| `API_HASH` | Telegram API Hash | For Telegram |
-| `BOT_TOKEN` | Telegram Bot token from @BotFather | For Telegram |
-| `DISCORD_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
+| `TELEGRAM_ENABLED` | Enable or disable Telegram platform (`true`/`false`) | Optional |
+| `DISCORD_ENABLED` | Enable or disable Discord platform (`true`/`false`) | Optional |
+| `WHATSAPP_ENABLED` | Enable or disable WhatsApp platform (`true`/`false`) | Optional |
+| `TELEGRAM_API_ID` | Telegram API ID from my.telegram.org | For Telegram |
+| `TELEGRAM_API_HASH` | Telegram API Hash | For Telegram |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot token from @BotFather | For Telegram |
+| `DISCORD_BOT_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
 | `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
 | `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
