@@ -16,6 +16,7 @@ telegram_platform = None
 
 if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
     telegram_platform = TelegramPlatform(app)
+    logger.info("Telegram handlers registered.")
 
     @app.on_message(filters.group | filters.private, group=-1)
     async def context_recorder(client: Client, msg: Message):

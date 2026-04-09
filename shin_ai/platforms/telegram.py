@@ -5,6 +5,7 @@ from pyrogram.types import Message, ChatPermissions
 
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedChat, UnifiedMedia, UnifiedMessageEntity
 from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.config import TELEGRAM_BOT_TOKEN
 from shin_ai.utils.logger_config import logger
 
 class TelegramPlatform(PlatformAdapter):
@@ -29,8 +30,39 @@ class TelegramPlatform(PlatformAdapter):
         )
 
     async def start(self) -> None:
+        logger.info("Starting Telegram client...")
         await self.client.start()
-        logger.info("Telegram Platform started.")
+
+        me = await self.client.get_me()
+
+        if not getattr(me, "is_bot", False):
+            raise RuntimeError(
+                "Telegram session is authenticated as a user account, not a bot. "
+                "Delete shin_ai_bot.session and restart to re-authenticate with TELEGRAM_BOT_TOKEN."
+            )
+
+        expected_bot_id = None
+        token = (TELEGRAM_BOT_TOKEN or "").strip()
+        if ":" in token:
+            token_prefix = token.split(":", 1)[0]
+            if token_prefix.isdigit():
+                expected_bot_id = int(token_prefix)
+
+        if expected_bot_id is not None and me.id != expected_bot_id:
+            raise RuntimeError(
+                "Telegram session does not match TELEGRAM_BOT_TOKEN "
+                f"(expected bot id {expected_bot_id}, got {me.id}). "
+                "Delete shin_ai_bot.session and restart."
+            )
+
+        # Ensure polling works even if a webhook was previously configured.
+        try:
+            await self.client.delete_webhook(drop_pending_updates=False)
+            logger.info("Telegram webhook cleared for long polling.")
+        except Exception as e:
+            logger.warning(f"Unable to clear Telegram webhook: {e}")
+
+        logger.info(f"Telegram Platform started as @{me.username or 'unknown'} ({me.id}).")
 
     async def stop(self) -> None:
         await self.client.stop()
