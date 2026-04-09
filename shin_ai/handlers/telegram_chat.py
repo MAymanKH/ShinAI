@@ -84,11 +84,18 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
         _debug("skip:no_trigger")
         return False
 
-    yalbot_filter = filters.create(yalbot_filter_func)
-
-    @app.on_message(yalbot_filter)
+    @app.on_message(filters.group | filters.private)
     async def yalbot(client: Client, msg: Message):
         """Main message handler translating Pyrogram out to unified layer."""
+        try:
+            should_respond = await yalbot_filter_func(None, client, msg)
+        except Exception as e:
+            logger.error(f"Telegram filter evaluation failed: {e}")
+            return
+
+        if not should_respond:
+            return
+
         if state.IS_CHECKING_KEYS:
             if DEBUG:
                 logger.info("[TelegramHandler] skip because IS_CHECKING_KEYS is true")
