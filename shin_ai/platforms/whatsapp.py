@@ -64,11 +64,13 @@ if TYPE_CHECKING:
     from neonize.proto.Neonize_pb2 import JID as JIDType, Message as MessageEventType, SendResponse as SendResponseType
     from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo as ContextInfoType, Message as WaMessageType
 else:
-    JIDType = Any
-    MessageEventType = Any
+    # Runtime aliases must be concrete classes (not typing.Any), because Neonize
+    # uses these in decorators and isinstance-style checks.
+    JIDType = JID
+    MessageEventType = MessageEvent
     SendResponseType = Any
-    ContextInfoType = Any
-    WaMessageType = Any
+    ContextInfoType = ContextInfo
+    WaMessageType = WaMessage
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
