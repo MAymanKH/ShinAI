@@ -143,6 +143,14 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return raw.split(":", 1)[0]
 
+    def _extract_local_user_id(self, jid_value: str) -> str:
+        normalized = self._normalize_jid_identity(jid_value)
+        if not normalized:
+            return ""
+        if "@" in normalized:
+            return normalized.split("@", 1)[0]
+        return normalized
+
     def _chat_id_to_jid(self, chat_id: int | str) -> JIDType:
         chat = str(chat_id)
         if "@" in chat:
@@ -283,7 +291,7 @@ class WhatsAppPlatform(PlatformAdapter):
             return entities
 
         for mentioned_jid in context_info.mentionedJID:
-            user_id = mentioned_jid.split("@", 1)[0]
+            user_id = self._extract_local_user_id(mentioned_jid)
             token = f"@{user_id}"
             offset = source_text.find(token)
             length = len(token) if offset >= 0 else 0
@@ -387,8 +395,14 @@ class WhatsAppPlatform(PlatformAdapter):
                 # Fallback: if JID format differs (e.g., s.whatsapp.net vs lid),
                 # match by the local user id represented in parsed entities.
                 if not unified_msg.mentioned and self.client.me.JID.User:
-                    my_user = str(self.client.me.JID.User)
-                    if any(ent.user and str(ent.user.id) == my_user for ent in unified_msg.entities):
+                    my_user = self._extract_local_user_id(Jid2String(self.client.me.JID)) or str(self.client.me.JID.User)
+                    mentioned_users = {
+                        self._extract_local_user_id(jid)
+                        for jid in context_info.mentionedJID
+                    }
+                    if my_user and my_user in mentioned_users:
+                        unified_msg.mentioned = True
+                    elif any(ent.user and str(ent.user.id) == my_user for ent in unified_msg.entities):
                         unified_msg.mentioned = True
 
         return unified_msg
