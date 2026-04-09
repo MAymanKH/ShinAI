@@ -3,8 +3,8 @@ discord.py
 pyrofork
 tgcrypto
 tgcrypto-pyrofork
-neonize
-protobuf==7.34.1
+neonize==0.3.15.post0
+protobuf==6.33.6
 
 # Vector Database for Memory/Context
 chromadb
