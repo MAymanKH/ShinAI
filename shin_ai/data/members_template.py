@@ -10,6 +10,7 @@
 # Fields:
 #   - names: List of names/aliases to recognize this person (include @username)
 #   - trigger_keywords: Words that indicate the user is being discussed
+#   - whatsapp_username: WhatsApp phone number identifier (digits only, no +)
 #   - preferred_name: How the bot should refer to this person
 #   - role: Their relationship to the bot/group
 #   - backstory: Optional background info for personality/context
@@ -21,6 +22,7 @@ MEMBERS = {
         "names": ["YourName", "YourNickname"],
         "telegram_username": "@yourusername",
         "discord_username": "@yourusername",
+        "whatsapp_username": "201234567890",
         "trigger_keywords": ["creator", "father", "owner", "admin"],
         "preferred_name": "YourName",
         "role": "Group member. Bot creator.",
@@ -33,6 +35,7 @@ MEMBERS = {
         "names": ["FriendName"],
         "telegram_username": "@friendusername",
         "discord_username": "@friendusername",
+        "whatsapp_username": "",
         "trigger_keywords": [],
         "preferred_name": "FriendName",
         "role": "Group member.",

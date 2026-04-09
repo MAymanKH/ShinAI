@@ -23,6 +23,8 @@ def _username_field_for_platform(platform: str) -> str:
     """Returns the member dict key holding the username for a given platform."""
     if platform == "discord":
         return "discord_username"
+    if platform == "whatsapp":
+        return "whatsapp_username"
     return "telegram_username"
 
 
@@ -47,6 +49,8 @@ def resolve_username_to_key(username: str, platform: str = "") -> str | None:
         if data.get("telegram_username", "").lower() == clean:
             return key
         if data.get("discord_username", "").lower() == clean:
+            return key
+        if data.get("whatsapp_username", "").lower() == clean:
             return key
 
     # 3. Fallback: names list and dict key
@@ -82,9 +86,10 @@ def index_social_context():
         names = " ".join(data.get("names", []))
         tg_user = data.get("telegram_username", "")
         dc_user = data.get("discord_username", "")
+        wa_user = data.get("whatsapp_username", "")
         
         # We index the 'meaning' of the person relative to the bot
-        text = f"{names} {tg_user} {dc_user} {data['preferred_name']} {data['role']} {keywords} {data.get('backstory', '')}"
+        text = f"{names} {tg_user} {dc_user} {wa_user} {data['preferred_name']} {data['role']} {keywords} {data.get('backstory', '')}"
         
         ids.append(key)
         documents.append(text)
@@ -119,10 +124,10 @@ def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
         
         # Fallback Name Check if username didn't match
         if not sender_key and msg.from_user.first_name:
-             fname = msg.from_user.first_name.lower().strip()
-             if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
-                 active_keys.add(listbox[0])
-                 sender_key = listbox[0]
+            fname = msg.from_user.first_name.lower().strip()
+            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
+                active_keys.add(listbox[0])
+                sender_key = listbox[0]
 
     # 2. Add the Reply Target (if any) & Identify (platform-aware)
     if msg.reply_to_message and msg.reply_to_message.from_user:
@@ -133,10 +138,10 @@ def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
                 target_key = resolved
         
         if not target_key and msg.reply_to_message.from_user.first_name:
-             fname = msg.reply_to_message.from_user.first_name.lower().strip()
-             if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
-                 active_keys.add(listbox[0])
-                 target_key = listbox[0]
+            fname = msg.reply_to_message.from_user.first_name.lower().strip()
+            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
+                active_keys.add(listbox[0])
+                target_key = listbox[0]
 
     # 3. Scan text for mentions (Exact Match)
     combined_text = (msg.text or msg.caption or "") + " " + reply_chain_text
@@ -206,7 +211,7 @@ def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
     if target_key and target_key in MEMBERS:
         t_mem = MEMBERS[target_key]
         if msg.reply_to_message:
-             context_lines.append(f"THE USER BEING REPLIED TO ({msg.reply_to_message.from_user.first_name}) IS: {t_mem['preferred_name']}.")
+            context_lines.append(f"THE USER BEING REPLIED TO ({msg.reply_to_message.from_user.first_name}) IS: {t_mem['preferred_name']}.")
     
     context_lines.append("\nSTRICT RULES FOR CONTEXT:")
     context_lines.append("1. NAMING: You MUST address the members above using ONLY their 'preferred_name' (e.g. use '{preferred_name}' instead of @username).")

@@ -23,6 +23,8 @@ API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+WHATSAPP_SESSION_NAME = os.getenv("WHATSAPP_SESSION_NAME", "shin_ai_whatsapp")
 
 # ===========================================
 # Admin Configuration

@@ -7,6 +7,7 @@ try:
     import shin_ai.handlers.analytics
     import shin_ai.handlers.telegram_chat
     import shin_ai.handlers.discord_chat
+    import shin_ai.handlers.whatsapp_chat
     logger.info("Handlers loaded successfully.")
 except Exception as e:
     logger.error(f"Failed to load handlers: {e}")
