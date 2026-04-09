@@ -391,7 +391,7 @@ The bot responds when:
  |---------------|--------|----------------|
  | **Text** | Plain message | Supported everywhere |
  | **Reaction** | `react:<emoji>` | Supported on Telegram & Discord |
- | **Sticker** | `sticker:<id>` | Telegram Only (ignored on Discord) |
+| **Sticker** | `sticker:<id>` | Telegram supports native sticker IDs; WhatsApp supports `sticker:wa:<url_or_local_path>`; ignored on Discord |
  | **Moderation** | `action:<type>` | Translated to native actions (e.g. Timeout on Discord) |
  
  ### Multi-Message Responses
@@ -416,10 +416,12 @@ The bot responds when:
  - If an attempt fails, the previous error context is injected into the next attempt so the AI can adapt.
  - If all attempts fail, a graceful fallback or manual mode is triggered.
  
- ### Reactions & Stickers
- 
- - **Reactions**: Preferred for acknowledging messages or ending conversations without text.
- - **Stickers (Telegram)**: Selected based on emotional context from a custom library. On Discord, these are automatically converted to natural text or emoji responses.
+### Reactions & Stickers
+
+- **Reactions**: Preferred for acknowledging messages or ending conversations without text.
+- **Stickers (Telegram)**: Selected based on emotional context from a custom library.
+- **Stickers (WhatsApp)**: Use `sticker:wa:<https-url-or-local-path>` so the adapter can send media through Neonize `send_sticker`.
+- **Discord**: Sticker actions are ignored and naturally degrade to text/reaction behavior.
  
  ### Moderation System
  

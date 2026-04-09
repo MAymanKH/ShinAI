@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from pathlib import Path
 from threading import RLock
 from typing import Any, Optional, TYPE_CHECKING
 
@@ -101,9 +102,9 @@ class WhatsAppPlatform(PlatformAdapter):
 
     @property
     def supports_stickers(self) -> bool:
-        # Stickers in this bot rely on Telegram sticker IDs, so we intentionally disable
-        # native sticker actions for WhatsApp to avoid invalid media sends.
-        return False
+        # WhatsApp stickers are supported through Neonize when the sticker source is
+        # a valid URL/path (optionally prefixed with `wa:`).
+        return True
 
     @property
     def event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
@@ -481,9 +482,53 @@ class WhatsAppPlatform(PlatformAdapter):
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
 
+    def _resolve_sticker_source(self, sticker_id: str) -> Optional[str]:
+        """
+        Resolve WhatsApp sticker source from AI sticker ID.
+
+        Accepted formats:
+        - `sticker:wa:https://...`
+        - `sticker:wa:/absolute/or/relative/path.webp`
+        - `sticker:https://...` (without wa: prefix)
+        - `sticker:/absolute/or/relative/path.webp` (without wa: prefix)
+        """
+        raw = (sticker_id or "").strip()
+        if not raw:
+            return None
+
+        source = raw[3:].strip() if raw.lower().startswith("wa:") else raw
+        if not source:
+            return None
+
+        if source.startswith(("http://", "https://")):
+            return source
+
+        local_path = Path(source).expanduser()
+        if local_path.is_file():
+            return str(local_path)
+
+        return None
+
     async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
-        logger.info("Sticker action ignored on WhatsApp because stickers are disabled for cross-platform compatibility.")
-        return 0
+        chat_jid = self._chat_id_to_jid(chat_id)
+        sticker_source = self._resolve_sticker_source(sticker_id)
+
+        if not sticker_source:
+            logger.warning(
+                "Invalid WhatsApp sticker source '%s'. Use sticker:wa:<https-url-or-local-path>.",
+                sticker_id,
+            )
+            return 0
+
+        raw_quoted = self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id)) if reply_to_message_id else None
+
+        if raw_quoted:
+            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, raw_quoted)
+        else:
+            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source)
+
+        await self._cache_outgoing_message(chat_jid, response)
+        return response.ID
 
     async def react(self, chat_id: int | str, message_id: int | str, reaction: str) -> None:
         chat_jid = self._chat_id_to_jid(chat_id)

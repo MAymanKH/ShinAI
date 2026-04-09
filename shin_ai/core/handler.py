@@ -81,8 +81,21 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         interaction_type=interaction_type,
     )
     
-    # Add platform specific instruction
-    sticker_warning = "" if platform.supports_stickers else "\nCRITICAL: This platform (" + platform.platform_name + ") DOES NOT support sending stickers. DO NOT use 'sticker:' actions under any circumstances!"
+    # Add platform specific sticker instructions
+    if not platform.supports_stickers:
+        sticker_warning = (
+            "\nCRITICAL: This platform ("
+            + platform.platform_name
+            + ") DOES NOT support sending stickers. DO NOT use 'sticker:' actions under any circumstances!"
+        )
+    elif platform.platform_name == "whatsapp":
+        sticker_warning = (
+            "\nSTICKER NOTE: WhatsApp sticker sends require a media source. "
+            "Use 'sticker:wa:<https-url-or-local-path>'. "
+            "DO NOT use Telegram file IDs on WhatsApp."
+        )
+    else:
+        sticker_warning = ""
     runtime_context += f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}.{sticker_warning}"
 
     memory_section = await _get_memory_section(prompt)
