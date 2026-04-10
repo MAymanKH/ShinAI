@@ -12,6 +12,29 @@ from shin_ai.services.replies import save_reply
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import save_memory
 
+
+def _normalize_reply_target_for_platform(
+    platform: PlatformAdapter,
+    reply_to_id: int | str | None,
+) -> int | str | None:
+    if reply_to_id is None:
+        return None
+
+    if platform.platform_name in {"telegram", "discord"}:
+        if isinstance(reply_to_id, int):
+            return reply_to_id
+        if isinstance(reply_to_id, str) and reply_to_id.isdigit():
+            return int(reply_to_id)
+
+        logger.warning(
+            "Ignoring non-numeric target id '%s' for platform %s",
+            reply_to_id,
+            platform.platform_name,
+        )
+        return None
+
+    return reply_to_id
+
 async def execute_response(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
@@ -50,6 +73,8 @@ async def execute_response(
         else:
             # Subsequent messages without explicit target are sent without reply
             reply_to_id = None
+
+        reply_to_id = _normalize_reply_target_for_platform(platform, reply_to_id)
         
         # Execute actions for this message
         await _execute_reaction(platform, msg, single_parsed.reaction)

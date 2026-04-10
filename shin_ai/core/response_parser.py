@@ -20,7 +20,7 @@ class ParsedResponse:
     sticker_id: Optional[str] = None
     mod_action: Optional[str] = None  # kick, ban, unban, mute, unmute, add
     mod_target_username: Optional[str] = None
-    target_id: Optional[int] = None  # Actual Telegram message ID to reply to
+    target_id: Optional[int | str] = None  # Platform message ID to reply to
     
     @property
     def has_content(self) -> bool:
@@ -77,10 +77,12 @@ def parse_ai_response(answer: Optional[str]) -> list[ParsedResponse]:
                 result.mod_target_username = action_match.group(2)
             text_content = text_content.replace(action_match.group(0), "").strip()
 
-        # Extract Target Option - now expects actual message IDs (e.g. target:48291)
-        target_match = re.search(r"target:(\d+)", text_content)
+        # Extract target option. Supports numeric IDs (Telegram/Discord) and
+        # string IDs (e.g., WhatsApp stanza IDs).
+        target_match = re.search(r"target:([^\s]+)", text_content)
         if target_match:
-            result.target_id = int(target_match.group(1))
+            raw_target_id = target_match.group(1).strip()
+            result.target_id = int(raw_target_id) if raw_target_id.isdigit() else raw_target_id
             text_content = text_content.replace(target_match.group(0), "").strip()
 
         # Extract React

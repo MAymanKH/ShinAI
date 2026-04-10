@@ -320,9 +320,57 @@ class WhatsAppPlatform(PlatformAdapter):
             self._unified_message_cache.move_to_end(cache_key)
         self._trim_cache_if_needed()
 
-    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> Optional[MessageEventType]:
-        cache_key = (str(chat_id), str(message_id))
+    def _is_same_chat_identity(self, first_chat_id: str, second_chat_id: str) -> bool:
+        if first_chat_id == second_chat_id:
+            return True
+
+        normalized_first = self._normalize_jid_identity(first_chat_id)
+        normalized_second = self._normalize_jid_identity(second_chat_id)
+        if normalized_first and normalized_first == normalized_second:
+            return True
+
+        first_local = self._extract_local_user_id(first_chat_id)
+        second_local = self._extract_local_user_id(second_chat_id)
+        return bool(first_local and first_local == second_local)
+
+    def _find_cache_key(
+        self,
+        cache_map: OrderedDict[tuple[str, str], Any],
+        chat_id: int | str,
+        message_id: int | str,
+    ) -> Optional[tuple[str, str]]:
+        requested_chat = str(chat_id)
+        requested_msg = str(message_id)
+        exact_key = (requested_chat, requested_msg)
+
+        if exact_key in cache_map:
+            return exact_key
+
+        # WhatsApp may emit the same chat identity in slightly different JID
+        # forms (e.g., device-scoped IDs). Match by normalized identity too.
+        for candidate_key in reversed(cache_map):
+            candidate_chat, candidate_msg = candidate_key
+            if candidate_msg != requested_msg:
+                continue
+            if self._is_same_chat_identity(candidate_chat, requested_chat):
+                return candidate_key
+
+        return None
+
+    def _get_cached_unified_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
         with self._cache_lock:
+            cache_key = self._find_cache_key(self._unified_message_cache, chat_id, message_id)
+            if not cache_key:
+                return None
+            self._unified_message_cache.move_to_end(cache_key)
+            return self._unified_message_cache.get(cache_key)
+
+    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> Optional[MessageEventType]:
+        with self._cache_lock:
+            cache_key = self._find_cache_key(self._raw_message_cache, chat_id, message_id)
+            if not cache_key:
+                return None
+            self._raw_message_cache.move_to_end(cache_key)
             return self._raw_message_cache.get(cache_key)
 
     def ingest_event_message(self, event_msg: MessageEventType) -> UnifiedMessage:
@@ -339,7 +387,8 @@ class WhatsAppPlatform(PlatformAdapter):
         if source.IsFromMe and self.client.me and self.client.me.JID.ListFields():
             sender_jid = self.client.me.JID
 
-        chat_id = Jid2String(chat_jid)
+        raw_chat_id = Jid2String(chat_jid)
+        chat_id = self._normalize_jid_identity(raw_chat_id) or raw_chat_id
         chat_type = "GROUP" if bool(source.IsGroup) else "PRIVATE"
 
         chat = UnifiedChat(
@@ -379,8 +428,13 @@ class WhatsAppPlatform(PlatformAdapter):
         source_text = (text or caption or "")
 
         if context_info and context_info.stanzaID:
-            unified_msg.reply_to_message_id = context_info.stanzaID
-            unified_msg.reply_to_message = self._build_quoted_message(context_info, chat)
+            unified_msg.reply_to_message_id = str(context_info.stanzaID)
+
+            cached_parent = self._get_cached_unified_message(chat.id, unified_msg.reply_to_message_id)
+            if cached_parent:
+                unified_msg.reply_to_message = cached_parent
+            else:
+                unified_msg.reply_to_message = self._build_quoted_message(context_info, chat)
 
         if context_info:
             unified_msg.entities = self._build_entities_from_context(context_info, source_text)
@@ -582,9 +636,7 @@ class WhatsAppPlatform(PlatformAdapter):
         return data or b""
 
     async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
-        cache_key = (str(chat_id), str(message_id))
-        with self._cache_lock:
-            return self._unified_message_cache.get(cache_key)
+        return self._get_cached_unified_message(chat_id, message_id)
 
     async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
         # WhatsApp doesn't expose a public @username. We interpret this as phone number.

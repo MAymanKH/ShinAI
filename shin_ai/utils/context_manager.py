@@ -7,6 +7,25 @@ from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia
 # Map f"{platform}_{chat_id}" -> deque of message dicts
 _context_buffer = defaultdict(lambda: deque(maxlen=100))
 
+
+def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
+    raw_chat_id = str(chat_id).strip()
+    if platform != "whatsapp":
+        return raw_chat_id
+
+    lowered = raw_chat_id.lower()
+    if "@" in lowered:
+        user, server = lowered.split("@", 1)
+        user = user.split(":", 1)[0]
+        return f"{user}@{server}"
+
+    return lowered.split(":", 1)[0]
+
+
+def _get_chat_key(platform: str, chat_id: int | str) -> str:
+    normalized_chat_id = _normalize_chat_id(platform, chat_id)
+    return f"{platform}_{normalized_chat_id}"
+
 def add_message_to_context(msg: UnifiedMessage):
     """
     Adds a message to the short-term context buffer.
@@ -56,7 +75,7 @@ def add_message_to_context(msg: UnifiedMessage):
         "timestamp": msg.date or time.time()
     }
     
-    chat_key = f"{msg.platform}_{msg.chat.id}"
+    chat_key = _get_chat_key(msg.platform, msg.chat.id)
     _context_buffer[chat_key].append(entry)
 
 def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id: int | str = None) -> str:
@@ -66,7 +85,7 @@ def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id:
     Each message is tagged with its actual message ID (id:XXXXX)
     so the AI can directly reference them for targeting.
     """
-    chat_key = f"{platform}_{chat_id}"
+    chat_key = _get_chat_key(platform, chat_id)
     if chat_key not in _context_buffer:
         return ""
 
@@ -104,7 +123,7 @@ def get_recent_media_messages(platform: str, chat_id: int | str, max_count: int 
     
     Returns list of dicts with: msg_id, user_name, media_type, timestamp
     """
-    chat_key = f"{platform}_{chat_id}"
+    chat_key = _get_chat_key(platform, chat_id)
     if chat_key not in _context_buffer:
         return []
     
