@@ -48,4 +48,8 @@ async def main():
             logger.error(f"Failed to stop {platform_label} platform cleanly: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass
