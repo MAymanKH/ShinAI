@@ -309,6 +309,10 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 if "you exceeded your current quota" in str(e).lower() or "429" in str(e):
                     logger.warning(f"Gemini API key quota exceeded for model {model} (Key: {key_name}, Failed Count: {failed_keys_count})")
                     update_key_status(key_name, "exhausted", model, e)
+                elif "503" in str(e):
+                    logger.warning(f"Gemini API model {model} is temporarily unavailable (503). Switching model.")
+                    update_key_status(key_name, "unavailable", model, e)
+                    break
                 else:
                     logger.error(f"Error with Gemini API (model: {model}, Key: {key_name}): {e}")
                     update_key_status(key_name, "error", model, e)
