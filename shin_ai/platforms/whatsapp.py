@@ -391,41 +391,59 @@ class WhatsAppPlatform(PlatformAdapter):
     def _collect_bot_identity_tokens(self) -> set[str]:
         """Build a set of ALL possible identity strings for the bot.
 
-        This includes full JID, normalized JID, local user part, and alternate
-        representations.  We use this set to test against mentionedJID entries
-        with a single set-intersection, avoiding the fragile chain of
-        normalisation fallbacks that kept failing.
+        This includes full JID, normalized JID, local user part, LID (Linked
+        Identity), and alternate representations.  We use this set to test
+        against mentionedJID entries with a single set-intersection.
         """
         tokens: set[str] = set()
         me = self.client.me
-        if not me or not me.JID.ListFields():
+        if not me:
             return tokens
 
-        jid = me.JID
+        # --- Phone-based JID (e.g. 201234567890@s.whatsapp.net) ---
+        if me.JID.ListFields():
+            jid = me.JID
 
-        # 1. Raw JID.User field (e.g. "201234567890" or a LID numeric id)
-        if jid.User:
-            tokens.add(jid.User.lower())
+            if jid.User:
+                tokens.add(jid.User.lower())
 
-        # 2. Full JID string via Jid2String (e.g. "201234567890@s.whatsapp.net")
-        full_jid = Jid2String(jid)
-        if full_jid:
-            tokens.add(full_jid.lower())
+            full_jid = Jid2String(jid)
+            if full_jid:
+                tokens.add(full_jid.lower())
 
-        # 3. Normalized form (strips device suffix)
-        normalized = self._normalize_jid_identity(full_jid)
-        if normalized:
-            tokens.add(normalized.lower())
+            normalized = self._normalize_jid_identity(full_jid)
+            if normalized:
+                tokens.add(normalized.lower())
 
-        # 4. Local user part extracted from full JID
-        local = self._extract_local_user_id(full_jid)
-        if local:
-            tokens.add(local.lower())
+            local = self._extract_local_user_id(full_jid)
+            if local:
+                tokens.add(local.lower())
 
-        # 5. Also try the raw User without the device suffix
-        raw_user = str(jid.User).split(":", 1)[0] if jid.User else ""
-        if raw_user:
-            tokens.add(raw_user.lower())
+            raw_user = str(jid.User).split(":", 1)[0] if jid.User else ""
+            if raw_user:
+                tokens.add(raw_user.lower())
+
+        # --- LID (Linked Identity, e.g. 45776516415716@lid) ---
+        # WhatsApp now uses LIDs in group mentionedJID instead of phone JIDs.
+        try:
+            lid = me.LID
+            if lid and lid.ListFields():
+                if lid.User:
+                    tokens.add(lid.User.lower())
+
+                lid_full = Jid2String(lid)
+                if lid_full:
+                    tokens.add(lid_full.lower())
+
+                lid_normalized = self._normalize_jid_identity(lid_full)
+                if lid_normalized:
+                    tokens.add(lid_normalized.lower())
+
+                lid_local = self._extract_local_user_id(lid_full)
+                if lid_local:
+                    tokens.add(lid_local.lower())
+        except Exception:
+            pass
 
         return tokens
 
