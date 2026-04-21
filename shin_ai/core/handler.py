@@ -131,12 +131,23 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
 
         if not is_ai_response_valid(answer):
             logger.warning("AI failed, falling back to manual response")
-            await platform.react(msg.chat.id, msg.id, "😢")
-            from shin_ai.providers.manual import manual_response
-            answer = await manual_response(prompt, msg.from_user)
+            try:
+                await platform.react(msg.chat.id, msg.id, "😢")
+            except Exception as react_err:
+                logger.error(f"Fallback react failed: {react_err}")
+            try:
+                from shin_ai.providers.manual import manual_response
+                answer = await manual_response(prompt, msg.from_user)
+            except Exception as manual_err:
+                logger.error(f"Manual response fallback failed: {manual_err}")
+                answer = None
 
         if not answer:
-            return await platform.react(msg.chat.id, msg.id, "👎")
+            try:
+                await platform.react(msg.chat.id, msg.id, "👎")
+            except Exception as react_err:
+                logger.error(f"Final fallback react failed: {react_err}")
+            return
 
         parsed = parse_ai_response(answer)
         
@@ -324,15 +335,21 @@ def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task
                 await asyncio.sleep(4.0)
         except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.debug(f"Typing loop ended due to error: {e}")
     return asyncio.create_task(_loop())
 
 
 async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyncio.Task):
     task.cancel()
-    try: await task
-    except asyncio.CancelledError: pass
-    try: await platform.send_chat_action(chat_id, "cancel")
-    except Exception: pass
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):
+        pass
+    try:
+        await platform.send_chat_action(chat_id, "cancel")
+    except Exception:
+        pass
 
 
 async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
