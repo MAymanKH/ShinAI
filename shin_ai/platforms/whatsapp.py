@@ -81,15 +81,8 @@ from shin_ai.platforms.models import (
     UnifiedMessageEntity,
     UnifiedUser,
 )
-from shin_ai.data.loader import DATA_DIR, STICKERS, WHATSAPP_STICKERS
+from shin_ai.data.loader import DATA_DIR
 from shin_ai.utils.logger_config import logger
-
-TELEGRAM_TO_WHATSAPP_STICKERS = {
-    STICKERS[k]: WHATSAPP_STICKERS[k]
-    for k in STICKERS
-    if k in WHATSAPP_STICKERS
-}
-
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
 WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -672,9 +665,7 @@ class WhatsAppPlatform(PlatformAdapter):
         if not raw:
             return None
 
-        mapped_raw = TELEGRAM_TO_WHATSAPP_STICKERS.get(raw, raw)
-
-        source = mapped_raw[3:].strip() if mapped_raw.lower().startswith("wa:") else mapped_raw
+        source = raw[3:].strip() if raw.lower().startswith("wa:") else raw
         if not source:
             return None
 
