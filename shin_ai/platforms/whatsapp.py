@@ -199,26 +199,28 @@ class WhatsAppPlatform(PlatformAdapter):
         return current
 
     def _extract_context_info(self, message: WaMessageType) -> Optional[ContextInfoType]:
-        for field_name in (
-            "extendedTextMessage",
-            "imageMessage",
-            "videoMessage",
-            "audioMessage",
-            "documentMessage",
-            "stickerMessage",
-        ):
-            payload = getattr(message, field_name, None)
-            if payload and payload.ListFields() and hasattr(payload, "contextInfo"):
-                context_info = payload.contextInfo
-                if context_info and context_info.ListFields():
-                    return context_info
+        # Scan every populated sub-message field for a contextInfo child.
+        # This is intentionally exhaustive: instead of hardcoding a list of
+        # known message types, we iterate over ALL fields the protobuf reports
+        # as set, and check whether they contain a contextInfo with data.
+        for field_descriptor, value in message.ListFields():
+            if not hasattr(value, "contextInfo"):
+                continue
+            try:
+                ctx = value.contextInfo
+                if ctx and ctx.ListFields():
+                    return ctx
+            except Exception:
+                continue
 
-        # Fallback: some WhatsApp message formats (e.g. plain `conversation`
-        # messages with mentions) carry contextInfo at the top level of the
-        # proto message rather than inside a sub-message wrapper.
+        # Also check top-level contextInfo (some message types place it there).
         top_ctx = getattr(message, "contextInfo", None)
-        if top_ctx and top_ctx.ListFields():
-            return top_ctx
+        if top_ctx:
+            try:
+                if top_ctx.ListFields():
+                    return top_ctx
+            except Exception:
+                pass
 
         return None
 
@@ -386,6 +388,76 @@ class WhatsAppPlatform(PlatformAdapter):
         self._cache_message(unified, event_msg)
         return unified
 
+    def _collect_bot_identity_tokens(self) -> set[str]:
+        """Build a set of ALL possible identity strings for the bot.
+
+        This includes full JID, normalized JID, local user part, and alternate
+        representations.  We use this set to test against mentionedJID entries
+        with a single set-intersection, avoiding the fragile chain of
+        normalisation fallbacks that kept failing.
+        """
+        tokens: set[str] = set()
+        me = self.client.me
+        if not me or not me.JID.ListFields():
+            return tokens
+
+        jid = me.JID
+
+        # 1. Raw JID.User field (e.g. "201234567890" or a LID numeric id)
+        if jid.User:
+            tokens.add(jid.User.lower())
+
+        # 2. Full JID string via Jid2String (e.g. "201234567890@s.whatsapp.net")
+        full_jid = Jid2String(jid)
+        if full_jid:
+            tokens.add(full_jid.lower())
+
+        # 3. Normalized form (strips device suffix)
+        normalized = self._normalize_jid_identity(full_jid)
+        if normalized:
+            tokens.add(normalized.lower())
+
+        # 4. Local user part extracted from full JID
+        local = self._extract_local_user_id(full_jid)
+        if local:
+            tokens.add(local.lower())
+
+        # 5. Also try the raw User without the device suffix
+        raw_user = str(jid.User).split(":", 1)[0] if jid.User else ""
+        if raw_user:
+            tokens.add(raw_user.lower())
+
+        return tokens
+
+    def _collect_mentioned_identity_tokens(self, mentioned_jid_list: list[str]) -> set[str]:
+        """Build a set of ALL identity strings from a mentionedJID list.
+
+        For every JID string in the list, we add the raw string, the
+        normalised form, and the extracted local user part.
+        """
+        tokens: set[str] = set()
+        for jid_str in mentioned_jid_list:
+            raw = (jid_str or "").strip()
+            if not raw:
+                continue
+            tokens.add(raw.lower())
+
+            normalized = self._normalize_jid_identity(raw)
+            if normalized:
+                tokens.add(normalized.lower())
+
+            local = self._extract_local_user_id(raw)
+            if local:
+                tokens.add(local.lower())
+
+            # Also try stripping device suffix from the user part
+            user_part = raw.split("@", 1)[0] if "@" in raw else raw
+            user_part = user_part.split(":", 1)[0]
+            if user_part:
+                tokens.add(user_part.lower())
+
+        return tokens
+
     def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         source = event_msg.Info.MessageSource
         chat_jid = source.Chat
@@ -444,37 +516,34 @@ class WhatsAppPlatform(PlatformAdapter):
             else:
                 unified_msg.reply_to_message = self._build_quoted_message(context_info, chat)
 
+        # --- Mention detection (rewritten for robustness) ---
         if context_info:
             unified_msg.entities = self._build_entities_from_context(context_info, source_text)
-            if self.client.me and self.client.me.JID.ListFields():
-                my_jid = self._normalize_jid_identity(Jid2String(self.client.me.JID))
-                mentioned_jids = {
-                    self._normalize_jid_identity(jid)
-                    for jid in context_info.mentionedJID
-                }
-                if my_jid and my_jid in mentioned_jids:
+
+            raw_mentioned = list(context_info.mentionedJID)
+
+            # Debug: log raw mention data so we can finally SEE what arrives
+            if raw_mentioned:
+                bot_tokens = self._collect_bot_identity_tokens()
+                mention_tokens = self._collect_mentioned_identity_tokens(raw_mentioned)
+                overlap = bot_tokens & mention_tokens
+                logger.info(
+                    f"[WA-MENTION-DEBUG] raw_mentionedJID={raw_mentioned}, "
+                    f"bot_tokens={bot_tokens}, mention_tokens={mention_tokens}, "
+                    f"overlap={overlap}"
+                )
+                if overlap:
                     unified_msg.mentioned = True
+                    logger.info(f"[WA-MENTION] Bot mentioned via protobuf mentionedJID (overlap: {overlap})")
 
-                # Fallback: if JID format differs (e.g., s.whatsapp.net vs lid),
-                # match by the local user id represented in parsed entities.
-                if not unified_msg.mentioned and self.client.me.JID.User:
-                    my_user = self._extract_local_user_id(Jid2String(self.client.me.JID)) or str(self.client.me.JID.User)
-                    mentioned_users = {
-                        self._extract_local_user_id(jid)
-                        for jid in context_info.mentionedJID
-                    }
-                    if my_user and my_user in mentioned_users:
-                        unified_msg.mentioned = True
-                    elif any(ent.user and str(ent.user.id) == my_user for ent in unified_msg.entities):
-                        unified_msg.mentioned = True
-
-        # Text-based mention fallback: if protobuf mention metadata was missing
-        # (e.g. plain conversation messages), scan the message text for @<bot_id>.
+        # Text-based mention fallback: scan the message text for @<bot_id>.
         if not unified_msg.mentioned and source_text and self.client.me and self.client.me.JID.User:
-            my_user = str(self.client.me.JID.User)
-            if f"@{my_user}" in source_text:
-                unified_msg.mentioned = True
-                logger.info(f"WhatsApp mention detected via text fallback (@{my_user})")
+            bot_tokens = self._collect_bot_identity_tokens()
+            for token in bot_tokens:
+                if token and f"@{token}" in source_text.lower():
+                    unified_msg.mentioned = True
+                    logger.info(f"[WA-MENTION] Bot mentioned via text fallback (@{token})")
+                    break
 
         return unified_msg
 
