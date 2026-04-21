@@ -2,7 +2,7 @@
 
 # ShinAI
 
-An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram and Discord.
+An intelligent multi-platform bot that acts like a real group member - not an assistant. Features personality-driven responses, long-term memory with RAG architecture, style learning, and contextual awareness across Telegram, Discord, and WhatsApp.
 
 [![Chat on Telegram](https://img.shields.io/badge/Chat%20on-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
 [![Add to Discord](https://img.shields.io/badge/Add%20to-Discord-5865F2?logo=discord)](https://discordapp.com/users/855437723166703616)
@@ -48,7 +48,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 ## Features
 
 - 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, or local LLM (Ollama)
-- 🧩 **Multi-Platform Support**: Seamlessly functions on **Telegram** and **Discord** simultaneously.
+- 🧩 **Multi-Platform Support**: Seamlessly functions on **Telegram**, **Discord**, and **WhatsApp** simultaneously.
 - 💬 **Personality System**: Fully customizable bot personality and behavior
 - 🎭 **Social Context**: Recognizes group members across platforms and adapts responses
 - 🔄 **Reply Chain Tracking**: Understands conversation context with deep history retrieval
@@ -290,7 +290,7 @@ Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map s
 
 ### Member Configuration
  
- Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them across Telegram and Discord and adapt its responses accordingly.
+ Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them across Telegram, Discord and WhatsApp and adapt its responses accordingly.
  
  #### Platform Mapping
  You can define platform-specific handles for each member:
@@ -427,13 +427,13 @@ The bot responds when:
  
  The bot features a full moderation suite with platform-native actions:
  
- | Action | Telegram Effect | Discord Effect |
+ | Action | Telegram Effect | Discord Effect | WhatsApp Effect |
  |--------|-----------------|----------------|
- | **Mute** | Restricted Permissions | Native Timeout |
- | **Kick** | Remove from Group | Native Kick |
- | **Ban** | Permanent Ban | Native Ban |
- | **Unban** | Lift Ban | Native Unban |
- | **Invite** | Invite Link | DM Invite Link |
+ | **Mute** | Restricted Permissions | Native Timeout | No Native Solution |
+ | **Kick** | Remove from Group | Native Kick | Native Kick |
+ | **Ban** | Permanent Ban | Native Ban | No Native Solution |
+ | **Unban** | Lift Ban | Native Unban | No Native Solution |
+ | **Invite** | Invite Link | DM Invite Link | No Native Solution |
  
  **Safeguards**:
  - Cannot act on admins or owners.
