@@ -212,6 +212,14 @@ class WhatsAppPlatform(PlatformAdapter):
                 context_info = payload.contextInfo
                 if context_info and context_info.ListFields():
                     return context_info
+
+        # Fallback: some WhatsApp message formats (e.g. plain `conversation`
+        # messages with mentions) carry contextInfo at the top level of the
+        # proto message rather than inside a sub-message wrapper.
+        top_ctx = getattr(message, "contextInfo", None)
+        if top_ctx and top_ctx.ListFields():
+            return top_ctx
+
         return None
 
     def _extract_text_and_caption(self, message: WaMessageType) -> tuple[Optional[str], Optional[str]]:
@@ -459,6 +467,14 @@ class WhatsAppPlatform(PlatformAdapter):
                         unified_msg.mentioned = True
                     elif any(ent.user and str(ent.user.id) == my_user for ent in unified_msg.entities):
                         unified_msg.mentioned = True
+
+        # Text-based mention fallback: if protobuf mention metadata was missing
+        # (e.g. plain conversation messages), scan the message text for @<bot_id>.
+        if not unified_msg.mentioned and source_text and self.client.me and self.client.me.JID.User:
+            my_user = str(self.client.me.JID.User)
+            if f"@{my_user}" in source_text:
+                unified_msg.mentioned = True
+                logger.info(f"WhatsApp mention detected via text fallback (@{my_user})")
 
         return unified_msg
 
