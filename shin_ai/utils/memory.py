@@ -147,11 +147,31 @@ _NO_TIME_EXAMPLES = [
     "help me with my homework", "translate this text", "who are you",
     "how are you doing", "write a poem", "analyze this image",
     "قول نكتة", "ساعدني", "مين انت", "ايش رأيك", "شرح لي الكود",
+    "what did I say", "ايش قلت", "do you remember", "تتذكر",
+    "who said", "مين قال", "what happened", "ايش صار",
 ]
 _no_time_embeddings = embedder.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES])
 
-# Similarity threshold: query must be more similar to time examples than non-time examples
-TIME_DETECTION_MIN_SIMILARITY = 0.55
+# Fast keyword pre-filter: only attempt semantic time detection
+# if the query contains at least one of these temporal indicator words.
+# This prevents false positives on queries with zero time reference.
+_TEMPORAL_INDICATOR_WORDS = {
+    # English
+    "ago", "yesterday", "today", "last", "week", "month", "year", "hour", "hours",
+    "minute", "minutes", "morning", "evening", "afternoon", "earlier", "recently",
+    "days", "weeks", "months", "years", "past", "previous", "prior",
+    # Arabic - individual words that strongly signal time
+    "قبل", "أمس", "امس", "البارحة", "البارحه", "اليوم", "الصبح", "مبارح",
+    "امبارح", "إمبارح", "ساعة", "ساعه", "ساعتين", "ساعات", "يومين", "أيام",
+    "ايام", "اسبوع", "أسبوع", "اسبوعين", "أسبوعين", "شهر", "شهرين", "شهور",
+    "سنة", "سنه", "الماضي", "الماضية", "شوي", "شويه", "الحين", "توه", "توها",
+    "هسه", "لسه", "لحظات", "هالصباح", "هاليوم", "هالاسبوع", "هالشهر",
+}
+
+# Similarity threshold: query must be clearly more similar to time examples
+TIME_DETECTION_MIN_SIMILARITY = 0.62
+# Minimum gap between time similarity and non-time similarity
+TIME_DETECTION_MIN_GAP = 0.08
 
 
 async def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
@@ -159,9 +179,21 @@ async def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
     Semantically detect time references in the query using the local E5 model.
     Returns (start_epoch, end_epoch) or (None, None) if no time reference found.
     
-    Uses pre-computed embeddings for time buckets (English + Arabic dialects).
+    Uses a two-stage approach:
+    1. Fast keyword pre-filter — skips entirely if no temporal words are present.
+    2. Semantic similarity — confirms the time reference using embeddings.
+    
     Zero API calls — runs entirely on the local model already in memory.
     """
+    # Stage 1: Fast keyword pre-filter
+    # If the query contains zero temporal indicator words, skip semantic detection entirely.
+    # This prevents false positives on queries like "what did I say" or "do you remember X".
+    query_words = set(query.lower().split())
+    if not query_words & _TEMPORAL_INDICATOR_WORDS:
+        logger.debug("No temporal keywords in query, skipping time detection")
+        return None, None
+    
+    # Stage 2: Semantic similarity confirmation
     now = datetime.now().astimezone()
     
     # Encode the query off-thread to avoid blocking event loop
@@ -176,11 +208,14 @@ async def _detect_time_filter(query: str) -> tuple[int | None, int | None]:
     no_time_similarities = cosine_similarity(query_emb, _no_time_embeddings)[0]
     max_no_time_sim = float(np.max(no_time_similarities))
     
-    # The query must be clearly more time-related than not
-    if max_time_sim < TIME_DETECTION_MIN_SIMILARITY or max_time_sim <= max_no_time_sim:
+    # The query must be clearly more time-related than not:
+    # 1. Must exceed the absolute minimum threshold
+    # 2. Must beat the non-time similarity by a meaningful gap
+    if max_time_sim < TIME_DETECTION_MIN_SIMILARITY or max_time_sim < max_no_time_sim + TIME_DETECTION_MIN_GAP:
         logger.debug(
-            f"No time reference detected (time_sim={max_time_sim:.3f}, "
-            f"no_time_sim={max_no_time_sim:.3f})"
+            f"Time detection rejected (time_sim={max_time_sim:.3f}, "
+            f"no_time_sim={max_no_time_sim:.3f}, "
+            f"gap={max_time_sim - max_no_time_sim:.3f}, required_gap={TIME_DETECTION_MIN_GAP})"
         )
         return None, None
     
