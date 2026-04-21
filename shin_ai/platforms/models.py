@@ -32,6 +32,7 @@ class UnifiedMedia:
     is_animated: bool = False
     is_video: bool = False
     emoji: Optional[str] = None
+    mime_type: Optional[str] = None
     
     # Platform-specific native object, used only by adapters (e.g. for downloading)
     native_obj: Any = None

@@ -242,27 +242,36 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return text, caption
 
-    def _apply_media(self, unified_msg: UnifiedMessage, message: WaMessageType) -> None:
-        native_payload = {"wa_message": message}
+    def _apply_media(self, unified_msg: UnifiedMessage, message: WaMessageType, download_message: WaMessageType = None) -> None:
+        # Use the original (non-unwrapped) message for downloads so that
+        # Neonize's download_any() can locate the media URL and encryption
+        # keys that may live in outer wrapper layers (ephemeral, view-once, etc.).
+        native_payload = {"wa_message": download_message or message}
 
         if message.imageMessage.ListFields():
-            unified_msg.photo = UnifiedMedia(type="PHOTO", id="wa-image", native_obj=native_payload)
+            mime = message.imageMessage.mimetype or "image/jpeg"
+            unified_msg.photo = UnifiedMedia(type="PHOTO", id="wa-image", mime_type=mime, native_obj=native_payload)
         if message.stickerMessage.ListFields():
+            mime = message.stickerMessage.mimetype or "image/webp"
             unified_msg.sticker = UnifiedMedia(
                 type="STICKER",
                 id="wa-sticker",
                 is_animated=bool(message.stickerMessage.isAnimated),
+                mime_type=mime,
                 native_obj=native_payload,
             )
         if message.videoMessage.ListFields():
-            unified_msg.video = UnifiedMedia(type="VIDEO", id="wa-video", native_obj=native_payload)
+            mime = message.videoMessage.mimetype or "video/mp4"
+            unified_msg.video = UnifiedMedia(type="VIDEO", id="wa-video", mime_type=mime, native_obj=native_payload)
         if message.audioMessage.ListFields():
+            mime = message.audioMessage.mimetype or "audio/ogg"
             if bool(message.audioMessage.PTT):
-                unified_msg.voice = UnifiedMedia(type="VOICE", id="wa-voice", native_obj=native_payload)
+                unified_msg.voice = UnifiedMedia(type="VOICE", id="wa-voice", mime_type=mime, native_obj=native_payload)
             else:
-                unified_msg.audio = UnifiedMedia(type="AUDIO", id="wa-audio", native_obj=native_payload)
+                unified_msg.audio = UnifiedMedia(type="AUDIO", id="wa-audio", mime_type=mime, native_obj=native_payload)
         if message.documentMessage.ListFields():
-            unified_msg.document = UnifiedMedia(type="DOCUMENT", id="wa-document", native_obj=native_payload)
+            mime = message.documentMessage.mimetype or "application/octet-stream"
+            unified_msg.document = UnifiedMedia(type="DOCUMENT", id="wa-document", mime_type=mime, native_obj=native_payload)
 
     def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> Optional[UnifiedMessage]:
         if not context_info.stanzaID:
@@ -293,7 +302,7 @@ class WhatsAppPlatform(PlatformAdapter):
             date=0.0,
             native_msg=context_info.quotedMessage,
         )
-        self._apply_media(quoted, quoted_body)
+        self._apply_media(quoted, quoted_body, context_info.quotedMessage)
         return quoted
 
     def _build_entities_from_context(self, context_info: Optional[ContextInfoType], source_text: str) -> list[UnifiedMessageEntity]:
@@ -520,7 +529,7 @@ class WhatsAppPlatform(PlatformAdapter):
             native_msg=event_msg,
         )
 
-        self._apply_media(unified_msg, body)
+        self._apply_media(unified_msg, body, event_msg.Message)
 
         context_info = self._extract_context_info(body)
         source_text = (text or caption or "")

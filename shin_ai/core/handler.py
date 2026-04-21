@@ -223,10 +223,12 @@ async def _download_media(platform: PlatformAdapter, msg: UnifiedMessage) -> lis
         sender_name = target_msg.from_user.username or target_msg.from_user.first_name if target_msg.from_user else "Unknown"
         if target_msg.photo:
             bts = await platform.download_media(target_msg.photo)
-            return bts, "image/jpeg", "photo", sender_name
+            mime = target_msg.photo.mime_type or "image/jpeg"
+            return bts, mime, "photo", sender_name
         elif target_msg.sticker and not target_msg.sticker.is_animated and not target_msg.sticker.is_video:
             bts = await platform.download_media(target_msg.sticker)
-            return bts, "image/webp", f"sticker {target_msg.sticker.emoji or ''}".strip(), sender_name
+            mime = target_msg.sticker.mime_type or "image/webp"
+            return bts, mime, f"sticker {target_msg.sticker.emoji or ''}".strip(), sender_name
         return None, None, None, None
         
     res = await process(msg, "current")
@@ -256,11 +258,13 @@ async def _download_media_from_context(platform: PlatformAdapter, chat_id: int |
         if msg.photo:
             bts = await platform.download_media(msg.photo)
             if bts:
-                media_list.append({'bytes': bts, 'mime_type': "image/jpeg", 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': 'photo'})
+                mime = msg.photo.mime_type or "image/jpeg"
+                media_list.append({'bytes': bts, 'mime_type': mime, 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': 'photo'})
         elif msg.sticker and not msg.sticker.is_animated and not msg.sticker.is_video:
             bts = await platform.download_media(msg.sticker)
             if bts:
-                media_list.append({'bytes': bts, 'mime_type': "image/webp", 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': f"sticker {msg.sticker.emoji or ''}"})
+                mime = msg.sticker.mime_type or "image/webp"
+                media_list.append({'bytes': bts, 'mime_type': mime, 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': f"sticker {msg.sticker.emoji or ''}"})
     return media_list
 
 
