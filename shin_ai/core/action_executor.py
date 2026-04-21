@@ -7,7 +7,7 @@ import asyncio
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.core.response_parser import ParsedResponse
-from shin_ai.data.loader import STICKER_TO_DESCRIPTION, MEMBERS
+from shin_ai.data.loader import TELEGRAM_STICKER_TO_DESCRIPTION, WHATSAPP_STICKER_TO_DESCRIPTION, MEMBERS
 from shin_ai.services.replies import save_reply
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import save_memory
@@ -257,7 +257,10 @@ async def _save_interaction_memory(platform: str, msg: UnifiedMessage, parsed_li
             if parsed.reaction:
                 mem_parts.append(f"[Reacted: {parsed.reaction}]")
             if parsed.sticker_id:
-                sticker_desc = STICKER_TO_DESCRIPTION.get(parsed.sticker_id, "Unknown Sticker")
+                if platform == "whatsapp":
+                    sticker_desc = WHATSAPP_STICKER_TO_DESCRIPTION.get(parsed.sticker_id, "Unknown Sticker")
+                else:
+                    sticker_desc = TELEGRAM_STICKER_TO_DESCRIPTION.get(parsed.sticker_id, "Unknown Sticker")
                 mem_parts.append(f"[Sent Sticker: {sticker_desc}]")
             if parsed.mod_action:
                 target = parsed.mod_target_username or "the reply target"

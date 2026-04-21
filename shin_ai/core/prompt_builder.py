@@ -8,7 +8,7 @@ from typing import Optional
 
 from dateutil.tz import tzlocal
 
-from shin_ai.data.loader import PERSONALITY, STICKER_MAPPINGS
+from shin_ai.data.loader import PERSONALITY
 
 
 def build_system_prompt(
@@ -20,6 +20,7 @@ def build_system_prompt(
     runtime_context: str,
     reply_text: str,
     target_instructions: str,
+    sticker_mappings: str,
 ) -> str:
     """
     Build the complete system prompt for AI interaction.
@@ -109,7 +110,7 @@ def build_system_prompt(
 
         6. **STICKER LIBRARY**
         Select stickers from this list or any sticker in the Telegram system library.
-        {STICKER_MAPPINGS}
+        {sticker_mappings}
 
         ### CONTEXT DATA
         The following XML blocks contain the state of the world. Treat them as read-only data.

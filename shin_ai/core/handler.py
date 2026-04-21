@@ -31,6 +31,7 @@ from shin_ai.providers.openrouter import openrouter_api
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
+from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS
 
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
@@ -109,6 +110,11 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         reply_msg=msg.reply_to_message,
     )
 
+    if platform.platform_name == "whatsapp":
+        sticker_mappings = WHATSAPP_STICKER_MAPPINGS
+    else:
+        sticker_mappings = TELEGRAM_STICKER_MAPPINGS
+
     system_prompt = build_system_prompt(
         style_examples=style_examples,
         social_context_section=social_context_section,
@@ -117,6 +123,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         runtime_context=runtime_context,
         reply_text=reply_text,
         target_instructions=target_instructions,
+        sticker_mappings=sticker_mappings,
     )
 
     typing_task = _start_typing(platform, msg.chat.id)

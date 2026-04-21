@@ -81,8 +81,17 @@ from shin_ai.platforms.models import (
     UnifiedMessageEntity,
     UnifiedUser,
 )
+from shin_ai.data.loader import DATA_DIR, STICKERS, WHATSAPP_STICKERS
 from shin_ai.utils.logger_config import logger
 
+TELEGRAM_TO_WHATSAPP_STICKERS = {
+    STICKERS[k]: WHATSAPP_STICKERS[k]
+    for k in STICKERS
+    if k in WHATSAPP_STICKERS
+}
+
+WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
+WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
 
 class WhatsAppPlatform(PlatformAdapter):
     def __init__(self, session_name: str):
@@ -657,12 +666,15 @@ class WhatsAppPlatform(PlatformAdapter):
         - `sticker:wa:/absolute/or/relative/path.webp`
         - `sticker:https://...` (without wa: prefix)
         - `sticker:/absolute/or/relative/path.webp` (without wa: prefix)
+        - A Telegram sticker ID that is mapped in WHATSAPP_STICKERS
         """
         raw = (sticker_id or "").strip()
         if not raw:
             return None
 
-        source = raw[3:].strip() if raw.lower().startswith("wa:") else raw
+        mapped_raw = TELEGRAM_TO_WHATSAPP_STICKERS.get(raw, raw)
+
+        source = mapped_raw[3:].strip() if mapped_raw.lower().startswith("wa:") else mapped_raw
         if not source:
             return None
 
@@ -672,6 +684,10 @@ class WhatsAppPlatform(PlatformAdapter):
         local_path = Path(source).expanduser()
         if local_path.is_file():
             return str(local_path)
+
+        data_dir_path = WHATSAPP_STICKERS_DIR / source
+        if data_dir_path.is_file():
+            return str(data_dir_path)
 
         return None
 

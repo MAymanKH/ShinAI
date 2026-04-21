@@ -60,9 +60,12 @@ PERSONALITY: dict[str, str] = _personality_module.personality
 # Load Sticker Configuration  
 # ===========================================
 _stickers_module = _load_module_with_fallback("stickers")
-STICKERS: dict[str, str] = _stickers_module.STICKERS
-STICKER_MAPPINGS: str = _stickers_module.STICKER_MAPPINGS
-STICKER_TO_DESCRIPTION: dict[str, str] = _stickers_module.STICKER_TO_DESCRIPTION
+TELEGRAM_STICKERS: dict[str, str] = getattr(_stickers_module, "TELEGRAM_STICKERS", {})
+WHATSAPP_STICKERS: dict[str, str] = getattr(_stickers_module, "WHATSAPP_STICKERS", {})
+TELEGRAM_STICKER_MAPPINGS: str = getattr(_stickers_module, "TELEGRAM_STICKER_MAPPINGS", "")
+WHATSAPP_STICKER_MAPPINGS: str = getattr(_stickers_module, "WHATSAPP_STICKER_MAPPINGS", "")
+TELEGRAM_STICKER_TO_DESCRIPTION: dict[str, str] = getattr(_stickers_module, "TELEGRAM_STICKER_TO_DESCRIPTION", {})
+WHATSAPP_STICKER_TO_DESCRIPTION: dict[str, str] = getattr(_stickers_module, "WHATSAPP_STICKER_TO_DESCRIPTION", {})
 
 # ===========================================
 # Load Members Configuration
