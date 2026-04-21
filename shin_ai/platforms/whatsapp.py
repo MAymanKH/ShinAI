@@ -696,9 +696,9 @@ class WhatsAppPlatform(PlatformAdapter):
         raw_quoted = self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id)) if reply_to_message_id else None
 
         if raw_quoted:
-            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, raw_quoted)
+            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, raw_quoted, passthrough=True)
         else:
-            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source)
+            response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, passthrough=True)
 
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
