@@ -1,7 +1,7 @@
 from sentence_transformers import SentenceTransformer
 from shin_ai.utils.db import client
 
-collection = client.get_collection("style_group")
+collection = client.get_or_create_collection("style_group")
 # Switched to multilingual-e5-small for SOTA retrieval
 # Requires specific prefixing for symmetric/asymmetric tasks
 embedder = SentenceTransformer("intfloat/multilingual-e5-large")
