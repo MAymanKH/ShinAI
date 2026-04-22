@@ -203,10 +203,14 @@ class DiscordPlatform(PlatformAdapter):
         # Handle media (simplified to photo/video)
         if msg.attachments:
             att = msg.attachments[0]
-            if "image" in str(att.content_type):
+            content_type_str = str(att.content_type or "")
+            filename_str = str(att.filename or "").lower()
+            if "image" in content_type_str:
                 unified_msg.photo = UnifiedMedia(type="PHOTO", id=str(att.id), native_obj=att)
-            elif "video" in str(att.content_type):
+            elif "video" in content_type_str:
                 unified_msg.video = UnifiedMedia(type="VIDEO", id=str(att.id), native_obj=att)
+            elif "audio" in content_type_str or filename_str.endswith(('.ogg', '.mp3', '.wav', '.m4a', '.flac', '.opus', '.webm')):
+                unified_msg.audio = UnifiedMedia(type="AUDIO", id=str(att.id), mime_type=att.content_type, native_obj=att)
                 
         # Emulate entities for mentions
         entities = []

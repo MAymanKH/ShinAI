@@ -4,6 +4,7 @@ FROM python:3.11-slim-bookworm
 # (e.g., tgcrypto, chromadb, sentence-transformers)
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container

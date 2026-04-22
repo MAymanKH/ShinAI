@@ -31,6 +31,7 @@ from shin_ai.providers.openrouter import openrouter_api
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
+from shin_ai.services.audio_transcriber import transcribe_audio
 from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS
 
 
@@ -45,6 +46,17 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
 
     prompt = _extract_prompt(msg)
     media_list = await _download_media(platform, msg)
+
+    # Audio transcription
+    if msg.voice or msg.audio:
+        transcription = await _transcribe_audio_message(platform, msg)
+        if transcription:
+            media_type = "Voice message" if msg.voice else "Audio file"
+            prompt = (
+                f"[{media_type} from user - Transcription]: \"{transcription}\"\n\n{prompt}"
+                if prompt.strip()
+                else f"[{media_type} transcription]: \"{transcription}\""
+            )
 
     if not media_list:
         prompt_lower = prompt.lower()
@@ -253,6 +265,31 @@ async def _download_media(platform: PlatformAdapter, msg: UnifiedMessage) -> lis
         curr = reply
 
     return media_list
+
+
+async def _transcribe_audio_message(platform: PlatformAdapter, msg: UnifiedMessage) -> str:
+    """Download and transcribe a voice/audio message using Whisper."""
+    media_handle = msg.voice or msg.audio
+    if not media_handle:
+        return ""
+
+    try:
+        audio_bytes = await platform.download_media(media_handle)
+        if not audio_bytes:
+            logger.warning("Audio download returned empty bytes")
+            return ""
+
+        mime_type = media_handle.mime_type or "audio/ogg"
+        logger.info(f"Transcribing audio: {len(audio_bytes)} bytes, mime={mime_type}")
+        transcription = await transcribe_audio(audio_bytes, mime_type)
+        if transcription:
+            logger.info(f"Audio transcription result ({len(transcription)} chars): {transcription[:100]}...")
+        else:
+            logger.warning("Whisper returned empty transcription")
+        return transcription
+    except Exception as e:
+        logger.error(f"Audio transcription failed: {e}")
+        return ""
 
 
 async def _download_media_from_context(platform: PlatformAdapter, chat_id: int | str, media_msg_ids: list[int | str]) -> list[dict]:

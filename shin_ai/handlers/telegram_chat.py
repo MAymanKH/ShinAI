@@ -63,7 +63,7 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
             return True
 
         if not text:
-            if not (msg.photo or msg.sticker):
+            if not (msg.photo or msg.sticker or msg.voice or msg.audio):
                 _debug("skip:no_text_no_media")
                 return False
             unified_msg = telegram_platform.to_unified_message(msg)

@@ -27,3 +27,4 @@ python-dateutil
 ddgs
 beautifulsoup4
 httpx
+openai-whisper
