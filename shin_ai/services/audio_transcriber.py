@@ -91,7 +91,7 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
             condition_on_previous_text=False,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
-            initial_prompt="This is a voice recording in Egyptian Arabic.",
+            initial_prompt="ده تسجيل صوتي باللهجة المصرية.",
         )
 
         # faster-whisper returns a generator; materialise it into text.
