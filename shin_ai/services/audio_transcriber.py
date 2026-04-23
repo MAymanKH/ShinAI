@@ -85,12 +85,13 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
 
         segments, info = model.transcribe(
             tmp_path,
+            language="ar",
             task="transcribe",
             beam_size=5,
             condition_on_previous_text=False,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
-            # Language is auto-detected — do not hardcode.
+            initial_prompt="This is a voice recording in Egyptian Arabic.",
         )
 
         # faster-whisper returns a generator; materialise it into text.
