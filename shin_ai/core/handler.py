@@ -52,10 +52,18 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         transcription = await _transcribe_audio_message(platform, msg)
         if transcription:
             media_type = "Voice message" if msg.voice else "Audio file"
+            audio_disclaimer = (
+                f"[{media_type} from user - Transcription]: \"{transcription}\"\n"
+                "[TRANSCRIPTION NOTE: The above was transcribed from audio. "
+                "It may contain phonetic spelling errors, hallucinated artifacts, "
+                "or illogical words due to dialect variations (especially Egyptian Arabic). "
+                "Before responding, intelligently interpret any illogical words based on "
+                "the surrounding context to find the nearest logical meaning.]"
+            )
             prompt = (
-                f"[{media_type} from user - Transcription]: \"{transcription}\"\n\n{prompt}"
+                f"{audio_disclaimer}\n\n{prompt}"
                 if prompt.strip()
-                else f"[{media_type} transcription]: \"{transcription}\""
+                else audio_disclaimer
             )
 
     if not media_list:
