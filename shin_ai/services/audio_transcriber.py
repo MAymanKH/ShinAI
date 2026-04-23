@@ -1,17 +1,16 @@
 """
 Audio Transcription Service
 
-Uses OpenAI's open-source Whisper model to transcribe voice messages
-and audio files locally. No paid API required.
+Uses faster-whisper (CTranslate2 backend) with the large-v3-turbo model
+to transcribe voice messages and audio files locally. No paid API required.
 """
 import asyncio
-import io
 import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
 
-from shin_ai.config import WHISPER_MODEL
+from shin_ai.config import WHISPER_MODEL, WHISPER_CPU_THREADS
 from shin_ai.utils.logger_config import logger
 
 # ── Lazy-loaded singleton ────────────────────────────────────────────
@@ -20,7 +19,7 @@ _model_lock = threading.Lock()
 
 
 def _get_model():
-    """Load the Whisper model on first use (thread-safe singleton)."""
+    """Load the faster-whisper model on first use (thread-safe singleton)."""
     global _model
     if _model is not None:
         return _model
@@ -30,12 +29,22 @@ def _get_model():
         if _model is not None:
             return _model
 
-        import whisper
+        from faster_whisper import WhisperModel
 
-        model_name = WHISPER_MODEL or "small"
-        logger.info(f"Loading Whisper model '{model_name}' (first-time setup may take a moment)...")
-        _model = whisper.load_model(model_name)
-        logger.info(f"Whisper model '{model_name}' loaded successfully.")
+        model_name = WHISPER_MODEL or "large-v3-turbo"
+        cpu_threads = WHISPER_CPU_THREADS
+
+        logger.info(
+            f"Loading faster-whisper model '{model_name}' "
+            f"(device=cpu, compute_type=int8, cpu_threads={cpu_threads})..."
+        )
+        _model = WhisperModel(
+            model_name,
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=cpu_threads,
+        )
+        logger.info(f"faster-whisper model '{model_name}' loaded successfully.")
         return _model
 
 
@@ -67,28 +76,36 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
 
     tmp_path: Optional[str] = None
     try:
-        # Write to a temp file because Whisper expects a file path
+        # Write to a temp file because faster-whisper expects a file path
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
         model = _get_model()
-        result = model.transcribe(
+
+        segments, info = model.transcribe(
             tmp_path,
-            # Let Whisper auto-detect the language for best multilingual support.
-            # This works well for Arabic, English, and mixed-language messages.
-            fp16=False,  # Use FP32 for CPU compatibility
+            task="transcribe",
+            beam_size=5,
+            condition_on_previous_text=False,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            # Language is auto-detected — do not hardcode.
         )
 
-        text = (result.get("text") or "").strip()
-        detected_lang = result.get("language", "unknown")
+        # faster-whisper returns a generator; materialise it into text.
+        text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+
+        detected_lang = getattr(info, "language", "unknown")
+        lang_prob = getattr(info, "language_probability", 0.0)
         logger.info(
-            f"Whisper transcription complete: lang={detected_lang}, "
+            f"faster-whisper transcription complete: "
+            f"lang={detected_lang} (prob={lang_prob:.2f}), "
             f"length={len(text)} chars"
         )
         return text
     except Exception as e:
-        logger.error(f"Whisper transcription failed: {e}")
+        logger.error(f"faster-whisper transcription failed: {e}")
         return ""
     finally:
         # Clean up the temp file
@@ -101,7 +118,7 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
     """
-    Transcribe audio bytes to text using Whisper.
+    Transcribe audio bytes to text using faster-whisper.
 
     Runs the (blocking) inference in a thread pool so it doesn't block
     the async event loop.

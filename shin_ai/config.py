@@ -67,8 +67,9 @@ GROQ_MODEL = os.getenv("GROQ_MODEL")
 # Cerebras
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 
-# Audio Transcription (OpenAI Whisper)
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+# Audio Transcription
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")
+WHISPER_CPU_THREADS = int(os.getenv("WHISPER_CPU_THREADS", "2"))
 
 # ===========================================
 # Style Learning Configuration
