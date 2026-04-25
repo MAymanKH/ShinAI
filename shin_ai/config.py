@@ -42,6 +42,8 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 # ===========================================
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 AI_CHOICE = os.getenv("AI_CHOICE", "gemini")
+MIN_REPLY_DELAY_SECONDS = float(os.getenv("MIN_REPLY_DELAY_SECONDS", "5.0"))
+MAX_REPLY_DELAY_SECONDS = float(os.getenv("MAX_REPLY_DELAY_SECONDS", "300.0"))
 
 # ===========================================
 # AI Provider Configuration

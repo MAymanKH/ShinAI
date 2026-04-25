@@ -5,6 +5,7 @@ Universal message handler logic for ShinAI, agnostic of platform.
 """
 import asyncio
 import time
+import random
 from typing import List
 
 from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia
@@ -17,7 +18,7 @@ from shin_ai.core.prompt_builder import (
 )
 from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
 from shin_ai.core.action_executor import execute_response
-from shin_ai.config import AI_CHOICE, AI_PROVIDER_TIMEOUT_SECONDS, AI_PROVIDER_MAX_RETRIES
+from shin_ai.config import AI_CHOICE, AI_PROVIDER_TIMEOUT_SECONDS, AI_PROVIDER_MAX_RETRIES, MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
@@ -34,6 +35,9 @@ from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.audio_transcriber import transcribe_audio
 from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS, PERSONALITY
 
+
+_chat_queues = {}
+_chat_tasks = {}
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Main message handler for AI-powered responses across any platform."""
@@ -193,6 +197,40 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         sticker_mappings=sticker_mappings,
     )
 
+    # --- FROZEN-CONTEXT QUEUE ---
+    key = (platform.platform_name, msg.chat.id)
+    if key not in _chat_queues:
+        _chat_queues[key] = []
+        
+    _chat_queues[key].append({
+        "platform": platform,
+        "msg": msg,
+        "system_prompt": system_prompt,
+        "prompt": prompt,
+        "media_list": media_list,
+        "reply_text": reply_text,
+    })
+    
+    if key not in _chat_tasks or _chat_tasks[key].done():
+        delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
+        logger.info(f"[{platform.platform_name}] Delaying reply in chat {msg.chat.id} by {delay:.2f}s")
+        _chat_tasks[key] = asyncio.create_task(_delayed_queue_processor(key, delay))
+
+
+async def _delayed_queue_processor(key, delay: float):
+    await asyncio.sleep(delay)
+    queue = _chat_queues.pop(key, [])
+    if key in _chat_tasks:
+        del _chat_tasks[key]
+        
+    for task_args in queue:
+        try:
+            await _execute_frozen_message(**task_args)
+        except Exception as e:
+            logger.error(f"Failed to execute frozen message in queue: {e}")
+
+
+async def _execute_frozen_message(platform: PlatformAdapter, msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list, reply_text: str):
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
@@ -269,6 +307,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
                 )
     finally:
         await _stop_typing(platform, msg.chat.id, typing_task)
+
 
 
 # ===========================================
