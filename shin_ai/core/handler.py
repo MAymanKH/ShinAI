@@ -130,6 +130,8 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         f"{sticker_warning}{moderation_warning}"
     )
 
+    logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
+
     memory_section = await _get_memory_section(prompt)
     recent_context_section = _get_recent_context(platform.platform_name, msg)
     social_context_section = get_social_context(msg, reply_text)

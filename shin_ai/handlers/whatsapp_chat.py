@@ -17,7 +17,7 @@ if WHATSAPP_ENABLED:
         whatsapp_platform = WhatsAppPlatform(WHATSAPP_SESSION_NAME)
 
         async def _handle_whatsapp_message(event_msg: MessageEventType) -> None:
-            unified_msg = whatsapp_platform.ingest_event_message(event_msg)
+            unified_msg = await whatsapp_platform.ingest_event_message(event_msg)
 
             if should_record_context(unified_msg):
                 add_message_to_context(unified_msg)

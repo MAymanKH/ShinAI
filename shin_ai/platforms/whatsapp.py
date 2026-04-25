@@ -97,6 +97,7 @@ class WhatsAppPlatform(PlatformAdapter):
         self._raw_message_cache: OrderedDict[tuple[str, str], MessageEventType] = OrderedDict()
         self._unified_message_cache: OrderedDict[tuple[str, str], UnifiedMessage] = OrderedDict()
         self._cache_limit = 2000
+        self._group_title_cache: dict[str, str] = {}
 
     @property
     def platform_name(self) -> str:
@@ -485,8 +486,8 @@ class WhatsAppPlatform(PlatformAdapter):
             self._raw_message_cache.move_to_end(cache_key)
             return self._raw_message_cache.get(cache_key)
 
-    def ingest_event_message(self, event_msg: MessageEventType) -> UnifiedMessage:
-        unified = self.to_unified_message(event_msg)
+    async def ingest_event_message(self, event_msg: MessageEventType) -> UnifiedMessage:
+        unified = await self.to_unified_message(event_msg)
         self._cache_message(unified, event_msg)
         return unified
 
@@ -578,7 +579,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return tokens
 
-    def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
+    async def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         source = event_msg.Info.MessageSource
         chat_jid = source.Chat
         sender_jid = source.Sender
@@ -591,9 +592,22 @@ class WhatsAppPlatform(PlatformAdapter):
         chat_id = self._normalize_jid_identity(raw_chat_id) or raw_chat_id
         chat_type = "GROUP" if bool(source.IsGroup) else "PRIVATE"
 
+        chat_title = None
+        if chat_type == "GROUP":
+            if chat_id in self._group_title_cache:
+                chat_title = self._group_title_cache[chat_id]
+            else:
+                try:
+                    group_info = await self._run_sync(self.client.get_group_info, chat_jid)
+                    if group_info and group_info.GroupName and group_info.GroupName.Name:
+                        chat_title = group_info.GroupName.Name
+                        self._group_title_cache[chat_id] = chat_title
+                except Exception as e:
+                    logger.debug(f"Failed to fetch group info for {chat_id}: {e}")
+
         chat = UnifiedChat(
             id=chat_id,
-            title=None,
+            title=chat_title,
             type=chat_type,
         )
 
@@ -726,7 +740,7 @@ class WhatsAppPlatform(PlatformAdapter):
         if send_response.Message.ListFields():
             outgoing.Message.CopyFrom(send_response.Message)
 
-        unified = self.to_unified_message(outgoing)
+        unified = await self.to_unified_message(outgoing)
         self._cache_message(unified, outgoing)
 
     async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
@@ -878,7 +892,7 @@ class WhatsAppPlatform(PlatformAdapter):
                     fetched = fetched[0] if fetched else None
 
                 if fetched and hasattr(fetched, "Info") and hasattr(fetched, "Message"):
-                    return self.ingest_event_message(fetched)
+                    return await self.ingest_event_message(fetched)
             except Exception:
                 continue
 
