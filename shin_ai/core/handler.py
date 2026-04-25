@@ -42,7 +42,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
 
     # Rate limit check
     if msg.from_user and not check_rate_limit(msg.from_user.id) and AI_CHOICE != "manual":
-        return await platform.react(msg.chat.id, msg.id, "😴")
+        return
 
     prompt = _extract_prompt(msg)
     media_list = await _download_media(platform, msg)

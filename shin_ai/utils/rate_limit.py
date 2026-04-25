@@ -7,7 +7,7 @@ from shin_ai.config import ADMIN_USER_ID
 # user_id -> last_request_time
 _last_used: dict[int, float] = {}
 
-COOLDOWN_SECONDS = 7  # adjust as you like
+COOLDOWN_SECONDS = 4
 
 
 def check_rate_limit(user_id: int | str) -> bool:
