@@ -10,6 +10,19 @@ from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
 
 REPLIES_FILE = DATA_DIR / "bot_replies.json"
+_next_message_watch: dict[str, bool] = {}
+
+
+def set_next_message_watch(platform: str, chat_id: int | str):
+    _next_message_watch[_reply_key(platform, chat_id)] = True
+
+
+def check_and_clear_next_message_watch(platform: str, chat_id: int | str) -> bool:
+    key = _reply_key(platform, chat_id)
+    if _next_message_watch.get(key):
+        _next_message_watch[key] = False
+        return True
+    return False
 
 
 def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
@@ -51,6 +64,8 @@ def save_reply(chat_id: int | str, message_id: int | str, platform: str | None =
         replies[scoped_chat_id] = []
     
     replies[scoped_chat_id].append(str(message_id))
+    if platform:
+        set_next_message_watch(platform, chat_id)
     
     # Keep only last 100 replies per chat
     if len(replies[scoped_chat_id]) > 100:

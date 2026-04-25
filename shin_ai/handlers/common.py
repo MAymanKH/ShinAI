@@ -2,7 +2,7 @@ import random
 from collections.abc import Callable
 
 from shin_ai.platforms.models import UnifiedMessage
-from shin_ai.services.replies import check_reply_chain
+from shin_ai.services.replies import check_reply_chain, check_and_clear_next_message_watch
 
 
 SUPPORTED_CHAT_TYPES = {"PRIVATE", "GROUP", "SUPERGROUP"}
@@ -67,6 +67,8 @@ async def should_respond_to_message(
         _debug("skip:system_broadcast")
         return False
 
+    is_next = check_and_clear_next_message_watch(msg.platform, msg.chat.id)
+
     text = _message_text(msg)
 
     if str(msg.chat.type).upper() == "PRIVATE":
@@ -74,6 +76,11 @@ async def should_respond_to_message(
             _debug("skip:private_command")
             return False
         _debug("pass:private")
+        return True
+
+    if is_next:
+        msg.is_speculative_reply = True
+        _debug("pass:speculative_next_message")
         return True
 
     if not text:

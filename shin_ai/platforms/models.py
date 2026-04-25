@@ -67,6 +67,7 @@ class UnifiedMessage:
     
     # Mention flags
     mentioned: bool = False
+    is_speculative_reply: bool = False
     
     # Native message object for any platform-specific functions
     native_msg: Any = None

@@ -90,6 +90,10 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         else "RANDOM INTERJECTION (User is NOT talking to you, you are engaging proactively)"
     )
 
+    if getattr(msg, "is_speculative_reply", False):
+        interaction_type = "SPECULATIVE INTERACTION (You just sent a message. This is the first user message following yours. Respond naturally if it's continuing the convo with you, otherwise ignore completely.)"
+
+
     runtime_context = build_runtime_context(
         username=msg.from_user.username if msg.from_user else None,
         full_name=msg.from_user.first_name if msg.from_user else "Unknown",
@@ -160,6 +164,10 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         sticker_mappings=sticker_mappings,
     )
 
+    if getattr(msg, "is_speculative_reply", False):
+        system_prompt += "\n\nCRITICAL RULE: This is a speculative next message. The user just replied after you. If the user is NOT talking to you (e.g. they are talking to someone else or it's completely unrelated), YOU MUST EXACTLY OUTPUT `NO_RESPONSE` and nothing else. DO NOT USE `NO_RESPONSE` IF YOU INTEND TO REPLY."
+
+
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
@@ -169,6 +177,10 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
             prompt=prompt,
             media_list=media_list,
         )
+
+        if getattr(msg, "is_speculative_reply", False) and answer and "NO_RESPONSE" in answer:
+            logger.info("AI chose NO_RESPONSE for speculative reply.")
+            return
 
         if not is_ai_response_valid(answer):
             logger.warning("AI failed, falling back to manual response")
