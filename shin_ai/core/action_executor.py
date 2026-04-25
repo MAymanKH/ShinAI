@@ -62,7 +62,7 @@ async def execute_response(
     for idx, single_parsed in enumerate(parsed_list):
         # Add delay between messages (not before the first one)
         if idx > 0:
-            await asyncio.sleep(1.5)  # 1.5 second delay between messages
+            await asyncio.sleep(2)  # 2 second delay between messages
         
         # Resolve target: use AI-specified ID if present, otherwise default to sender
         if single_parsed.target_id:
