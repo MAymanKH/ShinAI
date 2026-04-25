@@ -103,16 +103,16 @@ async def _execute_sticker(platform: PlatformAdapter, msg: UnifiedMessage, stick
         
     try:
         if platform.supports_stickers:
-             # Just pass it to platform, we can simulate returning a message id for context if we want,
-             # but action executor uses it to save reply chain context.
-             sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
-             if sent_id:
-                 save_reply(msg.chat.id, sent_id)
-                 # Note: Ideally add_message_to_context would take the sent UnifiedMessage, 
-                 # but since we only have ID, we might skip it or fetch it.
-                 # For simplicity, we just save it as reply for reply chains.
+                # Just pass it to platform, we can simulate returning a message id for context if we want,
+                # but action executor uses it to save reply chain context.
+                sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
+                if sent_id:
+                    save_reply(msg.chat.id, sent_id, platform.platform_name)
+                    # Note: Ideally add_message_to_context would take the sent UnifiedMessage, 
+                    # but since we only have ID, we might skip it or fetch it.
+                    # For simplicity, we just save it as reply for reply chains.
         else:
-             logger.info(f"Platform {platform.platform_name} doesn't support stickers natively. Dropping.")
+                logger.info(f"Platform {platform.platform_name} doesn't support stickers natively. Dropping.")
     except Exception as e:
         logger.error(f"Sticker failed: {e}")
 
@@ -122,7 +122,7 @@ async def _execute_text(platform: PlatformAdapter, msg: UnifiedMessage, text_con
     try:
         sent_id = await platform.send_message(msg.chat.id, text_content, reply_to_id)
         if sent_id:
-            save_reply(msg.chat.id, sent_id)
+            save_reply(msg.chat.id, sent_id, platform.platform_name)
         return sent_id
     except Exception as e:
         logger.error(f"Text reply failed: {e}")
@@ -166,19 +166,19 @@ async def _execute_mod_action(platform: PlatformAdapter, msg: UnifiedMessage, pa
     if action in ("unban", "add"):
         target = await _resolve_mod_target(platform, msg, parsed.mod_target_username, None) # Resolve simple
         if not target:
-             return f"{action.upper()} FAILED: Could not find the user."
+            return f"{action.upper()} FAILED: Could not find the user."
         try:
-             if action == "unban":
-                 await platform.unban_chat_member(msg.chat.id, target.id)
-             else:
-                 link = await platform.create_chat_invite_link(msg.chat.id)
-                 if link: 
-                     # we don't have direct DM easily cross-platform in exactly the same way unless we send msg to their ID
-                     # Best effort send DM
-                     await platform.send_message(target.id, f"You've been invited: {link}")
-             return None
+            if action == "unban":
+                await platform.unban_chat_member(msg.chat.id, target.id)
+            else:
+                link = await platform.create_chat_invite_link(msg.chat.id)
+                if link: 
+                    # we don't have direct DM easily cross-platform in exactly the same way unless we send msg to their ID
+                    # Best effort send DM
+                    await platform.send_message(target.id, f"You've been invited: {link}")
+                return None
         except Exception as e:
-             return f"{action.upper()} FAILED: {e}"
+            return f"{action.upper()} FAILED: {e}"
 
     target = await _resolve_mod_target(platform, msg, parsed.mod_target_username, parsed.target_id)
     if not target:
@@ -190,14 +190,18 @@ async def _execute_mod_action(platform: PlatformAdapter, msg: UnifiedMessage, pa
             return f"{action.upper()} FAILED: Target is an admin/owner."
             
         if action == "kick":
-             await platform.kick_chat_member(msg.chat.id, target.id)
+            await platform.kick_chat_member(msg.chat.id, target.id)
         elif action == "ban":
-             await platform.ban_chat_member(msg.chat.id, target.id)
+            await platform.ban_chat_member(msg.chat.id, target.id)
         elif action == "mute":
-             await platform.restrict_chat_member(msg.chat.id, target.id, False)
+            if not getattr(platform, "supports_member_restrictions", True):
+                return f"{action.upper()} FAILED: Platform {platform.platform_name} does not support per-user mute/unmute."
+            await platform.restrict_chat_member(msg.chat.id, target.id, False)
         elif action == "unmute":
-             await platform.restrict_chat_member(msg.chat.id, target.id, True)
-             
+            if not getattr(platform, "supports_member_restrictions", True):
+                return f"{action.upper()} FAILED: Platform {platform.platform_name} does not support per-user mute/unmute."
+            await platform.restrict_chat_member(msg.chat.id, target.id, True)
+
         return None
     except Exception as e:
         return f"{action.upper()} FAILED: {e}"
@@ -213,23 +217,23 @@ async def _resolve_mod_target(platform: PlatformAdapter, msg: UnifiedMessage, ai
         # Try social context fallback
         resolved_username = _resolve_name_to_username(clean, platform.platform_name)
         if resolved_username:
-             user = await platform.get_user_by_username(resolved_username)
-             if user: return user
+                user = await platform.get_user_by_username(resolved_username)
+                if user: return user
 
     if target_id:
         try:
-             t_msg = await platform.get_message(msg.chat.id, target_id)
-             if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
-                 return t_msg.from_user
+                t_msg = await platform.get_message(msg.chat.id, target_id)
+                if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
+                    return t_msg.from_user
         except Exception:
-             pass
+                pass
 
     # Mentions
     for ent in msg.entities + msg.caption_entities:
-         if ent.type == "MENTION" or ent.type == "TEXT_MENTION":
-              if ent.user and not ent.user.is_self:
-                   return ent.user
-                   
+        if ent.type == "MENTION" or ent.type == "TEXT_MENTION":
+            if ent.user and not ent.user.is_self:
+                return ent.user
+                
     if msg.reply_to_message and msg.reply_to_message.from_user:
         if not msg.reply_to_message.from_user.is_self:
             return msg.reply_to_message.from_user

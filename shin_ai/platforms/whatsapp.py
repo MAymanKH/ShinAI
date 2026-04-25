@@ -109,6 +109,10 @@ class WhatsAppPlatform(PlatformAdapter):
         return True
 
     @property
+    def supports_member_restrictions(self) -> bool:
+        return False
+
+    @property
     def event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         return self._loop
 
@@ -801,8 +805,12 @@ class WhatsAppPlatform(PlatformAdapter):
         chat_jid = self._chat_id_to_jid(chat_id)
         raw_target = self.get_cached_raw_message(Jid2String(chat_jid), message_id)
         if not raw_target:
-            logger.warning(f"Cannot react on WhatsApp: missing cached target message {message_id} in chat {chat_id}")
-            return
+            # Best effort: try resolving the message first so we can populate cache.
+            await self.get_message(chat_id, message_id)
+            raw_target = self.get_cached_raw_message(Jid2String(chat_jid), message_id)
+            if not raw_target:
+                logger.warning(f"Cannot react on WhatsApp: missing cached target message {message_id} in chat {chat_id}")
+                return
 
         sender_jid = raw_target.Info.MessageSource.Sender
         reaction_message = await self._run_sync(
@@ -849,12 +857,38 @@ class WhatsAppPlatform(PlatformAdapter):
         return data or b""
 
     async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
-        return self._get_cached_unified_message(chat_id, message_id)
+        cached = self._get_cached_unified_message(chat_id, message_id)
+        if cached:
+            return cached
+
+        # Best effort fallback for clients exposing message retrieval APIs.
+        chat_jid = self._chat_id_to_jid(chat_id)
+        for method_name in ("get_message", "get_messages", "get_message_by_id"):
+            fetch_fn = getattr(self.client, method_name, None)
+            if not callable(fetch_fn):
+                continue
+
+            try:
+                if method_name == "get_messages":
+                    fetched = await self._run_sync(fetch_fn, chat_jid, [str(message_id)])
+                else:
+                    fetched = await self._run_sync(fetch_fn, chat_jid, str(message_id))
+
+                if isinstance(fetched, (list, tuple)):
+                    fetched = fetched[0] if fetched else None
+
+                if fetched and hasattr(fetched, "Info") and hasattr(fetched, "Message"):
+                    return self.ingest_event_message(fetched)
+            except Exception:
+                continue
+
+        return None
 
     async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
         # WhatsApp doesn't expose a public @username. We interpret this as phone number.
-        clean = username.strip().lstrip("@").split("@", 1)[0]
-        if not clean.isdigit():
+        clean_input = username.strip().lstrip("@").split("@", 1)[0]
+        clean = "".join(ch for ch in clean_input if ch.isdigit())
+        if not clean:
             return None
 
         jid = build_jid(clean, "s.whatsapp.net")
@@ -921,7 +955,7 @@ class WhatsAppPlatform(PlatformAdapter):
         )
 
     async def restrict_chat_member(self, chat_id: int | str, user_id: int | str, can_send_messages: bool) -> None:
-        raise NotImplementedError("WhatsApp does not expose per-user mute/unmute in this adapter.")
+        raise NotImplementedError("WhatsApp adapter does not support per-user mute/unmute.")
 
     async def create_chat_invite_link(self, chat_id: int | str) -> str:
         chat_jid = self._chat_id_to_jid(chat_id)

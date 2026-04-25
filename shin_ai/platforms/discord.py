@@ -107,6 +107,15 @@ class DiscordPlatform(PlatformAdapter):
                     first_name=member.display_name,
                     is_self=(member.id == self.client.user.id)
                 )
+
+            for candidate in guild.members:
+                if candidate.name.lower() == username or candidate.display_name.lower() == username:
+                    return UnifiedUser(
+                        id=candidate.id,
+                        username=candidate.name,
+                        first_name=candidate.display_name,
+                        is_self=(candidate.id == self.client.user.id)
+                    )
         return None
 
     async def get_chat_member_status(self, chat_id: int | str, user_id: int | str) -> str:
@@ -200,17 +209,39 @@ class DiscordPlatform(PlatformAdapter):
             if msg.reference.resolved and isinstance(msg.reference.resolved, discord.Message):
                 unified_msg.reply_to_message = self.to_unified_message(msg.reference.resolved)
                 
-        # Handle media (simplified to photo/video)
+        # Handle media by scanning attachments and keeping first hit per media slot.
         if msg.attachments:
-            att = msg.attachments[0]
-            content_type_str = str(att.content_type or "")
-            filename_str = str(att.filename or "").lower()
-            if "image" in content_type_str:
-                unified_msg.photo = UnifiedMedia(type="PHOTO", id=str(att.id), native_obj=att)
-            elif "video" in content_type_str:
-                unified_msg.video = UnifiedMedia(type="VIDEO", id=str(att.id), native_obj=att)
-            elif "audio" in content_type_str or filename_str.endswith(('.ogg', '.mp3', '.wav', '.m4a', '.flac', '.opus', '.webm')):
-                unified_msg.audio = UnifiedMedia(type="AUDIO", id=str(att.id), mime_type=att.content_type, native_obj=att)
+            for att in msg.attachments:
+                content_type_str = str(att.content_type or "").lower()
+                filename_str = str(att.filename or "").lower()
+
+                if "image" in content_type_str and not unified_msg.photo:
+                    unified_msg.photo = UnifiedMedia(type="PHOTO", id=str(att.id), native_obj=att)
+                    continue
+
+                if "video" in content_type_str and not unified_msg.video:
+                    unified_msg.video = UnifiedMedia(type="VIDEO", id=str(att.id), native_obj=att)
+                    continue
+
+                is_audio = "audio" in content_type_str or filename_str.endswith(
+                    ('.ogg', '.mp3', '.wav', '.m4a', '.flac', '.opus', '.webm')
+                )
+                if is_audio and not unified_msg.audio and not unified_msg.voice:
+                    unified_msg.audio = UnifiedMedia(
+                        type="AUDIO",
+                        id=str(att.id),
+                        mime_type=att.content_type,
+                        native_obj=att,
+                    )
+                    continue
+
+                if not unified_msg.document:
+                    unified_msg.document = UnifiedMedia(
+                        type="DOCUMENT",
+                        id=str(att.id),
+                        mime_type=att.content_type,
+                        native_obj=att,
+                    )
                 
         # Emulate entities for mentions
         entities = []

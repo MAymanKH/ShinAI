@@ -17,6 +17,11 @@ class PlatformAdapter(ABC):
         """Whether the platform supports sending native stickers by ID."""
         pass
 
+    @property
+    def supports_member_restrictions(self) -> bool:
+        """Whether the platform supports per-user mute/unmute operations."""
+        return True
+
     @abstractmethod
     async def get_bot_user(self) -> UnifiedUser:
         """Returns the bot's user object."""

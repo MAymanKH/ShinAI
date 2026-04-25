@@ -13,9 +13,16 @@ def _message_text(msg: UnifiedMessage) -> str:
     return (msg.text or msg.caption or "").strip()
 
 
-def _has_telegram_style_media(msg: UnifiedMessage) -> bool:
-    # Keep parity with Telegram's historical trigger behavior.
-    return bool(msg.photo or msg.sticker or msg.voice or msg.audio)
+def _has_supported_media(msg: UnifiedMessage) -> bool:
+    return bool(
+        msg.photo
+        or msg.sticker
+        or msg.voice
+        or msg.audio
+        or msg.video
+        or msg.animation
+        or msg.document
+    )
 
 
 def is_supported_chat(msg: UnifiedMessage) -> bool:
@@ -70,7 +77,7 @@ async def should_respond_to_message(
         return True
 
     if not text:
-        if not _has_telegram_style_media(msg):
+        if not _has_supported_media(msg):
             _debug("skip:no_text_no_supported_media")
             return False
         if await check_reply_chain(msg):

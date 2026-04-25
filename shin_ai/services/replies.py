@@ -12,6 +12,24 @@ from shin_ai.platforms.base import PlatformAdapter
 REPLIES_FILE = DATA_DIR / "bot_replies.json"
 
 
+def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
+    raw_chat_id = str(chat_id).strip()
+    if platform != "whatsapp":
+        return raw_chat_id
+
+    lowered = raw_chat_id.lower()
+    if "@" in lowered:
+        user, server = lowered.split("@", 1)
+        user = user.split(":", 1)[0]
+        return f"{user}@{server}"
+
+    return lowered.split(":", 1)[0]
+
+
+def _reply_key(platform: str, chat_id: int | str) -> str:
+    return f"{platform}_{_normalize_chat_id(platform, chat_id)}"
+
+
 def load_replies() -> dict:
     """Load saved bot replies from file."""
     if not REPLIES_FILE.exists():
@@ -23,19 +41,20 @@ def load_replies() -> dict:
         return {}
 
 
-def save_reply(chat_id: int | str, message_id: int | str) -> None:
+def save_reply(chat_id: int | str, message_id: int | str, platform: str | None = None) -> None:
     """Save a bot reply for future chain detection."""
     replies = load_replies()
     chat_id_str = str(chat_id)
+    scoped_chat_id = _reply_key(platform, chat_id) if platform else chat_id_str
     
-    if chat_id_str not in replies:
-        replies[chat_id_str] = []
+    if scoped_chat_id not in replies:
+        replies[scoped_chat_id] = []
     
-    replies[chat_id_str].append(str(message_id))
+    replies[scoped_chat_id].append(str(message_id))
     
     # Keep only last 100 replies per chat
-    if len(replies[chat_id_str]) > 100:
-        replies[chat_id_str] = replies[chat_id_str][-100:]
+    if len(replies[scoped_chat_id]) > 100:
+        replies[scoped_chat_id] = replies[scoped_chat_id][-100:]
     
     # Ensure directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,9 +66,11 @@ def save_reply(chat_id: int | str, message_id: int | str) -> None:
 async def check_reply_chain(msg: UnifiedMessage):
     if msg.reply_to_message_id:
         replies = load_replies()
-        chat_id_str = str(msg.chat.id)
-        if chat_id_str in replies:
-            if str(msg.reply_to_message_id) in replies[chat_id_str]:
+        scoped_chat_id = _reply_key(msg.platform, msg.chat.id)
+        legacy_chat_id = str(msg.chat.id)
+
+        for key in (scoped_chat_id, legacy_chat_id):
+            if key in replies and str(msg.reply_to_message_id) in replies[key]:
                 return True
     return False
 

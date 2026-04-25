@@ -109,7 +109,8 @@ def build_system_prompt(
         - **ESCALATION**: {PERSONALITY.get("moderation_escalation", "")}
 
         6. **STICKER LIBRARY**
-        Select stickers from this list or any sticker in the Telegram system library.
+        Select stickers from this list.
+        Respect platform capability notes from runtime metadata before using sticker actions.
         {sticker_mappings}
 
         ### CONTEXT DATA

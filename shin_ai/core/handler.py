@@ -102,7 +102,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         interaction_type=interaction_type,
     )
     
-    # Add platform specific sticker instructions
+    # Add platform-specific capability instructions
     if not platform.supports_stickers:
         sticker_warning = (
             "\nCRITICAL: This platform ("
@@ -117,7 +117,18 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         )
     else:
         sticker_warning = ""
-    runtime_context += f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}.{sticker_warning}"
+
+    moderation_warning = ""
+    if not getattr(platform, "supports_member_restrictions", True):
+        moderation_warning = (
+            "\nMODERATION NOTE: This platform does not support per-user mute/unmute. "
+            "Do not use action:mute or action:unmute."
+        )
+
+    runtime_context += (
+        f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
+        f"{sticker_warning}{moderation_warning}"
+    )
 
     memory_section = await _get_memory_section(prompt)
     recent_context_section = _get_recent_context(platform.platform_name, msg)
