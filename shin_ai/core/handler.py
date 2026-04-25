@@ -32,7 +32,7 @@ from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.audio_transcriber import transcribe_audio
-from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS
+from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS, PERSONALITY
 
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
@@ -78,6 +78,36 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
                 media_ids = [m["msg_id"] for m in recent_media[:5]]
                 context_media = await _download_media_from_context(platform, msg.chat.id, media_ids)
                 media_list.extend(context_media)
+
+    recent_context_section = _get_recent_context(platform.platform_name, msg)
+
+    if getattr(msg, "is_speculative_reply", False):
+        bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
+        eval_system = (
+            "You are a strict boolean evaluator. "
+            "Your task is to determine if the user's message is addressed to you (the AI assistant) or clearly continuing a conversation with you.\n"
+            "You recently sent a message, and this is the very next message in the group.\n\n"
+            f"--- BOT CONTEXT ---\n"
+            f"{bot_identity}\n"
+            f"--- RECENT CHAT HISTORY ---\n"
+            f"{recent_context_section}\n\n"
+            "Rules:\n"
+            "1. Output 'YES' if the user explicitly addresses you (using your name from the Bot Context), asks you a question, or says something like 'thanks' or 'haha' in clear direct response to what you just said.\n"
+            "2. Output 'NO' if the user addresses someone else by name, responds to another user, or says something completely unrelated to your recent message.\n"
+            "3. If in doubt, output 'NO'.\n"
+            "You MUST output exactly 'YES' or 'NO' and nothing else."
+        )
+        eval_prompt = f"User's message: \"{prompt}\""
+        try:
+            logger.info("Running speculative reply pre-flight evaluation...")
+            eval_ans = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
+            if not eval_ans or "YES" not in eval_ans.strip().upper():
+                logger.info(f"Pre-flight eval rejected speculative message. Eval: {eval_ans}")
+                return
+            logger.info("Pre-flight evaluation passed.")
+        except Exception as e:
+            logger.error(f"Pre-flight evaluation failed: {e}")
+            return
 
     style_examples = _get_style_examples(prompt)
     reply_text = await _get_reply_chain_text(platform, msg)
@@ -138,7 +168,6 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
 
     memory_section = await _get_memory_section(prompt)
-    recent_context_section = _get_recent_context(platform.platform_name, msg)
     social_context_section = get_social_context(msg, reply_text)
 
     sender_name = msg.from_user.first_name if msg.from_user else "User"
@@ -164,25 +193,6 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         sticker_mappings=sticker_mappings,
     )
 
-    if getattr(msg, "is_speculative_reply", False):
-        system_prompt = (
-            "=========================================================\n"
-            "CRITICAL PROTOCOL: SPECULATIVE REPLY EVALUATION\n"
-            "=========================================================\n"
-            "You are evaluating the message immediately following your own response.\n"
-            "You MUST ONLY reply if the user is explicitly talking to you, continuing a conversation with you, or directly acknowledging your message.\n\n"
-            "EXAMPLES OF WHEN TO REPLY:\n"
-            "- User says something directly related to your last message.\n"
-            "- User asks you a follow-up question.\n"
-            "- User says 'Thanks', 'Ah I see', 'Lol' clearly in response to you.\n\n"
-            "EXAMPLES OF WHEN YOU MUST IGNORE (OUTPUT 'NO_RESPONSE'):\n"
-            "- User is talking to another user in the group.\n"
-            "- User starts a completely new unrelated topic with the group.\n"
-            "- User's message doesn't make sense as a reply to what you just said.\n\n"
-            "If you determine you should NOT reply based on the above, your ENTIRE output MUST BE exactly `NO_RESPONSE`.\n"
-            "=========================================================\n\n"
-        ) + system_prompt
-
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
@@ -192,10 +202,6 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
             prompt=prompt,
             media_list=media_list,
         )
-
-        if getattr(msg, "is_speculative_reply", False) and answer and "NO_RESPONSE" in answer:
-            logger.info("AI chose NO_RESPONSE for speculative reply.")
-            return
 
         if not is_ai_response_valid(answer):
             logger.warning("AI failed, falling back to manual response")
