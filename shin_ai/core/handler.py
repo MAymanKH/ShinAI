@@ -165,8 +165,23 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     )
 
     if getattr(msg, "is_speculative_reply", False):
-        system_prompt += "\n\nCRITICAL RULE: This is a speculative next message. The user just replied after you. If the user is NOT talking to you (e.g. they are talking to someone else or it's completely unrelated), YOU MUST EXACTLY OUTPUT `NO_RESPONSE` and nothing else. DO NOT USE `NO_RESPONSE` IF YOU INTEND TO REPLY."
-
+        system_prompt = (
+            "=========================================================\n"
+            "CRITICAL PROTOCOL: SPECULATIVE REPLY EVALUATION\n"
+            "=========================================================\n"
+            "You are evaluating the message immediately following your own response.\n"
+            "You MUST ONLY reply if the user is explicitly talking to you, continuing a conversation with you, or directly acknowledging your message.\n\n"
+            "EXAMPLES OF WHEN TO REPLY:\n"
+            "- User says something directly related to your last message.\n"
+            "- User asks you a follow-up question.\n"
+            "- User says 'Thanks', 'Ah I see', 'Lol' clearly in response to you.\n\n"
+            "EXAMPLES OF WHEN YOU MUST IGNORE (OUTPUT 'NO_RESPONSE'):\n"
+            "- User is talking to another user in the group.\n"
+            "- User starts a completely new unrelated topic with the group.\n"
+            "- User's message doesn't make sense as a reply to what you just said.\n\n"
+            "If you determine you should NOT reply based on the above, your ENTIRE output MUST BE exactly `NO_RESPONSE`.\n"
+            "=========================================================\n\n"
+        ) + system_prompt
 
     typing_task = _start_typing(platform, msg.chat.id)
 
