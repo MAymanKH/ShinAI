@@ -590,7 +590,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         raw_chat_id = Jid2String(chat_jid)
         chat_id = self._normalize_jid_identity(raw_chat_id) or raw_chat_id
-        chat_type = "GROUP" if bool(source.IsGroup) else "PRIVATE"
+        chat_type = "GROUP" if (chat_jid.Server == "g.us" or bool(source.IsGroup)) else "PRIVATE"
 
         chat_title = None
         if chat_type == "GROUP":
