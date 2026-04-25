@@ -123,14 +123,35 @@ class WhatsAppPlatform(PlatformAdapter):
                 self._unified_message_cache.popitem(last=False)
 
     def _jid_to_user_id(self, jid: JIDType) -> str:
+        raw_jid = Jid2String(jid)
+        normalized = self._normalize_jid_identity(raw_jid)
+        if normalized:
+            return normalized
         if jid.User:
-            return jid.User
-        return Jid2String(jid)
+            return str(jid.User).split(":", 1)[0]
+        return raw_jid
 
     def _jid_to_username(self, jid: JIDType) -> str:
+        raw_jid = Jid2String(jid)
+        local_user = self._extract_local_user_id(raw_jid)
+        if local_user:
+            return local_user
         if jid.User:
-            return jid.User
-        return Jid2String(jid)
+            return str(jid.User).split(":", 1)[0]
+        return raw_jid
+
+    def _normalize_message_timestamp(self, raw_timestamp: int | float | None) -> float:
+        if not raw_timestamp:
+            return 0.0
+
+        ts = float(raw_timestamp)
+        # Neonize timestamps can be emitted in milliseconds depending on source wrappers.
+        if ts > 1e12:
+            ts = ts / 1000.0
+        return ts
+
+    def _media_id(self, message_id: int | str, media_type: str) -> str:
+        return f"{message_id}:{media_type}"
 
     def _normalize_jid_identity(self, jid_value: str) -> str:
         raw = (jid_value or "").strip().lower()
@@ -244,36 +265,69 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return text, caption
 
-    def _apply_media(self, unified_msg: UnifiedMessage, message: WaMessageType, download_message: WaMessageType = None) -> None:
+    def _apply_media(
+        self,
+        unified_msg: UnifiedMessage,
+        message: WaMessageType,
+        download_message: WaMessageType = None,
+        message_id: int | str | None = None,
+    ) -> None:
         # Use the original (non-unwrapped) message for downloads so that
         # Neonize's download_any() can locate the media URL and encryption
         # keys that may live in outer wrapper layers (ephemeral, view-once, etc.).
         native_payload = {"wa_message": download_message or message}
 
+        media_msg_id = message_id or unified_msg.id
+
         if message.imageMessage.ListFields():
             mime = message.imageMessage.mimetype or "image/jpeg"
-            unified_msg.photo = UnifiedMedia(type="PHOTO", id="wa-image", mime_type=mime, native_obj=native_payload)
+            unified_msg.photo = UnifiedMedia(
+                type="PHOTO",
+                id=self._media_id(media_msg_id, "photo"),
+                mime_type=mime,
+                native_obj=native_payload,
+            )
         if message.stickerMessage.ListFields():
             mime = message.stickerMessage.mimetype or "image/webp"
             unified_msg.sticker = UnifiedMedia(
                 type="STICKER",
-                id="wa-sticker",
+                id=self._media_id(media_msg_id, "sticker"),
                 is_animated=bool(message.stickerMessage.isAnimated),
                 mime_type=mime,
                 native_obj=native_payload,
             )
         if message.videoMessage.ListFields():
             mime = message.videoMessage.mimetype or "video/mp4"
-            unified_msg.video = UnifiedMedia(type="VIDEO", id="wa-video", mime_type=mime, native_obj=native_payload)
+            unified_msg.video = UnifiedMedia(
+                type="VIDEO",
+                id=self._media_id(media_msg_id, "video"),
+                mime_type=mime,
+                native_obj=native_payload,
+            )
         if message.audioMessage.ListFields():
             mime = message.audioMessage.mimetype or "audio/ogg"
             if bool(message.audioMessage.PTT):
-                unified_msg.voice = UnifiedMedia(type="VOICE", id="wa-voice", mime_type=mime, native_obj=native_payload)
+                unified_msg.voice = UnifiedMedia(
+                    type="VOICE",
+                    id=self._media_id(media_msg_id, "voice"),
+                    mime_type=mime,
+                    native_obj=native_payload,
+                )
             else:
-                unified_msg.audio = UnifiedMedia(type="AUDIO", id="wa-audio", mime_type=mime, native_obj=native_payload)
+                unified_msg.audio = UnifiedMedia(
+                    type="AUDIO",
+                    id=self._media_id(media_msg_id, "audio"),
+                    mime_type=mime,
+                    native_obj=native_payload,
+                )
         if message.documentMessage.ListFields():
             mime = message.documentMessage.mimetype or "application/octet-stream"
-            unified_msg.document = UnifiedMedia(type="DOCUMENT", id="wa-document", mime_type=mime, native_obj=native_payload)
+            unified_msg.document = UnifiedMedia(
+                type="DOCUMENT",
+                id=self._media_id(media_msg_id, "document"),
+                mime_type=mime,
+                native_obj=native_payload,
+            )
 
     def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> Optional[UnifiedMessage]:
         if not context_info.stanzaID:
@@ -282,13 +336,18 @@ class WhatsAppPlatform(PlatformAdapter):
             return None
 
         participant = context_info.participant or ""
-        participant_user = participant.split("@", 1)[0] if participant else "unknown"
+        participant_id = self._normalize_jid_identity(participant)
+        participant_user = self._extract_local_user_id(participant)
+        display_name = participant_user or participant_id or "unknown"
+
+        bot_tokens = self._collect_bot_identity_tokens()
+        participant_tokens = self._collect_mentioned_identity_tokens([participant]) if participant else set()
 
         quoted_user = UnifiedUser(
-            id=participant_user,
+            id=participant_id or display_name,
             username=participant_user if participant_user != "unknown" else None,
-            first_name=participant_user,
-            is_self=False,
+            first_name=display_name,
+            is_self=bool(bot_tokens & participant_tokens),
         )
 
         quoted_body = self._unwrap_message(context_info.quotedMessage)
@@ -296,7 +355,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         quoted = UnifiedMessage(
             platform=self.platform_name,
-            id=context_info.stanzaID,
+            id=str(context_info.stanzaID),
             chat=chat,
             from_user=quoted_user,
             text=quoted_text,
@@ -304,17 +363,28 @@ class WhatsAppPlatform(PlatformAdapter):
             date=0.0,
             native_msg=context_info.quotedMessage,
         )
-        self._apply_media(quoted, quoted_body, context_info.quotedMessage)
+        self._apply_media(
+            quoted,
+            quoted_body,
+            context_info.quotedMessage,
+            message_id=str(context_info.stanzaID),
+        )
         return quoted
 
-    def _build_entities_from_context(self, context_info: Optional[ContextInfoType], source_text: str) -> list[UnifiedMessageEntity]:
+    def _build_entities_from_context(
+        self,
+        context_info: Optional[ContextInfoType],
+        source_text: str,
+    ) -> list[UnifiedMessageEntity]:
         entities: list[UnifiedMessageEntity] = []
         if not context_info:
             return entities
 
         for mentioned_jid in context_info.mentionedJID:
-            user_id = self._extract_local_user_id(mentioned_jid)
-            token = f"@{user_id}"
+            normalized_id = self._normalize_jid_identity(mentioned_jid)
+            user_name = self._extract_local_user_id(mentioned_jid)
+            mention_token = user_name or normalized_id
+            token = f"@{mention_token}" if mention_token else ""
             offset = source_text.find(token)
             length = len(token) if offset >= 0 else 0
             entities.append(
@@ -323,14 +393,31 @@ class WhatsAppPlatform(PlatformAdapter):
                     offset=max(offset, 0),
                     length=length,
                     user=UnifiedUser(
-                        id=user_id,
-                        username=user_id,
-                        first_name=user_id,
+                        id=normalized_id or user_name or mentioned_jid,
+                        username=user_name or None,
+                        first_name=user_name or normalized_id or mentioned_jid,
                         is_self=False,
                     ),
                 )
             )
         return entities
+
+    def _build_text_caption_entities(
+        self,
+        context_info: Optional[ContextInfoType],
+        text: Optional[str],
+        caption: Optional[str],
+    ) -> tuple[list[UnifiedMessageEntity], list[UnifiedMessageEntity]]:
+        text_entities = self._build_entities_from_context(context_info, text or "")
+        caption_entities = self._build_entities_from_context(context_info, caption or "")
+
+        # Keep Telegram-like separation: entities map to text, caption_entities map to captions.
+        if text:
+            caption_entities = []
+        elif caption:
+            text_entities = []
+
+        return text_entities, caption_entities
 
     def _cache_message(self, unified: UnifiedMessage, event_msg: MessageEventType) -> None:
         cache_key = (str(unified.chat.id), str(unified.id))
@@ -527,11 +614,16 @@ class WhatsAppPlatform(PlatformAdapter):
             from_user=from_user,
             text=text,
             caption=caption,
-            date=float(event_msg.Info.Timestamp or 0),
+            date=self._normalize_message_timestamp(event_msg.Info.Timestamp),
             native_msg=event_msg,
         )
 
-        self._apply_media(unified_msg, body, event_msg.Message)
+        self._apply_media(
+            unified_msg,
+            body,
+            event_msg.Message,
+            message_id=str(event_msg.Info.ID),
+        )
 
         context_info = self._extract_context_info(body)
         source_text = (text or caption or "")
@@ -547,23 +639,19 @@ class WhatsAppPlatform(PlatformAdapter):
 
         # --- Mention detection (rewritten for robustness) ---
         if context_info:
-            unified_msg.entities = self._build_entities_from_context(context_info, source_text)
+            (
+                unified_msg.entities,
+                unified_msg.caption_entities,
+            ) = self._build_text_caption_entities(context_info, text, caption)
 
             raw_mentioned = list(context_info.mentionedJID)
 
-            # Debug: log raw mention data so we can finally SEE what arrives
             if raw_mentioned:
                 bot_tokens = self._collect_bot_identity_tokens()
                 mention_tokens = self._collect_mentioned_identity_tokens(raw_mentioned)
                 overlap = bot_tokens & mention_tokens
-                logger.info(
-                    f"[WA-MENTION-DEBUG] raw_mentionedJID={raw_mentioned}, "
-                    f"bot_tokens={bot_tokens}, mention_tokens={mention_tokens}, "
-                    f"overlap={overlap}"
-                )
                 if overlap:
                     unified_msg.mentioned = True
-                    logger.info(f"[WA-MENTION] Bot mentioned via protobuf mentionedJID (overlap: {overlap})")
 
         # Text-based mention fallback: scan the message text for @<bot_id>.
         if not unified_msg.mentioned and source_text and self.client.me and self.client.me.JID.User:
@@ -571,7 +659,6 @@ class WhatsAppPlatform(PlatformAdapter):
             for token in bot_tokens:
                 if token and f"@{token}" in source_text.lower():
                     unified_msg.mentioned = True
-                    logger.info(f"[WA-MENTION] Bot mentioned via text fallback (@{token})")
                     break
 
         return unified_msg
