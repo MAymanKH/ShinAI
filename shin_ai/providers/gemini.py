@@ -318,8 +318,6 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     update_key_status(key_name, "error", model, e)
                 continue
 
-        logger.warning(f"Model {model} failed for all keys. Rotating to end of list.")
-        if model in models_to_try:
-            models_to_try.append(models_to_try.pop(models_to_try.index(model)))
+        logger.warning(f"Model {model} failed for all keys. Trying next available model.")
 
     return ""
