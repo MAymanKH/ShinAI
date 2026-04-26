@@ -181,7 +181,7 @@ docker-compose logs -f
 | `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
 | `WHISPER_MODEL` | Faster-Whisper model name (default: large-v3-turbo) | Optional |
 | `WHISPER_CPU_THREADS` | Number of CPU threads for Whisper inference (default: 2) | Optional |
-| `WHISPER_LANGUAGE` | Default language for transcription ('auto' for auto-detect) | Optional |
+| `WHISPER_LANGUAGE` | Default language for transcription (default: 'auto') | Optional |
 
 ### Personality Configuration
 
