@@ -29,16 +29,18 @@ An intelligent multi-platform bot that acts like a real group member - not an as
   - [Moderation System](#moderation-system)
   - [Real-Time Web Search](#real-time-web-search)
   - [Context Awareness](#context-awareness)
+  - [Voice Message Transcription](#voice-message-transcription)
 - [How It Works](#how-it-works)
   - [Architecture Overview](#architecture-overview)
   - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
   - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
   - [Memory System](#memory-system)
-  - [Real-Time Web Search](#real-time-web-search-1)
+  - [Web Searching, Fetching, and Scraping  ](#web-searching-fetching-and-scraping)
   - [Context Awareness](#context-awareness-1)
   - [Speculative Generation](#speculative-generation)
   - [Message Queuing & Delays](#message-queuing--delays)
   - [Loop Prevention](#loop-prevention)
+  - [Audio Processing Pipeline](#audio-processing-pipeline)
 - [AI Provider Details](#ai-provider-details)
 - [License](#license)
 
@@ -59,6 +61,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 📝 **Long-term Memory**: Remembers past conversations using vector embeddings (cross-platform awareness)
 - 🎨 **Style Learning**: Learns communication patterns from example messages
 - 🌐 **Real-Time Web Search**: Web searching, fetching, and scraping capabilities used when needed
+- 🎙️ **Voice Message Transcription**: Local, fast, and free audio transcription using faster-whisper
 - 📌 **Sticker Support**: Send stickers as responses with custom mappings
 - 😀 **Emoji Reactions**: React to messages with emojis instead of text
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
@@ -477,6 +480,10 @@ The bot responds when:
  | **Long-term Memory** | Semantic retrieval from the entire history database |
  | **Visual Context** | (Gemini only) Sees photos and stickers on Telegram |
 
+ ### Voice Message Transcription
+ 
+ The bot natively understands voice notes and audio files across all supported platforms. Instead of ignoring voice messages or relying on paid third-party APIs, it uses a local `faster-whisper` backend to rapidly transcribe audio. The transcribed text is then fed directly into the AI's context window, allowing it to seamlessly reply to spoken messages just as it would to text.
+
 ---
 
 ## How It Works
@@ -568,7 +575,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
  - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
  - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
 
-### Real-Time Web Search
+### Web Searching, Fetching, and Scraping
 
 The bot features a comprehensive **Native Web Search Integration** that works across all AI providers using the `duckduckgo-search` library paired with `beautifulsoup4` and `httpx`.
 
@@ -612,6 +619,10 @@ The bot avoids awkward endless conversations:
 - Detects natural endings ("thanks", "ok", "bye", laughing)
 - Responds with reaction/sticker instead of forcing more text
 - Doesn't reply to its own messages
+
+### Audio Processing Pipeline
+
+When a voice message or audio file is received, the platform adapter routes the raw audio bytes to the built-in transcription service. It runs `faster-whisper` inference on a dedicated thread pool to prevent blocking the async event loop. Once the audio is transcribed into text, it is injected into the standard message processing pipeline as if the user had typed it, maintaining a seamless conversational flow.
 
 ---
 
