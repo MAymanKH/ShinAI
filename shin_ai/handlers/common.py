@@ -78,7 +78,9 @@ async def should_respond_to_message(
         _debug("pass:private")
         return True
 
-    if is_next:
+    is_bot_reply = await check_reply_chain(msg)
+
+    if is_next and not msg.reply_to_message_id:
         msg.is_speculative_reply = True
         _debug("pass:speculative_next_message")
         return True
@@ -87,7 +89,7 @@ async def should_respond_to_message(
         if not _has_supported_media(msg):
             _debug("skip:no_text_no_supported_media")
             return False
-        if await check_reply_chain(msg):
+        if is_bot_reply:
             _debug("pass:reply_chain_media")
             return True
         _debug("skip:media_without_reply_chain")
@@ -101,7 +103,7 @@ async def should_respond_to_message(
         _debug("pass:mentioned")
         return True
 
-    if await check_reply_chain(msg):
+    if is_bot_reply:
         _debug("pass:reply_chain")
         return True
 
