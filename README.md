@@ -22,6 +22,8 @@ An intelligent multi-platform bot that acts like a real group member - not an as
   - [Smart Response Types](#smart-response-types)
   - [Multi-Message Responses](#multi-message-responses)
   - [Intelligent Reply Targeting](#intelligent-reply-targeting)
+  - [Speculative Responses](#speculative-responses)
+  - [Human-Like Delays](#human-like-delays)
   - [Reliability & Retry Behavior](#reliability--retry-behavior)
   - [Reactions & Stickers](#reactions--stickers)
   - [Moderation System](#moderation-system)
@@ -34,6 +36,8 @@ An intelligent multi-platform bot that acts like a real group member - not an as
   - [Memory System](#memory-system)
   - [Real-Time Web Search](#real-time-web-search-1)
   - [Context Awareness](#context-awareness-1)
+  - [Speculative Generation](#speculative-generation)
+  - [Message Queuing & Delays](#message-queuing--delays)
   - [Loop Prevention](#loop-prevention)
 - [AI Provider Details](#ai-provider-details)
 - [License](#license)
@@ -59,6 +63,8 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 😀 **Emoji Reactions**: React to messages with emojis instead of text
 - 📨 **Multi-Message Responses**: Send multiple sequential messages with automatic delays
 - 🎯 **Smart Reply Targeting**: Target any message in the chat by its real platform ID
+- 🤔 **Speculative Responses**: Intelligently jumps into ongoing conversations when appropriate
+- ⏱️ **Human-like Delays**: Randomizes response times to simulate human reading and typing
 - 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with platform-native actions
 - 🔁 **Reliability Layer**: Per-attempt timeout, retries mechanism, and error-aware retry context injection
 - ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
@@ -369,6 +375,7 @@ The bot responds when:
 - Mentioned the word "يالبوت"
 - Replied to on its previous messages
 - Any non-command DM
+- Speculative interaction when following up on its own messages
 - Random chance on any group message
 
  ---
@@ -412,6 +419,18 @@ The bot responds when:
  (no target)   → Reply to the user who triggered the bot (default)
  ```
 
+ ### Speculative Responses
+ 
+ The bot can autonomously decide to jump into conversations without being explicitly mentioned:
+ - Continuously monitors the chat context following its own messages to determine if a user's subsequent message is directed at it.
+ - Uses a pre-flight evaluation step to intelligently avoid interrupting or responding to messages not meant for it.
+ 
+ ### Human-Like Delays
+ 
+ To feel more like a real group member, the bot doesn't reply instantly:
+ - Implements a configurable randomized delay before responding to simulate reading and typing time.
+ - Intelligently queues multiple messages that arrive during the delay and responds to them in order once the timer expires.
+ 
  ### Reliability & Retry Behavior
  
  - Every AI provider call is protected with a per-attempt timeout and automatic retries.
@@ -574,6 +593,14 @@ When using Gemini as the AI provider, the bot can "see" and understand images an
 - Responding appropriately to memes and images
 
 This multimodal capability makes conversations feel more natural, as the bot can fully participate in visual discussions just like a human member would.
+
+### Speculative Generation
+
+When a new message arrives that might be a continuation of a conversation with the bot, it performs a lightweight "pre-flight" check using a strict boolean evaluation. This check assesses the context and determines if the message is truly intended for the bot before proceeding with a full AI response generation.
+
+### Message Queuing & Delays
+
+When the bot decides to respond, the response is not sent immediately. Instead, a random delay timer is started based on the `.env` configuration (`MIN_REPLY_DELAY_SECONDS` and `MAX_REPLY_DELAY_SECONDS`). Any subsequent messages received during this delay are queued. Once the timer expires, the bot processes the queued messages in order, providing a much more natural and human-like conversational flow.
 
 ### Loop Prevention
 
