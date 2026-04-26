@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from shin_ai.config import WHISPER_MODEL, WHISPER_CPU_THREADS
+from shin_ai.config import WHISPER_MODEL, WHISPER_CPU_THREADS, WHISPER_LANGUAGE
 from shin_ai.utils.logger_config import logger
 
 # ── Lazy-loaded singleton ────────────────────────────────────────────
@@ -82,10 +82,12 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
             tmp_path = tmp.name
 
         model = _get_model()
+        
+        lang_param = None if WHISPER_LANGUAGE.lower() == "auto" else WHISPER_LANGUAGE
 
         segments, info = model.transcribe(
             tmp_path,
-            language="ar",
+            language=lang_param,
             task="transcribe",
             beam_size=5,
             condition_on_previous_text=False,

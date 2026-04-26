@@ -172,13 +172,16 @@ docker-compose logs -f
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
 | `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
 | `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
-| `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding (seconds) | Optional |
-| `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding (seconds) | Optional |
+| `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding | Optional |
+| `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding | Optional |
 | `GEMINI_MODEL` | Gemini model name | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
 | `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
 | `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
+| `WHISPER_MODEL` | Faster-Whisper model name (default: large-v3-turbo) | Optional |
+| `WHISPER_CPU_THREADS` | Number of CPU threads for Whisper inference (default: 2) | Optional |
+| `WHISPER_LANGUAGE` | Default language for transcription ('auto' for auto-detect) | Optional |
 
 ### Personality Configuration
 
