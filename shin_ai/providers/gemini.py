@@ -7,6 +7,7 @@ from google import genai
 from shin_ai.config import GEMINI_MODEL, DATA_DIR
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.web_search import search_web_tool
+from shin_ai.utils.memory_lookup import memory_lookup_tool
 import json
 import os
 import time
@@ -245,7 +246,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 thinking_config = genai.types.ThinkingConfig(thinking_level="high") if "gemini-3" in model else None
                 config = genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
-                    tools=[search_web_tool],
+                    tools=[search_web_tool, memory_lookup_tool],
                     thinking_config=thinking_config
                 )
 
@@ -271,6 +272,16 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                                 
                                 tool_part = genai.types.Part.from_function_response(
                                     name="search_web_tool",
+                                    response={"result": tool_result_str}
+                                )
+                                contents.append(genai.types.Content(role="user", parts=[tool_part]))
+                            elif fn_call.name == "memory_lookup_tool":
+                                args = dict(fn_call.args) if fn_call.args else {}
+                                logger.info(f"Gemini requested memory lookup with args: {args}")
+                                tool_result_str = await memory_lookup_tool(**args)
+                                
+                                tool_part = genai.types.Part.from_function_response(
+                                    name="memory_lookup_tool",
                                     response={"result": tool_result_str}
                                 )
                                 contents.append(genai.types.Content(role="user", parts=[tool_part]))
