@@ -24,7 +24,7 @@ async def memory_lookup_tool(
     platform: Optional[str] = None,
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 30,
 ) -> str:
     """
     Search the bot's long-term memory with optional filters.
@@ -335,7 +335,7 @@ MEMORY_LOOKUP_TOOL_SCHEMA = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of results to return. Defaults to 100. Max 200.",
+                    "description": "Maximum number of results to return. Defaults to 30. Max 200.",
                 },
             },
             "required": [],
