@@ -165,8 +165,12 @@ async def _lookup_with_keywords(
             logger.error(f"ChromaDB get() failed: {e}")
             return []
 
-        docs = candidates.get("documents") or []
-        embs = candidates.get("embeddings") or []
+        docs = candidates.get("documents")
+        embs = candidates.get("embeddings")
+        if docs is None:
+            docs = []
+        if embs is None:
+            embs = []
 
         if not docs:
             return []
@@ -236,7 +240,8 @@ async def _lookup_metadata_only(
             limit=limit,
             include=["documents"],
         )
-        return results.get("documents") or []
+        docs = results.get("documents")
+        return docs if docs is not None else []
     except Exception as e:
         logger.error(f"ChromaDB metadata-only get() failed: {e}")
         return []
