@@ -4,82 +4,45 @@ import asyncio
 from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
-from typing import Any, Optional, TYPE_CHECKING
-
-def _load_neonize_symbols():
-    restore_validate = None
-    runtime_version = None
-
-    try:
-        import google.protobuf
-        from google.protobuf import runtime_version
-
-        major_version = int(str(google.protobuf.__version__).split(".", 1)[0])
-        if major_version < 7:
-            restore_validate = runtime_version.ValidateProtobufRuntimeVersion
-            runtime_version.ValidateProtobufRuntimeVersion = lambda *args, **kwargs: None
-    except Exception:
-        restore_validate = None
-
-    try:
-        from neonize import NewClient
-        from neonize.proto import Neonize_pb2 as neonize_proto
-        from neonize.proto.Neonize_pb2 import JID, Message as MessageEvent
-        from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo, Message as WaMessage
-        from neonize.utils import Jid2String, build_jid
-        from neonize.utils.enum import ChatPresence, ChatPresenceMedia, ParticipantChange
-
-        return (
-            NewClient,
-            neonize_proto,
-            JID,
-            MessageEvent,
-            ContextInfo,
-            WaMessage,
-            Jid2String,
-            build_jid,
-            ChatPresence,
-            ChatPresenceMedia,
-            ParticipantChange,
-        )
-    finally:
-        if restore_validate is not None and runtime_version is not None:
-            runtime_version.ValidateProtobufRuntimeVersion = restore_validate
-
-
-(
-    NewClient,
-    neonize_proto,
-    JID,
-    MessageEvent,
-    ContextInfo,
-    WaMessage,
-    Jid2String,
-    build_jid,
-    ChatPresence,
-    ChatPresenceMedia,
-    ParticipantChange,
-) = _load_neonize_symbols()
-
-if TYPE_CHECKING:
-    from neonize.proto.Neonize_pb2 import JID as JIDType, Message as MessageEventType, SendResponse as SendResponseType
-    from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo as ContextInfoType, Message as WaMessageType
-else:
-    # Runtime aliases must be concrete classes (not typing.Any), because Neonize
-    # uses these in decorators and isinstance-style checks.
-    JIDType = JID
-    MessageEventType = MessageEvent
-    SendResponseType = Any
-    ContextInfoType = ContextInfo
-    WaMessageType = WaMessage
+from typing import Any, Optional
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
     UnifiedChat,
     UnifiedMedia,
     UnifiedMessage,
-    UnifiedMessageEntity,
     UnifiedUser,
+)
+from shin_ai.platforms.whatsapp_helpers import (
+    collect_mentioned_identity_tokens,
+    extract_local_user_id,
+    find_cache_key,
+    jid_to_user_id,
+    jid_to_username,
+    normalize_jid_identity,
+    normalize_message_timestamp,
+)
+from shin_ai.platforms.whatsapp_message import (
+    apply_media,
+    build_text_caption_entities,
+    extract_context_info,
+    extract_text_and_caption,
+    unwrap_message,
+)
+from shin_ai.platforms.whatsapp_runtime import (
+    ChatPresence,
+    ChatPresenceMedia,
+    ContextInfoType,
+    JIDType,
+    Jid2String,
+    MessageEvent,
+    MessageEventType,
+    NewClient,
+    ParticipantChange,
+    SendResponseType,
+    WaMessage,
+    WaMessageType,
+    build_jid,
 )
 from shin_ai.data.loader import DATA_DIR
 from shin_ai.utils.logger_config import logger
@@ -128,57 +91,24 @@ class WhatsAppPlatform(PlatformAdapter):
                 self._unified_message_cache.popitem(last=False)
 
     def _jid_to_user_id(self, jid: JIDType) -> str:
-        raw_jid = Jid2String(jid)
-        normalized = self._normalize_jid_identity(raw_jid)
-        if normalized:
-            return normalized
-        if jid.User:
-            return str(jid.User).split(":", 1)[0]
-        return raw_jid
+        return jid_to_user_id(jid)
 
     def _jid_to_username(self, jid: JIDType) -> str:
-        raw_jid = Jid2String(jid)
-        local_user = self._extract_local_user_id(raw_jid)
-        if local_user:
-            return local_user
-        if jid.User:
-            return str(jid.User).split(":", 1)[0]
-        return raw_jid
+        return jid_to_username(jid)
 
     def _normalize_message_timestamp(self, raw_timestamp: int | float | None) -> float:
-        if not raw_timestamp:
-            return 0.0
-
-        ts = float(raw_timestamp)
-        # Neonize timestamps can be emitted in milliseconds depending on source wrappers.
-        if ts > 1e12:
-            ts = ts / 1000.0
-        return ts
+        return normalize_message_timestamp(raw_timestamp)
 
     def _media_id(self, message_id: int | str, media_type: str) -> str:
-        return f"{message_id}:{media_type}"
+        from shin_ai.platforms.whatsapp_helpers import media_id
+
+        return media_id(message_id, media_type)
 
     def _normalize_jid_identity(self, jid_value: str) -> str:
-        raw = (jid_value or "").strip().lower()
-        if not raw:
-            return ""
-
-        # Normalize device-scoped IDs like 201234567890:12@s.whatsapp.net to
-        # the stable user identity 201234567890@s.whatsapp.net.
-        if "@" in raw:
-            user, server = raw.split("@", 1)
-            user = user.split(":", 1)[0]
-            return f"{user}@{server}"
-
-        return raw.split(":", 1)[0]
+        return normalize_jid_identity(jid_value)
 
     def _extract_local_user_id(self, jid_value: str) -> str:
-        normalized = self._normalize_jid_identity(jid_value)
-        if not normalized:
-            return ""
-        if "@" in normalized:
-            return normalized.split("@", 1)[0]
-        return normalized
+        return extract_local_user_id(jid_value)
 
     def _chat_id_to_jid(self, chat_id: int | str) -> JIDType:
         chat = str(chat_id)
@@ -197,78 +127,13 @@ class WhatsAppPlatform(PlatformAdapter):
         return build_jid(user, "s.whatsapp.net")
 
     def _unwrap_message(self, message: WaMessageType) -> WaMessageType:
-        current = message
-
-        while True:
-            advanced = False
-
-            if current.deviceSentMessage.ListFields() and current.deviceSentMessage.message.ListFields():
-                current = current.deviceSentMessage.message
-                advanced = True
-
-            for wrapper_name in (
-                "ephemeralMessage",
-                "viewOnceMessage",
-                "viewOnceMessageV2",
-                "viewOnceMessageV2Extension",
-                "editedMessage",
-            ):
-                wrapper = getattr(current, wrapper_name, None)
-                if wrapper and wrapper.ListFields() and getattr(wrapper, "message", None):
-                    inner = wrapper.message
-                    if inner and inner.ListFields():
-                        current = inner
-                        advanced = True
-                        break
-
-            if not advanced:
-                break
-
-        return current
+        return unwrap_message(message)
 
     def _extract_context_info(self, message: WaMessageType) -> Optional[ContextInfoType]:
-        # Scan every populated sub-message field for a contextInfo child.
-        # This is intentionally exhaustive: instead of hardcoding a list of
-        # known message types, we iterate over ALL fields the protobuf reports
-        # as set, and check whether they contain a contextInfo with data.
-        for field_descriptor, value in message.ListFields():
-            if not hasattr(value, "contextInfo"):
-                continue
-            try:
-                ctx = value.contextInfo
-                if ctx and ctx.ListFields():
-                    return ctx
-            except Exception:
-                continue
-
-        # Also check top-level contextInfo (some message types place it there).
-        top_ctx = getattr(message, "contextInfo", None)
-        if top_ctx:
-            try:
-                if top_ctx.ListFields():
-                    return top_ctx
-            except Exception:
-                pass
-
-        return None
+        return extract_context_info(message)
 
     def _extract_text_and_caption(self, message: WaMessageType) -> tuple[Optional[str], Optional[str]]:
-        text: Optional[str] = None
-        caption: Optional[str] = None
-
-        if message.conversation:
-            text = message.conversation
-        elif message.extendedTextMessage.ListFields():
-            text = message.extendedTextMessage.text or None
-
-        if message.imageMessage.ListFields():
-            caption = message.imageMessage.caption or None
-        elif message.videoMessage.ListFields():
-            caption = message.videoMessage.caption or None
-        elif message.documentMessage.ListFields():
-            caption = message.documentMessage.caption or None
-
-        return text, caption
+        return extract_text_and_caption(message)
 
     def _apply_media(
         self,
@@ -277,62 +142,7 @@ class WhatsAppPlatform(PlatformAdapter):
         download_message: WaMessageType = None,
         message_id: int | str | None = None,
     ) -> None:
-        # Use the original (non-unwrapped) message for downloads so that
-        # Neonize's download_any() can locate the media URL and encryption
-        # keys that may live in outer wrapper layers (ephemeral, view-once, etc.).
-        native_payload = {"wa_message": download_message or message}
-
-        media_msg_id = message_id or unified_msg.id
-
-        if message.imageMessage.ListFields():
-            mime = message.imageMessage.mimetype or "image/jpeg"
-            unified_msg.photo = UnifiedMedia(
-                type="PHOTO",
-                id=self._media_id(media_msg_id, "photo"),
-                mime_type=mime,
-                native_obj=native_payload,
-            )
-        if message.stickerMessage.ListFields():
-            mime = message.stickerMessage.mimetype or "image/webp"
-            unified_msg.sticker = UnifiedMedia(
-                type="STICKER",
-                id=self._media_id(media_msg_id, "sticker"),
-                is_animated=bool(message.stickerMessage.isAnimated),
-                mime_type=mime,
-                native_obj=native_payload,
-            )
-        if message.videoMessage.ListFields():
-            mime = message.videoMessage.mimetype or "video/mp4"
-            unified_msg.video = UnifiedMedia(
-                type="VIDEO",
-                id=self._media_id(media_msg_id, "video"),
-                mime_type=mime,
-                native_obj=native_payload,
-            )
-        if message.audioMessage.ListFields():
-            mime = message.audioMessage.mimetype or "audio/ogg"
-            if bool(message.audioMessage.PTT):
-                unified_msg.voice = UnifiedMedia(
-                    type="VOICE",
-                    id=self._media_id(media_msg_id, "voice"),
-                    mime_type=mime,
-                    native_obj=native_payload,
-                )
-            else:
-                unified_msg.audio = UnifiedMedia(
-                    type="AUDIO",
-                    id=self._media_id(media_msg_id, "audio"),
-                    mime_type=mime,
-                    native_obj=native_payload,
-                )
-        if message.documentMessage.ListFields():
-            mime = message.documentMessage.mimetype or "application/octet-stream"
-            unified_msg.document = UnifiedMedia(
-                type="DOCUMENT",
-                id=self._media_id(media_msg_id, "document"),
-                mime_type=mime,
-                native_obj=native_payload,
-            )
+        apply_media(unified_msg, message, download_message, message_id)
 
     def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> Optional[UnifiedMessage]:
         if not context_info.stanzaID:
@@ -380,49 +190,18 @@ class WhatsAppPlatform(PlatformAdapter):
         self,
         context_info: Optional[ContextInfoType],
         source_text: str,
-    ) -> list[UnifiedMessageEntity]:
-        entities: list[UnifiedMessageEntity] = []
-        if not context_info:
-            return entities
+    ):
+        from shin_ai.platforms.whatsapp_message import build_entities_from_context
 
-        for mentioned_jid in context_info.mentionedJID:
-            normalized_id = self._normalize_jid_identity(mentioned_jid)
-            user_name = self._extract_local_user_id(mentioned_jid)
-            mention_token = user_name or normalized_id
-            token = f"@{mention_token}" if mention_token else ""
-            offset = source_text.find(token)
-            length = len(token) if offset >= 0 else 0
-            entities.append(
-                UnifiedMessageEntity(
-                    type="MENTION",
-                    offset=max(offset, 0),
-                    length=length,
-                    user=UnifiedUser(
-                        id=normalized_id or user_name or mentioned_jid,
-                        username=user_name or None,
-                        first_name=user_name or normalized_id or mentioned_jid,
-                        is_self=False,
-                    ),
-                )
-            )
-        return entities
+        return build_entities_from_context(context_info, source_text)
 
     def _build_text_caption_entities(
         self,
         context_info: Optional[ContextInfoType],
         text: Optional[str],
         caption: Optional[str],
-    ) -> tuple[list[UnifiedMessageEntity], list[UnifiedMessageEntity]]:
-        text_entities = self._build_entities_from_context(context_info, text or "")
-        caption_entities = self._build_entities_from_context(context_info, caption or "")
-
-        # Keep Telegram-like separation: entities map to text, caption_entities map to captions.
-        if text:
-            caption_entities = []
-        elif caption:
-            text_entities = []
-
-        return text_entities, caption_entities
+    ):
+        return build_text_caption_entities(context_info, text, caption)
 
     def _cache_message(self, unified: UnifiedMessage, event_msg: MessageEventType) -> None:
         cache_key = (str(unified.chat.id), str(unified.id))
@@ -434,17 +213,9 @@ class WhatsAppPlatform(PlatformAdapter):
         self._trim_cache_if_needed()
 
     def _is_same_chat_identity(self, first_chat_id: str, second_chat_id: str) -> bool:
-        if first_chat_id == second_chat_id:
-            return True
+        from shin_ai.platforms.whatsapp_helpers import is_same_chat_identity
 
-        normalized_first = self._normalize_jid_identity(first_chat_id)
-        normalized_second = self._normalize_jid_identity(second_chat_id)
-        if normalized_first and normalized_first == normalized_second:
-            return True
-
-        first_local = self._extract_local_user_id(first_chat_id)
-        second_local = self._extract_local_user_id(second_chat_id)
-        return bool(first_local and first_local == second_local)
+        return is_same_chat_identity(first_chat_id, second_chat_id)
 
     def _find_cache_key(
         self,
@@ -452,23 +223,7 @@ class WhatsAppPlatform(PlatformAdapter):
         chat_id: int | str,
         message_id: int | str,
     ) -> Optional[tuple[str, str]]:
-        requested_chat = str(chat_id)
-        requested_msg = str(message_id)
-        exact_key = (requested_chat, requested_msg)
-
-        if exact_key in cache_map:
-            return exact_key
-
-        # WhatsApp may emit the same chat identity in slightly different JID
-        # forms (e.g., device-scoped IDs). Match by normalized identity too.
-        for candidate_key in reversed(cache_map):
-            candidate_chat, candidate_msg = candidate_key
-            if candidate_msg != requested_msg:
-                continue
-            if self._is_same_chat_identity(candidate_chat, requested_chat):
-                return candidate_key
-
-        return None
+        return find_cache_key(cache_map, chat_id, message_id)
 
     def _get_cached_unified_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
         with self._cache_lock:
@@ -551,33 +306,7 @@ class WhatsAppPlatform(PlatformAdapter):
         return tokens
 
     def _collect_mentioned_identity_tokens(self, mentioned_jid_list: list[str]) -> set[str]:
-        """Build a set of ALL identity strings from a mentionedJID list.
-
-        For every JID string in the list, we add the raw string, the
-        normalised form, and the extracted local user part.
-        """
-        tokens: set[str] = set()
-        for jid_str in mentioned_jid_list:
-            raw = (jid_str or "").strip()
-            if not raw:
-                continue
-            tokens.add(raw.lower())
-
-            normalized = self._normalize_jid_identity(raw)
-            if normalized:
-                tokens.add(normalized.lower())
-
-            local = self._extract_local_user_id(raw)
-            if local:
-                tokens.add(local.lower())
-
-            # Also try stripping device suffix from the user part
-            user_part = raw.split("@", 1)[0] if "@" in raw else raw
-            user_part = user_part.split(":", 1)[0]
-            if user_part:
-                tokens.add(user_part.lower())
-
-        return tokens
+        return collect_mentioned_identity_tokens(mentioned_jid_list)
 
     async def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         source = event_msg.Info.MessageSource
