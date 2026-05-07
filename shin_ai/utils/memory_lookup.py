@@ -8,13 +8,16 @@ with fine-grained filters
 import asyncio
 import json
 import numpy as np
-from datetime import datetime
 from typing import Optional
 
-from shin_ai.utils.db import client
 from shin_ai.stylers.style_retriever import embedder
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import memory_collection
+from shin_ai.utils.memory_lookup_filters import (
+    build_filter_summary,
+    build_memory_where_filter,
+    sort_memory_results_by_timestamp,
+)
 
 # Core lookup function
 async def memory_lookup_tool(
@@ -49,48 +52,13 @@ async def memory_lookup_tool(
     limit = max(1, min(limit, 200))
 
     try:
-        # Build ChromaDB metadata filter (WHERE clause)
-        where_clauses: list[dict] = []
-
-        # usernames (case-insensitive, OR across list)
-        if usernames:
-            cleaned = [u.strip().lstrip("@").lower() for u in usernames if u.strip()]
-            if cleaned:
-                if len(cleaned) == 1:
-                    where_clauses.append({"username": {"$eq": cleaned[0]}})
-                else:
-                    where_clauses.append({"$or": [{"username": {"$eq": u}} for u in cleaned]})
-
-        # chat_titles (case-insensitive substring would be ideal,
-        # but ChromaDB only supports exact match on metadata.
-        # We do exact match; callers should use short distinctive titles.)
-        if chat_titles:
-            cleaned = [t.strip() for t in chat_titles if t.strip()]
-            if cleaned:
-                if len(cleaned) == 1:
-                    where_clauses.append({"chat_title": {"$eq": cleaned[0]}})
-                else:
-                    where_clauses.append({"$or": [{"chat_title": {"$eq": t}} for t in cleaned]})
-
-        # platform
-        if platform:
-            where_clauses.append({"platform": {"$eq": platform.strip().lower()}})
-
-        # time range
-        start_epoch = _parse_iso_to_epoch(time_start) if time_start else None
-        end_epoch = _parse_iso_to_epoch(time_end) if time_end else None
-
-        if start_epoch is not None:
-            where_clauses.append({"timestamp": {"$gte": start_epoch}})
-        if end_epoch is not None:
-            where_clauses.append({"timestamp": {"$lte": end_epoch}})
-
-        # Combine all clauses
-        where_filter: Optional[dict] = None
-        if len(where_clauses) == 1:
-            where_filter = where_clauses[0]
-        elif len(where_clauses) > 1:
-            where_filter = {"$and": where_clauses}
+        where_filter = build_memory_where_filter(
+            usernames=usernames,
+            chat_titles=chat_titles,
+            platform=platform,
+            time_start=time_start,
+            time_end=time_end,
+        )
 
         # Two paths depending on whether keywords are provided
         if keywords:
@@ -102,14 +70,14 @@ async def memory_lookup_tool(
 
         if not results:
             return json.dumps(
-                {"query_filters": _build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
+                {"query_filters": build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
                 "results": [],
                 "message": "No memories matched the given filters."},
                 ensure_ascii=False,
             )
 
         return json.dumps(
-            {"query_filters": _build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
+            {"query_filters": build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
             "count": len(results),
             "results": results},
             ensure_ascii=False,
@@ -118,27 +86,6 @@ async def memory_lookup_tool(
     except Exception as e:
         logger.error(f"Memory lookup tool failed: {e}", exc_info=True)
         return json.dumps({"error": f"Memory lookup failed: {str(e)}"}, ensure_ascii=False)
-
-
-# Internal helpers
-
-def _parse_iso_to_epoch(iso_str: str) -> Optional[int]:
-    """Parse an ISO-8601 datetime string to a Unix epoch integer."""
-    try:
-        # Try full ISO with timezone
-        dt = datetime.fromisoformat(iso_str)
-        return int(dt.timestamp())
-    except ValueError:
-        pass
-    # Try common date-only format
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
-        try:
-            dt = datetime.strptime(iso_str, fmt)
-            return int(dt.timestamp())
-        except ValueError:
-            continue
-    logger.warning(f"Could not parse time string: {iso_str!r}")
-    return None
 
 
 def _mmr_indices(
@@ -175,30 +122,6 @@ def _mmr_indices(
         else:
             break
     return selected
-
-
-def _sort_by_timestamp(pairs: list[tuple[str, dict]]) -> list[dict]:
-    """
-    Sort (doc, meta) pairs newest-to-oldest and format each as a result dict
-    with all metadata fields visible to the bot.
-    """
-    def ts(pair):
-        return pair[1].get("timestamp", 0) if pair[1] else 0
-
-    sorted_pairs = sorted(pairs, key=ts, reverse=True)
-    results = []
-    for doc, meta in sorted_pairs:
-        entry = {
-            "timestamp": meta.get("date_string", meta.get("timestamp", "Unknown")),
-            "platform": meta.get("platform", "Unknown"),
-            "username": meta.get("username", "Unknown"),
-            "user_id": meta.get("user_id", "Unknown"),
-            "chat_title": meta.get("chat_title", "Unknown"),
-            "chat_id": meta.get("chat_id", "Unknown"),
-            "text": doc,
-        }
-        results.append(entry)
-    return results
 
 
 async def _lookup_with_keywords(
@@ -252,12 +175,12 @@ async def _lookup_with_keywords(
         if not filtered:
             # Fall back: all metadata-matched docs, sorted by time
             pairs = list(zip(docs[:limit], metas[:limit]))
-            return _sort_by_timestamp([(d, m or {}) for d, m in pairs])
+            return sort_memory_results_by_timestamp([(d, m or {}) for d, m in pairs])
 
         f_docs, f_embs, f_metas = zip(*filtered)
         selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
-        return _sort_by_timestamp(selected_pairs)
+        return sort_memory_results_by_timestamp(selected_pairs)
 
     else:
         # No metadata filter — pure semantic search
@@ -286,7 +209,7 @@ async def _lookup_with_keywords(
         f_docs, f_embs, f_metas = zip(*filtered)
         selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
-        return _sort_by_timestamp(selected_pairs)
+        return sort_memory_results_by_timestamp(selected_pairs)
 
 
 async def _lookup_metadata_only(
@@ -306,39 +229,10 @@ async def _lookup_metadata_only(
         docs = results.get("documents") or []
         metas = results.get("metadatas") or [{}] * len(docs)
         pairs = [(doc, meta or {}) for doc, meta in zip(docs, metas)]
-        return _sort_by_timestamp(pairs)
+        return sort_memory_results_by_timestamp(pairs)
     except Exception as e:
         logger.error(f"ChromaDB metadata-only get() failed: {e}")
         return []
-
-        return []
-
-
-def _build_filter_summary(
-    keywords: Optional[str],
-    usernames: Optional[list[str]],
-    chat_titles: Optional[list[str]],
-    platform: Optional[str],
-    time_start: Optional[str],
-    time_end: Optional[str],
-) -> dict:
-    """Build a human-readable summary of the applied filters."""
-    summary = {}
-    if keywords:
-        summary["keywords"] = keywords
-    if usernames:
-        summary["usernames"] = usernames
-    if chat_titles:
-        summary["chat_titles"] = chat_titles
-    if platform:
-        summary["platform"] = platform
-    if time_start:
-        summary["time_start"] = time_start
-    if time_end:
-        summary["time_end"] = time_end
-    return summary
-
-
 # Tool schema (OpenAI function-calling format)
 # Used by Groq, Cerebras, OpenRouter, and Local LLM providers.
 
