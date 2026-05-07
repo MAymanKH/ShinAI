@@ -4,7 +4,6 @@ Core Handler Module
 Universal message handler logic for ShinAI, agnostic of platform.
 """
 import asyncio
-import time
 import random
 
 from shin_ai.platforms.models import UnifiedMessage
@@ -52,86 +51,129 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     if msg.from_user and not check_rate_limit(msg.from_user.id) and AI_CHOICE != "manual":
         return
 
-    prompt = _extract_prompt(msg)
-    media_list = await _download_media(platform, msg)
-
-    # Audio transcription
-    if msg.voice or msg.audio:
-        transcription = await _transcribe_audio_message(platform, msg)
-        if transcription:
-            media_type = "Voice message" if msg.voice else "Audio file"
-            audio_disclaimer = (
-                f"[{media_type} from user - Transcription]: \"{transcription}\"\n"
-                "[TRANSCRIPTION NOTE: The above was transcribed from audio. "
-                "It may contain phonetic spelling errors, hallucinated artifacts, "
-                "or illogical words due to dialect variations (especially Egyptian Arabic). "
-                "Before responding, intelligently interpret any illogical words based on "
-                "the surrounding context to find the nearest logical meaning.]"
-            )
-            prompt = (
-                f"{audio_disclaimer}\n\n{prompt}"
-                if prompt.strip()
-                else audio_disclaimer
-            )
-
-    if not media_list:
-        prompt_lower = prompt.lower()
-        image_keywords = ["image", "photo", "picture", "pic", "sticker", "صورة", "الصورة", "صوره"]
-        
-        if any(keyword in prompt_lower for keyword in image_keywords):
-            logger.info("User mentioned media but no reply chain - checking recent context")
-            recent_media = get_recent_media_messages(platform.platform_name, msg.chat.id, max_count=10)
-            
-            if recent_media:
-                media_ids = [m["msg_id"] for m in recent_media[:5]]
-                context_media = await _download_media_from_context(platform, msg.chat.id, media_ids)
-                media_list.extend(context_media)
-
+    prompt, media_list = await _prepare_prompt_and_media(platform, msg)
     recent_context_section = _get_recent_context(platform.platform_name, msg)
 
-    if getattr(msg, "is_speculative_reply", False):
-        bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
-        eval_system = (
-            "You are a strict boolean evaluator. "
-            "Your task is to determine if the user's message is addressed to you (the AI assistant) or clearly continuing a conversation with you.\n"
-            "You recently sent a message, and this is the very next message in the group.\n\n"
-            f"--- BOT CONTEXT ---\n"
-            f"{bot_identity}\n"
-            f"--- RECENT CHAT HISTORY ---\n"
-            f"{recent_context_section}\n\n"
-            "Rules:\n"
-            "1. Output 'YES' if the user explicitly addresses you (using your name from the Bot Context), asks you a question, or says something like 'thanks' or 'haha' in clear direct response to what you just said.\n"
-            "2. Output 'NO' if the user addresses someone else by name, responds to another user, or says something completely unrelated to your recent message.\n"
-            "3. If in doubt, output 'NO'.\n"
-            "You MUST output exactly 'YES' or 'NO' and nothing else."
-        )
-        eval_prompt = f"User's message: \"{prompt}\""
-        try:
-            logger.info("Running speculative reply pre-flight evaluation...")
-            eval_ans = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
-            if not eval_ans or "YES" not in eval_ans.strip().upper():
-                logger.info(f"Pre-flight eval rejected speculative message. Eval: {eval_ans}")
-                return
-            logger.info("Pre-flight evaluation passed.")
-        except Exception as e:
-            logger.error(f"Pre-flight evaluation failed: {e}")
-            return
+    if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
+        return
 
     style_examples = _get_style_examples(prompt)
     reply_text = await _get_reply_chain_text(platform, msg)
-    is_direct = _is_direct_interaction(msg)
-    user_status, reply_target_status = await _get_member_statuses(platform, msg)
+    runtime_context = await _build_runtime_context(platform, msg)
+    memory_section = await _get_memory_section(prompt)
+    social_context_section = get_social_context(msg, reply_text)
 
-    interaction_type = (
-        "DIRECT INTERACTION (User is talking to YOU)" 
-        if is_direct 
-        else "RANDOM INTERJECTION (User is NOT talking to you, you are engaging proactively)"
+    system_prompt = build_system_prompt(
+        style_examples=style_examples,
+        social_context_section=social_context_section,
+        memory_section=memory_section,
+        recent_context_section=recent_context_section,
+        runtime_context=runtime_context,
+        reply_text=reply_text,
+        target_instructions=_build_target_instructions(msg),
+        sticker_mappings=_select_sticker_mappings(platform),
     )
 
-    if getattr(msg, "is_speculative_reply", False):
-        interaction_type = "SPECULATIVE INTERACTION (You just sent a message. This is the first user message following yours. Respond naturally if it's continuing the convo with you, otherwise ignore completely.)"
+    _enqueue_frozen_message(platform, msg, system_prompt, prompt, media_list, reply_text)
 
 
+async def _prepare_prompt_and_media(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+) -> tuple[str, list[dict]]:
+    prompt = _extract_prompt(msg)
+    media_list = await _download_media(platform, msg)
+    prompt = await _attach_audio_transcription(platform, msg, prompt)
+
+    if not media_list:
+        media_list.extend(await _download_mentioned_recent_media(platform, msg, prompt))
+
+    return prompt, media_list
+
+
+async def _attach_audio_transcription(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    prompt: str,
+) -> str:
+    if not (msg.voice or msg.audio):
+        return prompt
+
+    transcription = await _transcribe_audio_message(platform, msg)
+    if not transcription:
+        return prompt
+
+    media_type = "Voice message" if msg.voice else "Audio file"
+    audio_disclaimer = (
+        f"[{media_type} from user - Transcription]: \"{transcription}\"\n"
+        "[TRANSCRIPTION NOTE: The above was transcribed from audio. "
+        "It may contain phonetic spelling errors, hallucinated artifacts, "
+        "or illogical words due to dialect variations (especially Egyptian Arabic). "
+        "Before responding, intelligently interpret any illogical words based on "
+        "the surrounding context to find the nearest logical meaning.]"
+    )
+    return f"{audio_disclaimer}\n\n{prompt}" if prompt.strip() else audio_disclaimer
+
+
+async def _download_mentioned_recent_media(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    prompt: str,
+) -> list[dict]:
+    prompt_lower = prompt.lower()
+    image_keywords = ["image", "photo", "picture", "pic", "sticker", "صورة", "الصورة", "صوره"]
+
+    if not any(keyword in prompt_lower for keyword in image_keywords):
+        return []
+
+    logger.info("User mentioned media but no reply chain - checking recent context")
+    recent_media = get_recent_media_messages(platform.platform_name, msg.chat.id, max_count=10)
+    if not recent_media:
+        return []
+
+    media_ids = [m["msg_id"] for m in recent_media[:5]]
+    return await _download_media_from_context(platform, msg.chat.id, media_ids)
+
+
+async def _passes_speculative_preflight(
+    msg: UnifiedMessage,
+    prompt: str,
+    recent_context_section: str,
+) -> bool:
+    if not getattr(msg, "is_speculative_reply", False):
+        return True
+
+    bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
+    eval_system = (
+        "You are a strict boolean evaluator. "
+        "Your task is to determine if the user's message is addressed to you (the AI assistant) or clearly continuing a conversation with you.\n"
+        "You recently sent a message, and this is the very next message in the group.\n\n"
+        f"--- BOT CONTEXT ---\n"
+        f"{bot_identity}\n"
+        f"--- RECENT CHAT HISTORY ---\n"
+        f"{recent_context_section}\n\n"
+        "Rules:\n"
+        "1. Output 'YES' if the user explicitly addresses you (using your name from the Bot Context), asks you a question, or says something like 'thanks' or 'haha' in clear direct response to what you just said.\n"
+        "2. Output 'NO' if the user addresses someone else by name, responds to another user, or says something completely unrelated to your recent message.\n"
+        "3. If in doubt, output 'NO'.\n"
+        "You MUST output exactly 'YES' or 'NO' and nothing else."
+    )
+    eval_prompt = f"User's message: \"{prompt}\""
+    try:
+        logger.info("Running speculative reply pre-flight evaluation...")
+        eval_ans = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
+        if not eval_ans or "YES" not in eval_ans.strip().upper():
+            logger.info(f"Pre-flight eval rejected speculative message. Eval: {eval_ans}")
+            return False
+        logger.info("Pre-flight evaluation passed.")
+        return True
+    except Exception as e:
+        logger.error(f"Pre-flight evaluation failed: {e}")
+        return False
+
+
+async def _build_runtime_context(platform: PlatformAdapter, msg: UnifiedMessage) -> str:
+    user_status, reply_target_status = await _get_member_statuses(platform, msg)
     runtime_context = build_runtime_context(
         username=msg.from_user.username if msg.from_user else None,
         full_name=msg.from_user.first_name if msg.from_user else "Unknown",
@@ -141,71 +183,84 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         chat_type=msg.chat.type,
         chat_title=msg.chat.title,
         chat_id=msg.chat.id,
-        interaction_type=interaction_type,
+        interaction_type=_get_interaction_type(msg),
     )
-    
-    # Add platform-specific capability instructions
+
+    runtime_context += (
+        f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
+        f"{_get_sticker_warning(platform)}{_get_moderation_warning(platform)}"
+    )
+
+    logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
+    return runtime_context
+
+
+def _get_interaction_type(msg: UnifiedMessage) -> str:
+    if getattr(msg, "is_speculative_reply", False):
+        return "SPECULATIVE INTERACTION (You just sent a message. This is the first user message following yours. Respond naturally if it's continuing the convo with you, otherwise ignore completely.)"
+
+    if _is_direct_interaction(msg):
+        return "DIRECT INTERACTION (User is talking to YOU)"
+
+    return "RANDOM INTERJECTION (User is NOT talking to you, you are engaging proactively)"
+
+
+def _get_sticker_warning(platform: PlatformAdapter) -> str:
     if not platform.supports_stickers:
-        sticker_warning = (
+        return (
             "\nCRITICAL: This platform ("
             + platform.platform_name
             + ") DOES NOT support sending stickers. DO NOT use 'sticker:' actions under any circumstances!"
         )
-    elif platform.platform_name == "whatsapp":
-        sticker_warning = (
+
+    if platform.platform_name == "whatsapp":
+        return (
             "\nSTICKER NOTE: WhatsApp sticker sends require a media source. "
             "Use 'sticker:wa:<https-url-or-local-path>'. "
             "DO NOT use Telegram file IDs on WhatsApp.\n"
             "CRITICAL REACTION RULE: DO NOT USE `react:<emoji>` on WhatsApp. NEVER SEND REACTIONS ON WHATSAPP. IT IS HARD BLOCKED."
         )
-    else:
-        sticker_warning = ""
 
-    moderation_warning = ""
-    if not getattr(platform, "supports_member_restrictions", True):
-        moderation_warning = (
-            "\nMODERATION NOTE: This platform does not support per-user mute/unmute. "
-            "Do not use action:mute or action:unmute."
-        )
+    return ""
 
-    runtime_context += (
-        f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
-        f"{sticker_warning}{moderation_warning}"
+
+def _get_moderation_warning(platform: PlatformAdapter) -> str:
+    if getattr(platform, "supports_member_restrictions", True):
+        return ""
+
+    return (
+        "\nMODERATION NOTE: This platform does not support per-user mute/unmute. "
+        "Do not use action:mute or action:unmute."
     )
 
-    logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
 
-    memory_section = await _get_memory_section(prompt)
-    social_context_section = get_social_context(msg, reply_text)
-
+def _build_target_instructions(msg: UnifiedMessage) -> str:
     sender_name = msg.from_user.first_name if msg.from_user else "User"
-    target_instructions = build_target_instructions(
+    return build_target_instructions(
         msg_id=msg.id,
         sender_name=sender_name,
         reply_msg=msg.reply_to_message,
     )
 
+
+def _select_sticker_mappings(platform: PlatformAdapter) -> dict:
     if platform.platform_name == "whatsapp":
-        sticker_mappings = WHATSAPP_STICKER_MAPPINGS
-    else:
-        sticker_mappings = TELEGRAM_STICKER_MAPPINGS
+        return WHATSAPP_STICKER_MAPPINGS
+    return TELEGRAM_STICKER_MAPPINGS
 
-    system_prompt = build_system_prompt(
-        style_examples=style_examples,
-        social_context_section=social_context_section,
-        memory_section=memory_section,
-        recent_context_section=recent_context_section,
-        runtime_context=runtime_context,
-        reply_text=reply_text,
-        target_instructions=target_instructions,
-        sticker_mappings=sticker_mappings,
-    )
 
-    # --- FROZEN-CONTEXT QUEUE ---
+def _enqueue_frozen_message(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    system_prompt: str,
+    prompt: str,
+    media_list: list[dict],
+    reply_text: str,
+) -> None:
     key = (platform.platform_name, msg.chat.id)
     if key not in _chat_queues:
         _chat_queues[key] = []
-        
+
     _chat_queues[key].append({
         "platform": platform,
         "msg": msg,
@@ -214,7 +269,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         "media_list": media_list,
         "reply_text": reply_text,
     })
-    
+
     if key not in _chat_tasks or _chat_tasks[key].done():
         delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
         logger.info(f"[{platform.platform_name}] Delaying reply in chat {msg.chat.id} by {delay:.2f}s")
@@ -520,7 +575,6 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
     retry_prompt = base_prompt
 
     for attempt in range(1, max_attempts + 1):
-        start_time = time.monotonic()
         try:
             answer = await asyncio.wait_for(
                 _execute_ai_provider_once(msg, system_prompt, retry_prompt, media_list),
