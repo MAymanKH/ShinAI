@@ -4,10 +4,15 @@ Action Executor Module
 Executes parsed AI response actions (reactions, stickers, text, moderation).
 """
 import asyncio
+
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.core.response_parser import ParsedResponse
-from shin_ai.data.loader import TELEGRAM_STICKER_TO_DESCRIPTION, WHATSAPP_STICKER_TO_DESCRIPTION, MEMBERS
+from shin_ai.data.loader import (
+    MEMBERS,
+    TELEGRAM_STICKER_TO_DESCRIPTION,
+    WHATSAPP_STICKER_TO_DESCRIPTION,
+)
 from shin_ai.services.replies import save_reply
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import save_memory
@@ -34,6 +39,7 @@ def _normalize_reply_target_for_platform(
         return None
 
     return reply_to_id
+
 
 async def execute_response(
     platform: PlatformAdapter,
@@ -92,33 +98,43 @@ async def execute_response(
 async def _execute_reaction(platform: PlatformAdapter, msg: UnifiedMessage, reaction: str | None) -> None:
     if not reaction:
         return
+
     try:
         await platform.react(msg.chat.id, msg.id, reaction)
     except Exception as e:
         logger.error(f"Reaction failed on {platform.platform_name}: {e}")
 
-async def _execute_sticker(platform: PlatformAdapter, msg: UnifiedMessage, sticker_id: str | None, reply_to_id: int | str | None) -> None:
+
+async def _execute_sticker(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    sticker_id: str | None,
+    reply_to_id: int | str | None,
+) -> None:
     if not sticker_id:
         return
-        
+
+    if not platform.supports_stickers:
+        logger.info(f"Platform {platform.platform_name} doesn't support stickers natively. Dropping.")
+        return
+
     try:
-        if platform.supports_stickers:
-                # Just pass it to platform, we can simulate returning a message id for context if we want,
-                # but action executor uses it to save reply chain context.
-                sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
-                if sent_id:
-                    save_reply(msg.chat.id, sent_id, platform.platform_name)
-                    # Note: Ideally add_message_to_context would take the sent UnifiedMessage, 
-                    # but since we only have ID, we might skip it or fetch it.
-                    # For simplicity, we just save it as reply for reply chains.
-        else:
-                logger.info(f"Platform {platform.platform_name} doesn't support stickers natively. Dropping.")
+        sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
+        if sent_id:
+            save_reply(msg.chat.id, sent_id, platform.platform_name)
     except Exception as e:
         logger.error(f"Sticker failed: {e}")
 
-async def _execute_text(platform: PlatformAdapter, msg: UnifiedMessage, text_content: str, reply_to_id: int | str | None) -> None:
+
+async def _execute_text(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    text_content: str,
+    reply_to_id: int | str | None,
+) -> int | str | None:
     if not text_content:
         return None
+
     try:
         sent_id = await platform.send_message(msg.chat.id, text_content, reply_to_id)
         if sent_id:
@@ -128,7 +144,6 @@ async def _execute_text(platform: PlatformAdapter, msg: UnifiedMessage, text_con
         logger.error(f"Text reply failed: {e}")
         return None
 
-# Moderation Actions
 
 def _resolve_name_to_username(name: str, platform_name: str = "") -> str | None:
     """Resolve a display name / preferred name to the correct platform username."""
@@ -158,27 +173,29 @@ def _resolve_name_to_username(name: str, platform_name: str = "") -> str | None:
                     return key
     return None
 
+
 async def _execute_mod_action(platform: PlatformAdapter, msg: UnifiedMessage, parsed: ParsedResponse) -> str | None:
     if not parsed.mod_action:
         return None
+
     action = parsed.mod_action
     
     if action in ("unban", "add"):
-        target = await _resolve_mod_target(platform, msg, parsed.mod_target_username, None) # Resolve simple
+        target = await _resolve_mod_target(platform, msg, parsed.mod_target_username, None)
         if not target:
             return f"{action.upper()} FAILED: Could not find the user."
+
         try:
             if action == "unban":
                 await platform.unban_chat_member(msg.chat.id, target.id)
             else:
                 link = await platform.create_chat_invite_link(msg.chat.id)
-                if link: 
-                    # we don't have direct DM easily cross-platform in exactly the same way unless we send msg to their ID
-                    # Best effort send DM
+                if link:
                     await platform.send_message(target.id, f"You've been invited: {link}")
-                return None
         except Exception as e:
             return f"{action.upper()} FAILED: {e}"
+
+        return None
 
     target = await _resolve_mod_target(platform, msg, parsed.mod_target_username, parsed.target_id)
     if not target:
@@ -210,25 +227,24 @@ async def _execute_mod_action(platform: PlatformAdapter, msg: UnifiedMessage, pa
 async def _resolve_mod_target(platform: PlatformAdapter, msg: UnifiedMessage, ai_specified_username: str | None, target_id: int | str | None):
     if ai_specified_username:
         clean = ai_specified_username.replace("@", "")
-        # Try direct
         user = await platform.get_user_by_username(clean)
-        if user: return user
+        if user:
+            return user
         
-        # Try social context fallback
         resolved_username = _resolve_name_to_username(clean, platform.platform_name)
         if resolved_username:
-                user = await platform.get_user_by_username(resolved_username)
-                if user: return user
+            user = await platform.get_user_by_username(resolved_username)
+            if user:
+                return user
 
     if target_id:
         try:
-                t_msg = await platform.get_message(msg.chat.id, target_id)
-                if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
-                    return t_msg.from_user
+            t_msg = await platform.get_message(msg.chat.id, target_id)
+            if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
+                return t_msg.from_user
         except Exception:
-                pass
+            pass
 
-    # Mentions
     for ent in msg.entities + msg.caption_entities:
         if ent.type == "MENTION" or ent.type == "TEXT_MENTION":
             if ent.user and not ent.user.is_self:

@@ -6,9 +6,8 @@ Universal message handler logic for ShinAI, agnostic of platform.
 import asyncio
 import time
 import random
-from typing import List
 
-from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia
+from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.core import state
 from shin_ai.core.prompt_builder import (
@@ -18,12 +17,17 @@ from shin_ai.core.prompt_builder import (
 )
 from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
 from shin_ai.core.action_executor import execute_response
-from shin_ai.config import AI_CHOICE, AI_PROVIDER_TIMEOUT_SECONDS, AI_PROVIDER_MAX_RETRIES, MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS
+from shin_ai.config import (
+    AI_CHOICE,
+    AI_PROVIDER_MAX_RETRIES,
+    AI_PROVIDER_TIMEOUT_SECONDS,
+    MAX_REPLY_DELAY_SECONDS,
+    MIN_REPLY_DELAY_SECONDS,
+)
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
-from shin_ai.providers import *
 from shin_ai.providers.local_llm import local_llm
 from shin_ai.providers.gemini import gemini_api
 from shin_ai.providers.cerebras import cerebras_api
@@ -316,15 +320,23 @@ async def _execute_frozen_message(platform: PlatformAdapter, msg: UnifiedMessage
 
 def _extract_prompt(msg: UnifiedMessage) -> str:
     prompt = msg.text or msg.caption
-    if prompt: return prompt
-    
-    if msg.sticker: return f"[User sent a sticker {msg.sticker.emoji or ''}]"
-    elif msg.photo: return "[User sent a photo]"
-    elif msg.animation: return "[User sent a GIF/Animation]"
-    elif msg.video: return "[User sent a Video]"
-    elif msg.voice: return "[User sent a Voice Message]"
-    elif msg.audio: return "[User sent an Audio file]"
-    elif msg.document: return "[User sent a Document]"
+    if prompt:
+        return prompt
+
+    if msg.sticker:
+        return f"[User sent a sticker {msg.sticker.emoji or ''}]"
+    if msg.photo:
+        return "[User sent a photo]"
+    if msg.animation:
+        return "[User sent a GIF/Animation]"
+    if msg.video:
+        return "[User sent a Video]"
+    if msg.voice:
+        return "[User sent a Voice Message]"
+    if msg.audio:
+        return "[User sent an Audio file]"
+    if msg.document:
+        return "[User sent a Document]"
     
     return " "
 
@@ -429,13 +441,20 @@ async def _get_reply_chain_text(platform: PlatformAdapter, msg: UnifiedMessage) 
 
 
 def _is_direct_interaction(msg: UnifiedMessage) -> bool:
-    if msg.chat.type == "PRIVATE": return True
+    if msg.chat.type == "PRIVATE":
+        return True
+
     text = msg.text or msg.caption or ""
-    if "يالبوت" in text: return True
-    if msg.mentioned: return True
-    # If replying to bot
-    if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_self: return True
-    return False
+    if "يالبوت" in text:
+        return True
+    if msg.mentioned:
+        return True
+
+    return bool(
+        msg.reply_to_message
+        and msg.reply_to_message.from_user
+        and msg.reply_to_message.from_user.is_self
+    )
 
 
 async def _get_member_statuses(platform: PlatformAdapter, msg: UnifiedMessage) -> tuple[str, str]:
@@ -463,7 +482,8 @@ async def _get_memory_section(prompt: str) -> str:
 def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     try:
         context_str = get_recent_context_string(platform_name, msg.chat.id, msg.id)
-        if context_str: return f"RECENT CHAT ACTIVITY:\n{context_str}"
+        if context_str:
+            return f"RECENT CHAT ACTIVITY:\n{context_str}"
     except Exception:
         pass
     return "RECENT CHAT ACTIVITY: None recorded yet."
@@ -521,14 +541,18 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
 
 
 async def _execute_ai_provider_once(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
-    if AI_CHOICE == "local": return await local_llm(system_prompt, prompt)
-    if AI_CHOICE == "gemini": return await gemini_api(system_prompt, prompt, media_list=media_list)
-    if AI_CHOICE == "cerebras": return await cerebras_api(system_prompt, prompt)
-    if AI_CHOICE == "groq": return await groq_api(system_prompt, prompt)
-    if AI_CHOICE == "openrouter": return await openrouter_api(system_prompt, prompt)
+    if AI_CHOICE == "local":
+        return await local_llm(system_prompt, prompt)
+    if AI_CHOICE == "gemini":
+        return await gemini_api(system_prompt, prompt, media_list=media_list)
+    if AI_CHOICE == "cerebras":
+        return await cerebras_api(system_prompt, prompt)
+    if AI_CHOICE == "groq":
+        return await groq_api(system_prompt, prompt)
+    if AI_CHOICE == "openrouter":
+        return await openrouter_api(system_prompt, prompt)
     if AI_CHOICE == "manual":
         from shin_ai.providers.manual import manual_response
-        # Hack for manual response which takes from_user string or something
         return await manual_response(prompt, msg.from_user)
 
     logger.error(f"Unknown AI_CHOICE: {AI_CHOICE}")
