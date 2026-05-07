@@ -14,7 +14,7 @@ from typing import Optional
 from shin_ai.utils.db import client
 from shin_ai.stylers.style_retriever import embedder
 from shin_ai.utils.logger_config import logger
-from shin_ai.utils.memory import memory_collection, _apply_mmr
+from shin_ai.utils.memory import memory_collection
 
 # Core lookup function
 async def memory_lookup_tool(
@@ -24,7 +24,7 @@ async def memory_lookup_tool(
     platform: Optional[str] = None,
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 30,
 ) -> str:
     """
     Search the bot's long-term memory with optional filters.
@@ -141,35 +141,94 @@ def _parse_iso_to_epoch(iso_str: str) -> Optional[int]:
     return None
 
 
+def _mmr_indices(
+    query_emb: list,
+    embs_arr: np.ndarray,
+    limit: int,
+    lambda_param: float = 0.65,
+) -> list[int]:
+    """
+    MMR selection returning selected indices (not docs), so callers can
+    zip docs and metadatas together after selection.
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+    query_tensor = np.array(query_emb).reshape(1, -1)
+    sim_to_query = cosine_similarity(query_tensor, embs_arr)[0]
+    cand_sim_matrix = cosine_similarity(embs_arr)
+
+    selected: list[int] = []
+    available = list(range(len(embs_arr)))
+
+    while len(selected) < limit and available:
+        best_score = -float("inf")
+        best_idx = -1
+        for idx in available:
+            rel = sim_to_query[idx]
+            div = max(cand_sim_matrix[idx][s] for s in selected) if selected else 0.0
+            score = lambda_param * rel - (1.0 - lambda_param) * div
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+        if best_idx != -1:
+            selected.append(best_idx)
+            available.remove(best_idx)
+        else:
+            break
+    return selected
+
+
+def _sort_by_timestamp(pairs: list[tuple[str, dict]]) -> list[dict]:
+    """
+    Sort (doc, meta) pairs newest-to-oldest and format each as a result dict
+    with all metadata fields visible to the bot.
+    """
+    def ts(pair):
+        return pair[1].get("timestamp", 0) if pair[1] else 0
+
+    sorted_pairs = sorted(pairs, key=ts, reverse=True)
+    results = []
+    for doc, meta in sorted_pairs:
+        entry = {
+            "timestamp": meta.get("date_string", meta.get("timestamp", "Unknown")),
+            "platform": meta.get("platform", "Unknown"),
+            "username": meta.get("username", "Unknown"),
+            "user_id": meta.get("user_id", "Unknown"),
+            "chat_title": meta.get("chat_title", "Unknown"),
+            "chat_id": meta.get("chat_id", "Unknown"),
+            "text": doc,
+        }
+        results.append(entry)
+    return results
+
+
 async def _lookup_with_keywords(
     keywords: str,
     where_filter: Optional[dict],
     limit: int,
-) -> list[str]:
+) -> list[dict]:
     """
     First fetch candidates via metadata filters using get(), then
     re-rank those candidates semantically using the E5 embedder.
     If no metadata filter is provided, fall back to a direct semantic query.
+    Results are sorted newest-to-oldest.
     """
     if where_filter is not None:
         # Step 1: Get candidates matching metadata filters
-        # Fetch a generous pool for semantic re-ranking
         pool_size = min(limit * 5, 500)
         try:
             candidates = memory_collection.get(
                 where=where_filter,
                 limit=pool_size,
-                include=["documents", "embeddings"],
+                include=["documents", "embeddings", "metadatas"],
             )
         except Exception as e:
             logger.error(f"ChromaDB get() failed: {e}")
             return []
 
-        docs = candidates.get("documents")
+        docs = candidates.get("documents") or []
         embs = candidates.get("embeddings")
-        if docs is None:
-            docs = []
-        if embs is None:
+        metas = candidates.get("metadatas") or [{}] * len(docs)
+        if embs is None or (hasattr(embs, "__len__") and len(embs) == 0):
             embs = []
 
         if not docs:
@@ -184,53 +243,57 @@ async def _lookup_with_keywords(
         from sklearn.metrics.pairwise import cosine_similarity
         similarities = cosine_similarity(query_arr, embs_arr)[0]
 
-        # Filter by a generous threshold
-        filtered_docs = []
-        filtered_embs = []
-        for doc, emb, sim in zip(docs, embs, similarities):
-            if sim > 0.3:  # lenient — MMR will handle diversity
-                filtered_docs.append(doc)
-                filtered_embs.append(emb)
+        # Filter by generous threshold
+        filtered: list[tuple[str, list, dict]] = []
+        for doc, emb, meta, sim in zip(docs, embs, metas, similarities):
+            if sim > 0.3:
+                filtered.append((doc, emb, meta or {}))
 
-        if not filtered_docs:
-            # Fall back to returning all metadata-matched docs (unsorted)
-            return docs[:limit]
+        if not filtered:
+            # Fall back: all metadata-matched docs, sorted by time
+            pairs = list(zip(docs[:limit], metas[:limit]))
+            return _sort_by_timestamp([(d, m or {}) for d, m in pairs])
 
-        return _apply_mmr(query_emb_list, filtered_docs, filtered_embs, limit)
+        f_docs, f_embs, f_metas = zip(*filtered)
+        selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
+        selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
+        return _sort_by_timestamp(selected_pairs)
 
     else:
-        # No metadata filter — pure semantic search (same as retrieve_memories)
+        # No metadata filter — pure semantic search
         query_emb = await asyncio.to_thread(embedder.encode, f"query: {keywords}")
         query_emb_list = query_emb.tolist()
 
         results = memory_collection.query(
             query_embeddings=[query_emb_list],
             n_results=min(limit * 3, 300),
-            include=["documents", "distances", "embeddings"],
+            include=["documents", "distances", "embeddings", "metadatas"],
         )
 
         docs = results.get("documents", [[]])[0]
         dists = results.get("distances", [[]])[0]
         embs = results.get("embeddings", [[]])[0]
+        metas_raw = results.get("metadatas", [[]])[0]
 
-        filtered_docs = []
-        filtered_embs = []
-        for doc, dist, emb in zip(docs, dists, embs):
+        filtered: list[tuple[str, list, dict]] = []
+        for doc, dist, emb, meta in zip(docs, dists, embs, metas_raw):
             if dist < 1.5:
-                filtered_docs.append(doc)
-                filtered_embs.append(emb)
+                filtered.append((doc, emb, meta or {}))
 
-        if not filtered_docs:
+        if not filtered:
             return []
 
-        return _apply_mmr(query_emb_list, filtered_docs, filtered_embs, limit)
+        f_docs, f_embs, f_metas = zip(*filtered)
+        selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
+        selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
+        return _sort_by_timestamp(selected_pairs)
 
 
 async def _lookup_metadata_only(
     where_filter: Optional[dict],
     limit: int,
-) -> list[str]:
-    """Retrieve memories using only metadata filters (no semantic search)."""
+) -> list[dict]:
+    """Retrieve memories using only metadata filters, sorted newest-to-oldest."""
     if where_filter is None:
         return []
 
@@ -238,12 +301,16 @@ async def _lookup_metadata_only(
         results = memory_collection.get(
             where=where_filter,
             limit=limit,
-            include=["documents"],
+            include=["documents", "metadatas"],
         )
-        docs = results.get("documents")
-        return docs if docs is not None else []
+        docs = results.get("documents") or []
+        metas = results.get("metadatas") or [{}] * len(docs)
+        pairs = [(doc, meta or {}) for doc, meta in zip(docs, metas)]
+        return _sort_by_timestamp(pairs)
     except Exception as e:
         logger.error(f"ChromaDB metadata-only get() failed: {e}")
+        return []
+
         return []
 
 
@@ -335,7 +402,7 @@ MEMORY_LOOKUP_TOOL_SCHEMA = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of results to return. Defaults to 100. Max 200.",
+                    "description": "Maximum number of results to return. Defaults to 30. Max 200.",
                 },
             },
             "required": [],
