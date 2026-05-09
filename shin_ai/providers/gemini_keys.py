@@ -15,7 +15,7 @@ STATS_FILE = DATA_DIR / "gemini_stats.json"
 
 MODELS_LIST = [
     "gemini-3-flash-preview",
-    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
 ]
 
 
