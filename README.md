@@ -7,7 +7,9 @@ An intelligent multi-platform bot that acts like a real group member - not an as
 [![Chat on Telegram](https://img.shields.io/badge/Chat%20on-Telegram-blue.svg?logo=telegram)](https://t.me/shinobi7kbot)
 [![Add to Discord](https://img.shields.io/badge/Add%20to-Discord-5865F2?logo=discord)](https://discordapp.com/users/855437723166703616)
 
-[![16.5k+ Interactions](https://img.shields.io/badge/16,500%2B_Interactions-Active_&_Learning-FF4500?style=for-the-badge&logo=activitypub&logoColor=white)]()
+[![30k+ Interactions](https://img.shields.io/badge/16,500%2B_Interactions-Active_&_Learning-FF4500?style=for-the-badge&logo=activitypub&logoColor=white)]()
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/MAymanKH)
 
 </div>
 
