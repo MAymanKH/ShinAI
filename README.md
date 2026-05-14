@@ -181,6 +181,7 @@ docker-compose logs -f
 | `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
 | `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding | Optional |
 | `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding | Optional |
+| `RANDOM_TRIGGER_PROBABILITY` | Chance to respond randomly in group chats (default: 0.05) | Optional |
 | `GEMINI_MODEL` | Gemini model name | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
