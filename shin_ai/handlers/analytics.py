@@ -35,38 +35,49 @@ def _format_username(username: str) -> str:
     return f"@{username}"
 
 
+def _format_platform(platform: str) -> str:
+    platform = _safe_str(platform, "Unknown")
+    if platform == "Unknown":
+        return platform
+    return platform.title()
+
+
 def _build_chat_labels(metadatas):
     chat_title_by_id = {}
     private_usernames_by_chat = {}
 
     for meta in metadatas:
+        platform = _format_platform(_safe_str(meta.get("platform"), "Unknown"))
         chat_id = _safe_str(meta.get("chat_id"), "Unknown")
         if chat_id == "Unknown":
             continue
+
+        chat_key = (platform, chat_id)
 
         chat_title = _safe_str(meta.get("chat_title"), "")
         username = _safe_str(meta.get("username"), "Unknown")
 
         if chat_title:
-            chat_title_by_id[chat_id] = chat_title
+            chat_title_by_id[chat_key] = chat_title
 
         if username != "Unknown":
-            private_usernames_by_chat.setdefault(chat_id, Counter())
-            private_usernames_by_chat[chat_id][username] += 1
+            private_usernames_by_chat.setdefault(chat_key, Counter())
+            private_usernames_by_chat[chat_key][username] += 1
 
     chat_label_by_id = {}
-    for chat_id in set(list(chat_title_by_id.keys()) + list(private_usernames_by_chat.keys())):
-        chat_title = chat_title_by_id.get(chat_id, "")
+    for chat_key in set(list(chat_title_by_id.keys()) + list(private_usernames_by_chat.keys())):
+        chat_title = chat_title_by_id.get(chat_key, "")
         if chat_title:
-            chat_label_by_id[chat_id] = chat_title
+            chat_label_by_id[chat_key] = chat_title
             continue
 
-        if chat_id in private_usernames_by_chat and private_usernames_by_chat[chat_id]:
-            top_username, _ = private_usernames_by_chat[chat_id].most_common(1)[0]
-            chat_label_by_id[chat_id] = f"Private with {_format_username(top_username)}"
+        if chat_key in private_usernames_by_chat and private_usernames_by_chat[chat_key]:
+            top_username, _ = private_usernames_by_chat[chat_key].most_common(1)[0]
+            chat_label_by_id[chat_key] = f"Private with {_format_username(top_username)}"
             continue
 
-        chat_label_by_id[chat_id] = f"Chat {chat_id}"
+        _, chat_id = chat_key
+        chat_label_by_id[chat_key] = f"Chat {chat_id}"
 
     return chat_label_by_id
 
@@ -88,6 +99,7 @@ def _load_analytics_data():
     current_time = int(time.time())
     user_counts = Counter()
     chat_counts = Counter()
+    platform_counts = Counter()
     last_1h_interactions = 0
     last_7d_interactions = 0
     last_30d_interactions = 0
@@ -95,13 +107,16 @@ def _load_analytics_data():
     last_24h_interactions = 0
 
     for meta in metadatas:
+        platform = _format_platform(_safe_str(meta.get("platform"), "Unknown"))
+        platform_counts[platform] += 1
+
         user_id = _safe_str(meta.get("user_id"), "Unknown")
         username = _safe_str(meta.get("username"), "Unknown")
-        user_counts[(user_id, username)] += 1
+        user_counts[(platform, user_id, username)] += 1
 
         chat_id = _safe_str(meta.get("chat_id"), "Unknown")
         if chat_id != "Unknown":
-            chat_counts[chat_id] += 1
+            chat_counts[(platform, chat_id)] += 1
 
         timestamp = _safe_int(meta.get("timestamp", 0), 0)
         if timestamp:
@@ -129,6 +144,7 @@ def _load_analytics_data():
         "user_counts": user_counts,
         "chat_counts": chat_counts,
         "chat_label_by_id": chat_label_by_id,
+        "platform_counts": platform_counts,
         "last_1h_interactions": last_1h_interactions,
         "last_24h_interactions": last_24h_interactions,
         "last_7d_interactions": last_7d_interactions,
@@ -177,8 +193,8 @@ def _view_item_count(analytics, view: str) -> int:
 def _main_view_text(analytics):
     top_users = analytics["user_counts"].most_common(10)
     user_text = "\n".join(
-        f"• {_format_username(username)} ({user_id}): {count} msgs"
-        for (user_id, username), count in top_users
+        f"• {_format_platform(platform)} | {_format_username(username)} ({user_id}): {count} msgs"
+        for (platform, user_id, username), count in top_users
     )
     if not user_text:
         user_text = "No user interactions yet."
@@ -186,15 +202,23 @@ def _main_view_text(analytics):
     top_chats = analytics["chat_counts"].most_common(10)
     chat_label_by_id = analytics["chat_label_by_id"]
     chat_text = "\n".join(
-        f"• {chat_label_by_id.get(chat_id, f'Chat {chat_id}')} ({chat_id}): {count} intrx"
-        for chat_id, count in top_chats
+        f"• {_format_platform(platform)} | {chat_label_by_id.get((platform, chat_id), f'Chat {chat_id}')} ({chat_id}): {count} intrx"
+        for (platform, chat_id), count in top_chats
     )
     if not chat_text:
         chat_text = "No grouped chat data available yet."
 
+    top_platforms = analytics["platform_counts"].most_common(5)
+    platform_text = "\n".join(
+        f"• {_format_platform(platform)}: {count} intrx"
+        for platform, count in top_platforms
+    )
+    if not platform_text:
+        platform_text = "No platform activity yet."
+
     recent_metas = analytics["recent_activities"][:5]
     recent_text = "\n".join(
-        f"• {_format_username(_safe_str(m.get('username'), 'Unknown'))} in {analytics['chat_label_by_id'].get(_safe_str(m.get('chat_id'), 'Unknown'), _safe_str(m.get('chat_title'), 'Unknown'))} at {_safe_str(m.get('date_string'), 'Unknown')}"
+        f"• {_format_platform(_safe_str(m.get('platform'), 'Unknown'))} | {_format_username(_safe_str(m.get('username'), 'Unknown'))} in {analytics['chat_label_by_id'].get((_format_platform(_safe_str(m.get('platform'), 'Unknown')), _safe_str(m.get('chat_id'), 'Unknown')), _safe_str(m.get('chat_title'), 'Unknown'))} at {_safe_str(m.get('date_string'), 'Unknown')}"
         for m in recent_metas
     )
     if not recent_text:
@@ -210,6 +234,7 @@ def _main_view_text(analytics):
         f"**Last 1 Hour:** {analytics['last_1h_interactions']}\n\n"
         f"👤 **Top 10 Users:**\n{user_text}\n\n"
         f"💬 **Top 10 Chats/Groups:**\n{chat_text}\n\n"
+        f"🧭 **Top Platforms:**\n{platform_text}\n\n"
         f"🕒 **Recent Activity:**\n{recent_text}\n"
     )
 
@@ -217,7 +242,7 @@ def _main_view_text(analytics):
 def _render_users_view(analytics, requested_page: int):
     rows = sorted(
         analytics["user_counts"].items(),
-        key=lambda item: (-item[1], item[0][1], item[0][0]),
+        key=lambda item: (-item[1], item[0][0], item[0][2], item[0][1]),
     )
     total_items = len(rows)
     max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
@@ -230,8 +255,8 @@ def _render_users_view(analytics, requested_page: int):
 
     if page_rows:
         lines = [
-            f"{start + idx + 1}. {_format_username(username)} ({user_id}) - {count} msgs"
-            for idx, (((user_id, username), count)) in enumerate(page_rows)
+            f"{start + idx + 1}. {_format_platform(platform)} | {_format_username(username)} ({user_id}) - {count} msgs"
+            for idx, (((platform, user_id, username), count)) in enumerate(page_rows)
         ]
         body = "\n".join(lines)
     else:
@@ -251,7 +276,7 @@ def _render_chats_view(analytics, requested_page: int):
     chat_label_by_id = analytics["chat_label_by_id"]
     rows = sorted(
         analytics["chat_counts"].items(),
-        key=lambda item: (-item[1], chat_label_by_id.get(item[0], f"Chat {item[0]}"), item[0]),
+        key=lambda item: (-item[1], chat_label_by_id.get(item[0], f"Chat {item[0][1]}"), item[0][1], item[0][0]),
     )
     total_items = len(rows)
     max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
@@ -264,8 +289,8 @@ def _render_chats_view(analytics, requested_page: int):
 
     if page_rows:
         lines = [
-            f"{start + idx + 1}. {chat_label_by_id.get(chat_id, f'Chat {chat_id}')} ({chat_id}) - {count} intrx"
-            for idx, (chat_id, count) in enumerate(page_rows)
+            f"{start + idx + 1}. {_format_platform(platform)} | {chat_label_by_id.get((platform, chat_id), f'Chat {chat_id}')} ({chat_id}) - {count} intrx"
+            for idx, ((platform, chat_id), count) in enumerate(page_rows)
         ]
         body = "\n".join(lines)
     else:
@@ -296,11 +321,12 @@ def _render_activity_view(analytics, requested_page: int):
     if page_rows:
         lines = []
         for idx, meta in enumerate(page_rows):
+            platform = _format_platform(_safe_str(meta.get("platform"), "Unknown"))
             username = _format_username(_safe_str(meta.get("username"), "Unknown"))
             chat_id = _safe_str(meta.get("chat_id"), "Unknown")
-            chat_label = chat_label_by_id.get(chat_id, _safe_str(meta.get("chat_title"), "Unknown"))
+            chat_label = chat_label_by_id.get((platform, chat_id), _safe_str(meta.get("chat_title"), "Unknown"))
             date_string = _safe_str(meta.get("date_string"), "Unknown")
-            lines.append(f"{start + idx + 1}. {username} in {chat_label} at {date_string}")
+            lines.append(f"{start + idx + 1}. {platform} | {username} in {chat_label} at {date_string}")
         body = "\n".join(lines)
     else:
         body = "No activity found."
