@@ -3,6 +3,8 @@ Gemini AI Provider
 
 Handles API calls to Google's Gemini models with key rotation and statistics.
 """
+import time
+
 from google import genai
 
 from shin_ai.providers.gemini_keys import (
@@ -16,6 +18,17 @@ from shin_ai.utils.logger_config import logger
 from shin_ai.utils.web_search import search_web_tool
 from shin_ai.utils.memory_lookup import memory_lookup_tool
 import asyncio
+
+
+MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
+
+
+def _is_model_on_cooldown(model: str) -> bool:
+    return time.time() < MODEL_COOLDOWN_UNTIL.get(model, 0.0)
+
+
+def _set_model_cooldown(model: str, seconds: int = 3600) -> None:
+    MODEL_COOLDOWN_UNTIL[model] = time.time() + seconds
 
 
 def _extract_gemini_text(response) -> str:
@@ -45,6 +58,9 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
     models_to_try = list(MODELS_LIST)
 
     for model in models_to_try:
+        if _is_model_on_cooldown(model):
+            logger.warning(f"Model {model} is on cooldown. Skipping.")
+            continue
         # Create a list of items to iterate over, preserving the current order
         for key_name, api_key in list(API_KEYS_MAP.items()):
             if not api_key:
@@ -90,6 +106,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 continue
 
         logger.warning(f"Model {model} failed for all keys. Trying next available model.")
+        _set_model_cooldown(model)
 
     return ""
 
