@@ -106,7 +106,8 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 continue
 
         logger.warning(f"Model {model} failed for all keys. Trying next available model.")
-        _set_model_cooldown(model)
+        if len(models_to_try) > 1:
+            _set_model_cooldown(model)
 
     return ""
 
