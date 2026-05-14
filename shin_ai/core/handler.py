@@ -301,23 +301,11 @@ async def _execute_frozen_message(platform: PlatformAdapter, msg: UnifiedMessage
         )
 
         if not is_ai_response_valid(answer):
-            logger.warning("AI failed, falling back to manual response")
-            try:
-                await platform.react(msg.chat.id, msg.id, "😢")
-            except Exception as react_err:
-                logger.error(f"Fallback react failed: {react_err}")
-            try:
-                from shin_ai.providers.manual import manual_response
-                answer = await manual_response(prompt, msg.from_user)
-            except Exception as manual_err:
-                logger.error(f"Manual response fallback failed: {manual_err}")
-                answer = None
+            logger.warning("AI failed, skipping response")
+            return
 
         if not answer:
-            try:
-                await platform.react(msg.chat.id, msg.id, "👎")
-            except Exception as react_err:
-                logger.error(f"Final fallback react failed: {react_err}")
+            logger.warning("AI returned empty response, skipping response")
             return
 
         parsed = parse_ai_response(answer)
