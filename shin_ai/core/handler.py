@@ -140,7 +140,7 @@ async def _passes_speculative_preflight(
     prompt: str,
     recent_context_section: str,
 ) -> bool:
-    if not getattr(msg, "is_speculative_reply", False):
+    if not _should_use_speculative_reply(msg):
         return True
 
     bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
@@ -196,11 +196,11 @@ async def _build_runtime_context(platform: PlatformAdapter, msg: UnifiedMessage)
 
 
 def _get_interaction_type(msg: UnifiedMessage) -> str:
-    if getattr(msg, "is_speculative_reply", False):
-        return "SPECULATIVE INTERACTION (You just sent a message. This is the first user message following yours. Respond naturally if it's continuing the convo with you, otherwise ignore completely.)"
-
     if _is_direct_interaction(msg):
         return "DIRECT INTERACTION (User is talking to YOU)"
+
+    if _should_use_speculative_reply(msg):
+        return "SPECULATIVE INTERACTION (You just sent a message. This is the first user message following yours. Respond naturally if it's continuing the convo with you, otherwise ignore completely.)"
 
     return "RANDOM INTERJECTION (User is NOT talking to you, you are engaging proactively)"
 
@@ -510,6 +510,10 @@ def _is_direct_interaction(msg: UnifiedMessage) -> bool:
         and msg.reply_to_message.from_user
         and msg.reply_to_message.from_user.is_self
     )
+
+
+def _should_use_speculative_reply(msg: UnifiedMessage) -> bool:
+    return bool(getattr(msg, "is_speculative_reply", False) and not _is_direct_interaction(msg))
 
 
 async def _get_member_statuses(platform: PlatformAdapter, msg: UnifiedMessage) -> tuple[str, str]:
