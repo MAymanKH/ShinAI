@@ -94,7 +94,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 _rotate_key_to_back(key_name)
 
                 logger.warning(
-                    f"Gemini API key failed (model: {model}, Key: {key_name}, Failed Count: {failed_keys_count}): {e}"
+                    f"Gemini API key failed (model: {model}, Key: {key_name}, Failed Count: {failed_keys_count})"
                 )
 
                 if "you exceeded your current quota" in str(e).lower() or "429" in str(e):
