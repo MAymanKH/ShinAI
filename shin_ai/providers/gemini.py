@@ -54,10 +54,10 @@ def _extract_gemini_text(response) -> str:
 
 
 async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
-    failed_keys_count = 0
     models_to_try = list(MODELS_LIST)
 
     for model in models_to_try:
+        failed_keys_count = 0
         if _is_model_on_cooldown(model):
             logger.warning(f"Model {model} is on cooldown. Skipping.")
             continue
@@ -93,6 +93,10 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 failed_keys_count += 1
                 _rotate_key_to_back(key_name)
 
+                logger.warning(
+                    f"Gemini API key failed (model: {model}, Key: {key_name}, Failed Count: {failed_keys_count}): {e}"
+                )
+
                 if "you exceeded your current quota" in str(e).lower() or "429" in str(e):
                     logger.warning(f"Gemini API key quota exceeded for model {model} (Key: {key_name}, Failed Count: {failed_keys_count})")
                     update_key_status(key_name, "exhausted", model, e)
@@ -105,7 +109,10 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     update_key_status(key_name, "error", model, e)
                 continue
 
-        logger.warning(f"Model {model} failed for all keys. Trying next available model.")
+        logger.warning(
+            f"Model {model} failed for all keys. Failed keys: {failed_keys_count}. "
+            "Trying next available model."
+        )
         if len(models_to_try) > 1:
             _set_model_cooldown(model)
 
