@@ -218,7 +218,6 @@ def _get_sticker_warning(platform: PlatformAdapter) -> str:
             "\nSTICKER NOTE: WhatsApp sticker sends require a media source. "
             "Use 'sticker:wa:<https-url-or-local-path>'. "
             "DO NOT use Telegram file IDs on WhatsApp.\n"
-            "CRITICAL REACTION RULE: DO NOT USE `react:<emoji>` on WhatsApp. NEVER SEND REACTIONS ON WHATSAPP. IT IS HARD BLOCKED."
         )
 
     return ""
