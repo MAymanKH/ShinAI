@@ -82,7 +82,7 @@ You can either chat with the bot on [Telegram](https://t.me/shinobi7kbot) or [Di
 
 ### 0. Install Prerequisites
 
-- [Python](https://www.python.org/downloads/) 3.7 or higher
+- [Python](https://www.python.org/downloads/) 3.10 or higher
 - [Git](https://git-scm.com/install/)
 - Make sure they are added to your path.
 
@@ -124,7 +124,7 @@ Copy the template files and customize them:
 # Personality configuration
 cp shin_ai/data/personality_template.py shin_ai/data/personality.py
 
-# Sticker mappings
+# Sticker mappings (optional)
 cp shin_ai/data/stickers_template.py shin_ai/data/stickers.py
 
 # Group members (optional)
@@ -369,13 +369,13 @@ ShinAI/
  
  ShinAI is architected as a **Multi-Platform AI Agent**. It uses a specialized Platform Adapter layer that decouples the AI logic from the specific platform SDK.
  
- | Feature | Telegram Capability | Discord Capability |
- |---------|--------------------|--------------------|
- | **Reactions** | Native Emoji Reactions | Native Emoji Reactions |
- | **Stickers** | Full Support (mapped) | Not supported (Text fallback) |
- | **Media** | Photo/Video Awareness | Attachment Awareness (Text context) |
- | **Moderation** | Ban, Kick, Mute, Invite | Native Ban, Kick, Timeout |
- | **Identity** | Unified via Telegram ID | Unified via Discord ID |
+ | Feature | Telegram Capability | Discord Capability | WhatsApp Capability |
+ |---------|--------------------|--------------------|---------------------|
+ | **Reactions** | Supported | Supported | Supported |
+ | **Stickers** | Supported | Not supported | Supported |
+ | **Media** | Photo/Video Awareness | Attachment Awareness | Attachment Awareness |
+ | **Moderation** | Ban, Kick, Mute, Invite | Ban, Kick, Timeout | Kick |
+ | **Identity** | Unified via Telegram ID | Unified via Discord ID | Unified via WhatsApp JID |
  
  The most powerful feature of this architecture is **Unified Memory**. If you talk to the bot on Discord about a conversation that happened on Telegram, the bot will retrieve those memories and answer correctly, understanding exactly which interaction occurred on which platform.
 
@@ -410,7 +410,7 @@ The bot responds when:
  | Response Type | Format | Platform Notes |
  |---------------|--------|----------------|
  | **Text** | Plain message | Supported everywhere |
- | **Reaction** | `react:<emoji>` | Supported on Telegram & Discord |
+ | **Reaction** | `react:<emoji>` | Supported everywhere |
 | **Sticker** | `sticker:<id>` | Telegram supports native sticker IDs; WhatsApp supports `sticker:wa:<url_or_local_path>`; ignored on Discord |
  | **Moderation** | `action:<type>` | Translated to native actions (e.g. Timeout on Discord) |
  
@@ -451,9 +451,8 @@ The bot responds when:
 ### Reactions & Stickers
 
 - **Reactions**: Preferred for acknowledging messages or ending conversations without text.
-- **Stickers (Telegram)**: Selected based on emotional context from a custom library.
-- **Stickers (WhatsApp)**: Use `sticker:wa:<https-url-or-local-path>` so the adapter can send media through Neonize `send_sticker`.
-- **Discord**: Sticker actions are ignored and naturally degrade to text/reaction behavior.
+- **Stickers**: Selected based on emotional context from a custom library.
+
  
  ### Moderation System
  
