@@ -14,6 +14,7 @@ GEMINI_KEYS_FILE = DATA_DIR / "gemini_keys.json"
 STATS_FILE = DATA_DIR / "gemini_stats.json"
 
 MODELS_LIST = [
+    "gemini-3.5-flash",
     "gemini-3-flash-preview",
     "gemini-3.1-flash-lite",
 ]
