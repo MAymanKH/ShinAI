@@ -113,7 +113,8 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
             f"Model {model} failed for all keys. Failed keys: {failed_keys_count}. "
             "Trying next available model."
         )
-        if len(models_to_try) > 1:
+        available_models = [m for m in models_to_try if not _is_model_on_cooldown(m)]
+        if len(available_models) > 1:
             _set_model_cooldown(model)
 
     return ""
