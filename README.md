@@ -57,7 +57,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 
 ## Features
 
-- 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, or local LLM (Ollama)
+- 🧠 **Multiple AI Providers**: Gemini, OpenRouter, Groq, Cerebras, Ollama, or any OpenAI-compatible API
 - 🧩 **Multi-Platform Support**: Seamlessly functions on **Telegram**, **Discord**, and **WhatsApp** simultaneously.
 - 💬 **Personality System**: Fully customizable bot personality and behavior
 - 🎭 **Social Context**: Recognizes group members across platforms and adapts responses
@@ -177,7 +177,7 @@ docker-compose logs -f
 | `DISCORD_BOT_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
 | `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
 | `DEBUG` | Enable debug logging (`true`/`false`) | Optional |
-| `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
+| `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/openai-compat/local/manual) | ✅ |
 | `AI_FALLBACK_PROVIDERS` | Comma-separated fallback providers if the primary fails | Optional |
 | `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
 | `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
@@ -192,6 +192,9 @@ docker-compose logs -f
 | `GROQ_MODEL` | Groq model name | For Groq |
 | `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
 | `CEREBRAS_MODEL` | Cerebras model name | For Cerebras |
+| `OPENAI_COMPAT_BASE_URL` | Base URL for any OpenAI-compatible API (e.g., `https://api.example.com/v1`) | For OpenAI-Compat |
+| `OPENAI_COMPAT_API_KEY` | OpenAI-compatible API key | For OpenAI-Compat |
+| `OPENAI_COMPAT_MODEL` | OpenAI-compatible model name | For OpenAI-Compat |
 | `LOCAL_MODEL` | Local LLM model name (Ollama) | For Local |
 | `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
 | `EMBEDDING_MODEL` | Embedding model for style search (default: `intfloat/multilingual-e5-large`) | Optional |
@@ -531,7 +534,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      AI Provider (LLM)                          │
-│     Gemini │ OpenRouter │ Groq │ Cerebras │ Ollama              │
+│  Gemini │ OpenRouter │ Groq │ Cerebras │ OpenAI-Compat │ Ollama │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -667,6 +670,13 @@ When a voice message or audio file is received, the platform adapter routes the 
 - Extremely fast inference
 - Good for high-traffic groups
 - Limited context windows
+
+### OpenAI-Compatible
+
+- Works with **any provider** that exposes an OpenAI-compatible API
+- Examples: vLLM, LM Studio, Together AI, Fireworks, text-generation-webui, etc.
+- Configurable base URL, API key, and model name
+- Supports tool calling through the standard tool loop
 
 ### Local LLM (Ollama)
 
