@@ -1,7 +1,7 @@
 from collections import deque, defaultdict
 import time
 from datetime import datetime
-from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia
+from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia, UnifiedUser
 
 # Store last 100 messages per chat
 # Map f"{platform}_{chat_id}" -> deque of message dicts
@@ -76,6 +76,54 @@ def add_message_to_context(msg: UnifiedMessage):
     }
     
     chat_key = _get_chat_key(msg.platform, msg.chat.id)
+    _context_buffer[chat_key].append(entry)
+
+
+def add_bot_message_to_context(
+    *,
+    platform: str,
+    chat_id: int | str,
+    msg_id: int | str,
+    text: str | None,
+    bot_user: UnifiedUser,
+    reply_to_id: int | str | None = None,
+    reply_to_user: str | None = None,
+    media_type: str | None = None,
+    timestamp: float | None = None,
+) -> None:
+    """
+    Adds an outgoing bot message to the short-term context buffer.
+    """
+    if not bot_user:
+        return
+
+    user_name = bot_user.first_name or "Bot"
+    if bot_user.username:
+        user_name += f" (@{bot_user.username})"
+
+    if media_type and not text:
+        if media_type.startswith("sticker"):
+            text_content = "[Sticker]"
+        elif media_type == "photo":
+            text_content = "[Photo]"
+        else:
+            text_content = "[Media]"
+    else:
+        text_content = text or ""
+
+    entry = {
+        "platform": platform,
+        "msg_id": msg_id,
+        "user_id": bot_user.id,
+        "user_name": user_name,
+        "text": text_content,
+        "media_type": media_type,
+        "reply_to_id": reply_to_id,
+        "reply_to_user": reply_to_user,
+        "timestamp": timestamp or time.time(),
+    }
+
+    chat_key = _get_chat_key(platform, chat_id)
     _context_buffer[chat_key].append(entry)
 
 def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id: int | str = None) -> str:

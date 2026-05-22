@@ -16,6 +16,7 @@ from shin_ai.data.loader import (
 from shin_ai.services.replies import save_reply
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import save_memory
+from shin_ai.utils.context_manager import add_bot_message_to_context
 
 
 def _normalize_reply_target_for_platform(
@@ -122,6 +123,14 @@ async def _execute_sticker(
         sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
         if sent_id:
             save_reply(msg.chat.id, sent_id, platform.platform_name)
+            await _record_outgoing_context(
+                platform=platform,
+                msg=msg,
+                sent_id=sent_id,
+                text_content=None,
+                reply_to_id=reply_to_id,
+                media_type="sticker",
+            )
     except Exception as e:
         logger.error(f"Sticker failed: {e}")
 
@@ -139,10 +148,44 @@ async def _execute_text(
         sent_id = await platform.send_message(msg.chat.id, text_content, reply_to_id)
         if sent_id:
             save_reply(msg.chat.id, sent_id, platform.platform_name)
+            await _record_outgoing_context(
+                platform=platform,
+                msg=msg,
+                sent_id=sent_id,
+                text_content=text_content,
+                reply_to_id=reply_to_id,
+            )
         return sent_id
     except Exception as e:
         logger.error(f"Text reply failed: {e}")
         return None
+
+
+async def _record_outgoing_context(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    sent_id: int | str,
+    text_content: str | None,
+    reply_to_id: int | str | None,
+    media_type: str | None = None,
+) -> None:
+    try:
+        bot_user = await platform.get_bot_user()
+        reply_to_user = None
+        if reply_to_id and msg.from_user and str(reply_to_id) == str(msg.id):
+            reply_to_user = msg.from_user.first_name
+        add_bot_message_to_context(
+            platform=platform.platform_name,
+            chat_id=msg.chat.id,
+            msg_id=sent_id,
+            text=text_content,
+            bot_user=bot_user,
+            reply_to_id=reply_to_id,
+            reply_to_user=reply_to_user,
+            media_type=media_type,
+        )
+    except Exception as e:
+        logger.debug(f"Failed to record outgoing context: {e}")
 
 
 def _resolve_name_to_username(name: str, platform_name: str = "") -> str | None:

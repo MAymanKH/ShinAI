@@ -63,18 +63,19 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     memory_section = await _get_memory_section(prompt)
     social_context_section = get_social_context(msg, reply_text)
 
-    system_prompt = build_system_prompt(
+    _enqueue_frozen_message(
+        platform=platform,
+        msg=msg,
+        prompt=prompt,
+        media_list=media_list,
+        reply_text=reply_text,
         style_examples=style_examples,
         social_context_section=social_context_section,
         memory_section=memory_section,
-        recent_context_section=recent_context_section,
         runtime_context=runtime_context,
-        reply_text=reply_text,
         target_instructions=_build_target_instructions(msg),
         sticker_mappings=_select_sticker_mappings(platform),
     )
-
-    _enqueue_frozen_message(platform, msg, system_prompt, prompt, media_list, reply_text)
 
 
 async def _prepare_prompt_and_media(
@@ -251,10 +252,15 @@ def _select_sticker_mappings(platform: PlatformAdapter) -> dict:
 def _enqueue_frozen_message(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
-    system_prompt: str,
     prompt: str,
     media_list: list[dict],
     reply_text: str,
+    style_examples: str,
+    social_context_section: str,
+    memory_section: str,
+    runtime_context: str,
+    target_instructions: str,
+    sticker_mappings: dict,
 ) -> None:
     key = (platform.platform_name, msg.chat.id)
     if key not in _chat_queues:
@@ -263,10 +269,15 @@ def _enqueue_frozen_message(
     _chat_queues[key].append({
         "platform": platform,
         "msg": msg,
-        "system_prompt": system_prompt,
         "prompt": prompt,
         "media_list": media_list,
         "reply_text": reply_text,
+        "style_examples": style_examples,
+        "social_context_section": social_context_section,
+        "memory_section": memory_section,
+        "runtime_context": runtime_context,
+        "target_instructions": target_instructions,
+        "sticker_mappings": sticker_mappings,
     })
 
     if key not in _chat_tasks or _chat_tasks[key].done():
@@ -277,18 +288,58 @@ def _enqueue_frozen_message(
 
 async def _delayed_queue_processor(key, delay: float):
     await asyncio.sleep(delay)
-    queue = _chat_queues.pop(key, [])
-    if key in _chat_tasks:
-        del _chat_tasks[key]
-        
-    for task_args in queue:
+    while True:
+        queue = _chat_queues.get(key)
+        if not queue:
+            await asyncio.sleep(0)
+            queue = _chat_queues.get(key)
+            if not queue:
+                _chat_queues.pop(key, None)
+                _chat_tasks.pop(key, None)
+                return
+
+        task_args = queue.pop(0)
         try:
             await _execute_frozen_message(**task_args)
         except Exception as e:
             logger.error(f"Failed to execute frozen message in queue: {e}")
 
 
-async def _execute_frozen_message(platform: PlatformAdapter, msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list, reply_text: str):
+async def _execute_frozen_message(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    prompt: str,
+    media_list: list,
+    reply_text: str,
+    style_examples: str,
+    social_context_section: str,
+    memory_section: str,
+    runtime_context: str,
+    target_instructions: str,
+    sticker_mappings: dict,
+):
+    typing_task = None
+    recent_context_section = _get_recent_context(platform.platform_name, msg)
+
+    system_prompt = build_system_prompt(
+        style_examples=style_examples,
+        social_context_section=social_context_section,
+        memory_section=memory_section,
+        recent_context_section=recent_context_section,
+        runtime_context=runtime_context,
+        reply_text=reply_text,
+        target_instructions=target_instructions,
+        sticker_mappings=sticker_mappings,
+    )
+
+    if await _should_skip_queued_reply(msg, prompt, recent_context_section):
+        logger.info(
+            "Skipping queued reply for chat %s (message %s already answered)",
+            msg.chat.id,
+            msg.id,
+        )
+        return
+
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
@@ -352,7 +403,8 @@ async def _execute_frozen_message(platform: PlatformAdapter, msg: UnifiedMessage
                     reply_text=reply_text,
                 )
     finally:
-        await _stop_typing(platform, msg.chat.id, typing_task)
+        if typing_task:
+            await _stop_typing(platform, msg.chat.id, typing_task)
 
 
 
@@ -533,6 +585,44 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     except Exception:
         pass
     return "RECENT CHAT ACTIVITY: None recorded yet."
+
+
+def _build_skip_classifier_system_prompt(recent_context_section: str) -> str:
+    return (
+        "You are a strict classifier. Decide if the assistant should reply to the user's message. "
+        "Output ONLY 'REPLY' or 'SKIP'.\n"
+        "Reply if the message contains a new request or question that has not been answered. "
+        "Skip if the message has already been fully addressed by the assistant's most recent replies "
+        "in the chat history. If unsure, output 'REPLY'.\n\n"
+        "--- RECENT CHAT HISTORY ---\n"
+        f"{recent_context_section}\n"
+    )
+
+
+async def _should_skip_queued_reply(
+    msg: UnifiedMessage,
+    prompt: str,
+    recent_context_section: str,
+) -> bool:
+    eval_system = _build_skip_classifier_system_prompt(recent_context_section)
+    eval_prompt = f"User message: \"{prompt}\""
+
+    try:
+        eval_ans = await _call_ai_provider(
+            msg=msg,
+            system_prompt=eval_system,
+            prompt=eval_prompt,
+            media_list=[],
+        )
+    except Exception as e:
+        logger.warning(f"Queued skip classifier failed: {e}")
+        return False
+
+    if not eval_ans:
+        return False
+
+    verdict = eval_ans.strip().upper()
+    return "SKIP" in verdict
 
 
 def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:
