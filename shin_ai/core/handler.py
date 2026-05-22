@@ -33,6 +33,7 @@ from shin_ai.providers.gemini import gemini_api
 from shin_ai.providers.cerebras import cerebras_api
 from shin_ai.providers.groq import groq_api
 from shin_ai.providers.openrouter import openrouter_api
+from shin_ai.providers.openai_compatible import openai_compatible_api
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
@@ -717,6 +718,8 @@ async def _execute_ai_provider_once(
         return await groq_api(system_prompt, prompt)
     if provider == "openrouter":
         return await openrouter_api(system_prompt, prompt)
+    if provider == "openai-compat":
+        return await openai_compatible_api(system_prompt, prompt)
     if provider == "manual":
         from shin_ai.providers.manual import manual_response
         return await manual_response(prompt, msg.from_user)
