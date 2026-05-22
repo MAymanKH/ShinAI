@@ -37,8 +37,8 @@ def _format_username(username: str) -> str:
 
 def _format_platform(platform: str) -> str:
     platform = _safe_str(platform, "Unknown")
-    if platform == "Unknown":
-        return platform
+    if platform.lower() == "unknown":
+        return "Telegram"
     return platform.title()
 
 
