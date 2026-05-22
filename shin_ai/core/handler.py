@@ -18,6 +18,7 @@ from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
 from shin_ai.core.action_executor import execute_response
 from shin_ai.config import (
     AI_CHOICE,
+    AI_FALLBACK_PROVIDERS,
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
     MAX_REPLY_DELAY_SECONDS,
@@ -651,44 +652,74 @@ async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyn
 
 
 async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
-    max_attempts = max(1, AI_PROVIDER_MAX_RETRIES)
     base_prompt = prompt
-    retry_prompt = base_prompt
+    provider_chain = _get_provider_chain()
+    last_error = None
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            answer = await asyncio.wait_for(
-                _execute_ai_provider_once(msg, system_prompt, retry_prompt, media_list),
-                timeout=AI_PROVIDER_TIMEOUT_SECONDS,
-            )
-            if not isinstance(answer, str) or not answer.strip():
-                raise RuntimeError("AI provider returned empty response")
-            return answer
-        except asyncio.TimeoutError:
-            if attempt >= max_attempts: break
-            retry_prompt = base_prompt
-        except Exception as e:
-            if attempt >= max_attempts: break
-            error_text = str(e).strip()[:400]
-            retry_prompt = f"{base_prompt}\n\n[INTERNAL RETRY CONTEXT - NOT A USER MESSAGE]\nPrevious attempt failed with {type(e).__name__}: {error_text}\nIf needed, adapt your response approach to avoid the same failure."
+    for provider in provider_chain:
+        retry_prompt = base_prompt
+        max_attempts = max(1, AI_PROVIDER_MAX_RETRIES)
 
+        for attempt in range(1, max_attempts + 1):
+            try:
+                answer = await asyncio.wait_for(
+                    _execute_ai_provider_once(provider, msg, system_prompt, retry_prompt, media_list),
+                    timeout=AI_PROVIDER_TIMEOUT_SECONDS,
+                )
+                if not isinstance(answer, str) or not answer.strip():
+                    raise RuntimeError("AI provider returned empty response")
+                logger.info("AI provider '%s' succeeded on attempt %s.", provider, attempt)
+                return answer
+            except asyncio.TimeoutError as e:
+                last_error = e
+                if attempt >= max_attempts:
+                    break
+                retry_prompt = base_prompt
+            except Exception as e:
+                last_error = e
+                if attempt >= max_attempts:
+                    break
+                error_text = str(e).strip()[:400]
+                retry_prompt = (
+                    f"{base_prompt}\n\n[INTERNAL RETRY CONTEXT - NOT A USER MESSAGE]\n"
+                    f"Previous attempt failed with {type(e).__name__}: {error_text}\n"
+                    "If needed, adapt your response approach to avoid the same failure."
+                )
+
+        if len(provider_chain) > 1:
+            logger.warning("Provider '%s' failed after %s attempts. Falling back.", provider, max_attempts)
+
+    if last_error:
+        logger.error("All providers failed. Last error: %s", last_error)
     return None
 
 
-async def _execute_ai_provider_once(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
-    if AI_CHOICE == "local":
+def _get_provider_chain() -> list[str]:
+    primary = AI_CHOICE
+    fallbacks = [p for p in AI_FALLBACK_PROVIDERS if p and p != primary]
+    return [primary] + fallbacks
+
+
+async def _execute_ai_provider_once(
+    provider: str,
+    msg: UnifiedMessage,
+    system_prompt: str,
+    prompt: str,
+    media_list: list[dict],
+) -> str | None:
+    if provider == "local":
         return await local_llm(system_prompt, prompt)
-    if AI_CHOICE == "gemini":
+    if provider == "gemini":
         return await gemini_api(system_prompt, prompt, media_list=media_list)
-    if AI_CHOICE == "cerebras":
+    if provider == "cerebras":
         return await cerebras_api(system_prompt, prompt)
-    if AI_CHOICE == "groq":
+    if provider == "groq":
         return await groq_api(system_prompt, prompt)
-    if AI_CHOICE == "openrouter":
+    if provider == "openrouter":
         return await openrouter_api(system_prompt, prompt)
-    if AI_CHOICE == "manual":
+    if provider == "manual":
         from shin_ai.providers.manual import manual_response
         return await manual_response(prompt, msg.from_user)
 
-    logger.error(f"Unknown AI_CHOICE: {AI_CHOICE}")
+    logger.error("Unknown AI provider: %s", provider)
     return None

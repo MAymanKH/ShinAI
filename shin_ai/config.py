@@ -52,9 +52,11 @@ RANDOM_TRIGGER_PROBABILITY = float(os.getenv("RANDOM_TRIGGER_PROBABILITY", "0.05
 
 AI_PROVIDER_TIMEOUT_SECONDS = float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "60"))
 AI_PROVIDER_MAX_RETRIES = int(os.getenv("AI_PROVIDER_MAX_RETRIES", "3"))
-
-# Gemini
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+AI_FALLBACK_PROVIDERS = [
+	p.strip()
+	for p in os.getenv("AI_FALLBACK_PROVIDERS", "").split(",")
+	if p.strip()
+]
 
 # OpenRouter
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")

@@ -177,12 +177,12 @@ docker-compose logs -f
 | `DISCORD_BOT_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
 | `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
+| `AI_FALLBACK_PROVIDERS` | Comma-separated fallback providers if the primary fails | Optional |
 | `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
 | `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
 | `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding | Optional |
 | `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding | Optional |
 | `RANDOM_TRIGGER_PROBABILITY` | Chance to respond randomly in group chats (default: 0.05) | Optional |
-| `GEMINI_MODEL` | Gemini model name | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
 | `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
