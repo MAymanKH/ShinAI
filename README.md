@@ -176,6 +176,7 @@ docker-compose logs -f
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot token from @BotFather | For Telegram |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
 | `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
+| `DEBUG` | Enable debug logging (`true`/`false`) | Optional |
 | `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/local/manual) | ✅ |
 | `AI_FALLBACK_PROVIDERS` | Comma-separated fallback providers if the primary fails | Optional |
 | `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
@@ -183,10 +184,17 @@ docker-compose logs -f
 | `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding | Optional |
 | `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding | Optional |
 | `RANDOM_TRIGGER_PROBABILITY` | Chance to respond randomly in group chats (default: 0.05) | Optional |
+| `GEMINI_API_KEY<N>` | Gemini API keys (`GEMINI_API_KEY1`, `GEMINI_API_KEY2`, etc.) | For Gemini |
+| `GEMINI_MODELS` | Comma-separated list of Gemini models to use | For Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
+| `OPENROUTER_MODEL` | OpenRouter model name | For OpenRouter |
 | `GROQ_API_KEY` | Groq API key | For Groq |
+| `GROQ_MODEL` | Groq model name | For Groq |
 | `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
+| `CEREBRAS_MODEL` | Cerebras model name | For Cerebras |
+| `LOCAL_MODEL` | Local LLM model name (Ollama) | For Local |
 | `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
+| `EMBEDDING_MODEL` | Embedding model for style search (default: `intfloat/multilingual-e5-large`) | Optional |
 | `WHISPER_MODEL` | Faster-Whisper model name (default: large-v3-turbo) | Optional |
 | `WHISPER_CPU_THREADS` | Number of CPU threads for Whisper inference (default: 2) | Optional |
 | `WHISPER_LANGUAGE` | Default language for transcription (default: 'auto') | Optional |
