@@ -62,6 +62,17 @@ GROQ_MODEL = os.getenv("GROQ_MODEL")
 
 # Cerebras
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL")
+
+# Gemini
+GEMINI_MODELS = [
+	m.strip()
+	for m in os.getenv("GEMINI_MODELS", "").split(",")
+	if m.strip()
+]
+
+# Embeddings
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
 
 # Audio Transcription
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")

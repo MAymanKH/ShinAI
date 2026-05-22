@@ -3,13 +3,13 @@ from sentence_transformers import SentenceTransformer
 import asyncio
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
-from shin_ai.config import TELEGRAM_API_ID, TELEGRAM_API_HASH, STYLE_GROUP_ID
+from shin_ai.config import TELEGRAM_API_ID, TELEGRAM_API_HASH, STYLE_GROUP_ID, EMBEDDING_MODEL
 
 if not STYLE_GROUP_ID:
     raise ValueError("STYLE_GROUP_ID must be set in .env file. Get your group ID by forwarding a message to @RawDataBot")
 
-# Updated to E5 model for consistent embeddings
-embedder = SentenceTransformer("intfloat/multilingual-e5-large")
+# Configurable embedding model
+embedder = SentenceTransformer(EMBEDDING_MODEL)
 
 # Force delete existing collection to ensure dimensions are correct
 try:

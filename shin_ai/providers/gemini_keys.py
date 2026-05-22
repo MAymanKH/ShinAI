@@ -6,18 +6,14 @@ from datetime import datetime
 
 from google import genai
 
-from shin_ai.config import DATA_DIR
+from shin_ai.config import DATA_DIR, GEMINI_MODELS
 from shin_ai.utils.logger_config import logger
 
 
 GEMINI_KEYS_FILE = DATA_DIR / "gemini_keys.json"
 STATS_FILE = DATA_DIR / "gemini_stats.json"
 
-MODELS_LIST = [
-    "gemini-3.5-flash",
-    "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite",
-]
+MODELS_LIST = GEMINI_MODELS
 
 
 def load_keys() -> dict[str, str]:
