@@ -39,6 +39,7 @@ An intelligent multi-platform bot that acts like a real group member - not an as
   - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
   - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
   - [Memory System](#memory-system)
+  - [Memory Lookup Tool](#memory-lookup-tool)
   - [Web Searching, Fetching, and Scraping  ](#web-searching-fetching-and-scraping)
   - [Context Awareness](#context-awareness-1)
   - [Speculative Generation](#speculative-generation)
@@ -578,6 +579,16 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
  - **Cross-Platform Retrieval**: You can ask on Telegram *"What did Sarah say on Discord yesterday?"* and the bot will pull the correct fragments from the Discord history.
  - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
  - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
+
+### Memory Lookup Tool
+
+ِA dedicated Memory Lookup tool is being exposed to the LLM for precise recall of past conversations. It is used when a question requires explicit memory retrieval instead of relying on shallow automatic context.
+
+- **Filters**: `keywords` (semantic search), `usernames`, `chat_titles`, `platform`, `time_start`, `time_end`, and `limit`.
+- **Required input**: At least one filter must be provided; `limit` defaults to 30 and is capped at 200.
+- **Time formats**: ISO 8601 is supported (e.g., `2025-01-15` or `2025-01-15T14:30:00`), with common fallbacks like `YYYY/MM/DD` and `DD-MM-YYYY`.
+- **Ranking logic**: With `keywords`, the tool first filters by metadata, then re-ranks semantically using the E5 embedder and an MMR selection pass for diversity. Without `keywords`, it performs metadata-only lookup.
+- **Result shape**: Newest-first results that include timestamp, platform, username, user_id, chat_title, chat_id, and the stored text.
 
 ### Web Searching, Fetching, and Scraping
 
