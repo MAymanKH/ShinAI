@@ -675,8 +675,6 @@ When a voice message or audio file is received, the platform adapter routes the 
 
 - Works with **any provider** that exposes an OpenAI-compatible API
 - Examples: vLLM, LM Studio, Together AI, Fireworks, text-generation-webui, etc.
-- Configurable base URL, API key, and model name
-- Supports tool calling through the standard tool loop
 
 ### Local LLM (Ollama)
 
