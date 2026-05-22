@@ -2,7 +2,7 @@ import asyncio
 from typing import Any
 
 from shin_ai.core import state
-from shin_ai.config import DEBUG, WHATSAPP_ENABLED, WHATSAPP_SESSION_NAME
+from shin_ai.config import DEBUG, WHATSAPP_ENABLED
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.utils.context_manager import add_message_to_context
@@ -14,7 +14,7 @@ if WHATSAPP_ENABLED:
     try:
         from shin_ai.platforms.whatsapp import MessageEventType, WhatsAppPlatform
 
-        whatsapp_platform = WhatsAppPlatform(WHATSAPP_SESSION_NAME)
+        whatsapp_platform = WhatsAppPlatform("shin_ai_whatsapp")
 
         async def _handle_whatsapp_message(event_msg: MessageEventType) -> None:
             unified_msg = await whatsapp_platform.ingest_event_message(event_msg)
