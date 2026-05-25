@@ -83,8 +83,30 @@ def _build_chat_labels(metadatas):
 
 
 def _load_analytics_data():
-    data = memory_collection.get(include=["metadatas"])
-    metadatas = data.get("metadatas", [])
+    metadatas = []
+    batch_size = 5000
+    offset = 0
+    while True:
+        try:
+            batch = memory_collection.get(
+                limit=batch_size,
+                offset=offset,
+                include=["metadatas"]
+            )
+            batch_ids = batch.get("ids", [])
+            if not batch_ids:
+                break
+            
+            batch_metadatas = batch.get("metadatas", [])
+            metadatas.extend(batch_metadatas)
+            
+            if len(batch_ids) < batch_size:
+                break
+            offset += batch_size
+        except Exception as e:
+            logger.error(f"Error loading analytics data batch at offset {offset}: {e}")
+            break
+
     if not metadatas:
         return {
             "metadatas": [],
