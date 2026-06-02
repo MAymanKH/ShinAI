@@ -342,6 +342,7 @@ async def _execute_frozen_message(
         )
         return
 
+
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
@@ -591,11 +592,19 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
 
 def _build_skip_classifier_system_prompt(recent_context_section: str) -> str:
     return (
-        "You are a strict classifier. Decide if the assistant should reply to the user's message. "
-        "Output ONLY 'REPLY' or 'SKIP'.\n"
-        "Reply if the message contains a new request or question that has not been answered. "
-        "Skip if the message has already been fully addressed by the assistant's most recent replies "
-        "in the chat history. If unsure, output 'REPLY'.\n\n"
+        "You are a strict duplicate-detection classifier. "
+        "Output ONLY 'REPLY' or 'SKIP'.\n\n"
+        "SKIP ONLY if ALL of the following are true:\n"
+        "1. The assistant has ALREADY sent a direct reply to THIS EXACT user message "
+        "(not just a similar topic — the same question/statement).\n"
+        "2. That reply fully and completely answered the user's message.\n"
+        "3. No new information or follow-up was added by the user after the assistant's reply.\n\n"
+        "REPLY in ALL other cases, including:\n"
+        "- The user asked a question, even if a related topic was discussed before.\n"
+        "- The user's message is a new thought, joke, or interjection.\n"
+        "- The assistant's previous replies only partially or tangentially addressed the topic.\n"
+        "- You are unsure whether it was already answered.\n\n"
+        "When in doubt, ALWAYS output 'REPLY'.\n\n"
         "--- RECENT CHAT HISTORY ---\n"
         f"{recent_context_section}\n"
     )
@@ -606,6 +615,17 @@ async def _should_skip_queued_reply(
     prompt: str,
     recent_context_section: str,
 ) -> bool:
+    # Never skip direct interactions — the user is explicitly talking to the bot
+    if _is_direct_interaction(msg):
+        logger.debug("Skip classifier bypassed: direct interaction")
+        return False
+
+    # Never skip random interjections — the bot already passed a probability
+    # gate to engage with this message; skipping defeats the purpose
+    if not _should_use_speculative_reply(msg):
+        logger.debug("Skip classifier bypassed: random interjection")
+        return False
+
     eval_system = _build_skip_classifier_system_prompt(recent_context_section)
     eval_prompt = f"User message: \"{prompt}\""
 
