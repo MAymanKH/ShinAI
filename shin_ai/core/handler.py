@@ -99,16 +99,24 @@ async def _attach_audio_transcription(
     msg: UnifiedMessage,
     prompt: str,
 ) -> str:
-    if not (msg.voice or msg.audio):
+    # Check current message first, then walk the reply chain
+    audio_msg = msg
+    if not (audio_msg.voice or audio_msg.audio):
+        audio_msg = _find_audio_in_reply_chain(msg)
+    if not audio_msg:
         return prompt
 
-    transcription = await _transcribe_audio_message(platform, msg)
+    transcription = await _transcribe_audio_message(platform, audio_msg)
     if not transcription:
         return prompt
 
-    media_type = "Voice message" if msg.voice else "Audio file"
+    sender_name = (
+        audio_msg.from_user.first_name if audio_msg.from_user else "Unknown"
+    )
+    media_type = "Voice message" if audio_msg.voice else "Audio file"
+    from_label = "from user" if audio_msg is msg else f"from {sender_name} (replied-to message)"
     audio_disclaimer = (
-        f"[{media_type} from user - Transcription]: \"{transcription}\"\n"
+        f"[{media_type} {from_label} - Transcription]: \"{transcription}\"\n"
         "[TRANSCRIPTION NOTE: The above was transcribed from audio. "
         "It may contain phonetic spelling errors, hallucinated artifacts, "
         "or illogical words due to dialect variations (especially Egyptian Arabic). "
@@ -116,6 +124,19 @@ async def _attach_audio_transcription(
         "the surrounding context to find the nearest logical meaning.]"
     )
     return f"{audio_disclaimer}\n\n{prompt}" if prompt.strip() else audio_disclaimer
+
+
+def _find_audio_in_reply_chain(msg: UnifiedMessage) -> UnifiedMessage | None:
+    """Walk the reply chain to find a voice/audio message."""
+    curr = msg
+    depth = 0
+    while curr.reply_to_message and depth < 10:
+        reply = curr.reply_to_message
+        depth += 1
+        if reply.voice or reply.audio:
+            return reply
+        curr = reply
+    return None
 
 
 async def _download_mentioned_recent_media(

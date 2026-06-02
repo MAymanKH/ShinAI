@@ -92,6 +92,9 @@ async def should_respond_to_message(
         if is_bot_reply:
             _debug("pass:reply_chain_media")
             return True
+        if msg.mentioned:
+            _debug("pass:mentioned_media")
+            return True
         _debug("skip:media_without_reply_chain")
         return False
 
