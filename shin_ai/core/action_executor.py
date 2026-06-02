@@ -4,6 +4,7 @@ Action Executor Module
 Executes parsed AI response actions (reactions, stickers, text, moderation).
 """
 import asyncio
+import random
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
@@ -67,9 +68,11 @@ async def execute_response(
     # Execute each message in sequence
     mod_errors = []
     for idx, single_parsed in enumerate(parsed_list):
-        # Add delay between messages (not before the first one)
+        # Add a human-like delay between messages (not before the first one)
         if idx > 0:
-            await asyncio.sleep(2)  # 2 second delay between messages
+            delay = _human_inter_message_delay(single_parsed)
+            logger.info("Inter-message delay: %.2fs", delay)
+            await asyncio.sleep(delay)
         
         # Resolve target: use AI-specified ID if present, otherwise default to sender
         if single_parsed.target_id:
@@ -94,6 +97,34 @@ async def execute_response(
             mod_errors.append(mod_error)
             
     return mod_errors
+
+
+def _human_inter_message_delay(parsed: ParsedResponse) -> float:
+    """Return a realistic inter-message delay based on content type and length.
+
+    - Reactions: near-instant (one tap).
+    - Stickers without text: quick selection.
+    - Text: scaled to character count at casual phone-typing speed,
+      with Gaussian jitter so the cadence isn't perfectly linear.
+    """
+    # Reaction-only — it's a single tap
+    if parsed.reaction and not parsed.text_content and not parsed.sticker_id:
+        return random.uniform(0.1, 0.4)
+
+    # Sticker-only — scrolling + tapping
+    if parsed.sticker_id and not parsed.text_content:
+        return random.uniform(0.3, 1.0)
+
+    # Text message — simulate typing time
+    text = parsed.text_content or ""
+    chars = len(text)
+    if chars == 0:
+        return random.uniform(0.3, 0.8)
+
+    # ~40-70 chars/sec for casual phone typing
+    base = chars / random.uniform(40, 70)
+    jitter = random.gauss(0, 0.5)
+    return max(0.4, min(base + jitter, 8.0))
 
 
 async def _execute_reaction(platform: PlatformAdapter, msg: UnifiedMessage, reaction: str | None) -> None:
