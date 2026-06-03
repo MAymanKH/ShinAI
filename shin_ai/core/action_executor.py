@@ -72,6 +72,12 @@ async def execute_response(
         if idx > 0:
             delay = _human_inter_message_delay(single_parsed)
             logger.info("Inter-message delay: %.2fs", delay)
+            # Send a typing indicator so the recipient sees "typing..."
+            # throughout the gap between messages
+            try:
+                await platform.send_chat_action(msg.chat.id, "typing")
+            except Exception:
+                pass
             await asyncio.sleep(delay)
         
         # Resolve target: use AI-specified ID if present, otherwise default to sender
@@ -102,29 +108,29 @@ async def execute_response(
 def _human_inter_message_delay(parsed: ParsedResponse) -> float:
     """Return a realistic inter-message delay based on content type and length.
 
-    - Reactions: near-instant (one tap).
-    - Stickers without text: quick selection.
-    - Text: scaled to character count at casual phone-typing speed,
+    - Reactions: 1–4s (scroll through reactions, pick one).
+    - Stickers without text: 3–10s (browse sticker packs, pick one).
+    - Text: scaled to character count at ~5-10 chars/sec (phone typing),
       with Gaussian jitter so the cadence isn't perfectly linear.
     """
-    # Reaction-only — it's a single tap
+    # Reaction-only
     if parsed.reaction and not parsed.text_content and not parsed.sticker_id:
-        return random.uniform(0.1, 0.4)
+        return random.uniform(1.0, 4.0)
 
-    # Sticker-only — scrolling + tapping
+    # Sticker-only — browsing sticker packs
     if parsed.sticker_id and not parsed.text_content:
-        return random.uniform(0.3, 1.0)
+        return random.uniform(3.0, 10.0)
 
     # Text message — simulate typing time
     text = parsed.text_content or ""
     chars = len(text)
     if chars == 0:
-        return random.uniform(0.3, 0.8)
+        return random.uniform(1.0, 3.0)
 
-    # ~40-70 chars/sec for casual phone typing
-    base = chars / random.uniform(40, 70)
-    jitter = random.gauss(0, 0.5)
-    return max(0.4, min(base + jitter, 8.0))
+    # ~5-10 chars/sec for phone typing
+    base = chars / random.uniform(5, 10)
+    jitter = random.gauss(0, 1.0)
+    return max(1.5, min(base + jitter, 25.0))
 
 
 async def _execute_reaction(platform: PlatformAdapter, msg: UnifiedMessage, reaction: str | None) -> None:
