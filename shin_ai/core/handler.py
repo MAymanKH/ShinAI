@@ -5,6 +5,8 @@ Universal message handler logic for ShinAI, agnostic of platform.
 """
 import asyncio
 import random
+import re as _re
+import unicodedata as _ud
 
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
@@ -611,7 +613,8 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     return "RECENT CHAT ACTIVITY: None recorded yet."
 
 
-def _build_skip_classifier_system_prompt(recent_context_section: str) -> str:
+def _build_duplicate_classifier_prompt(recent_context_section: str) -> str:
+    """Classifier for speculative replies: skip only true duplicates."""
     return (
         "You are a strict duplicate-detection classifier. "
         "Output ONLY 'REPLY' or 'SKIP'.\n\n"
@@ -631,23 +634,120 @@ def _build_skip_classifier_system_prompt(recent_context_section: str) -> str:
     )
 
 
+def _build_relevance_classifier_prompt(
+    recent_context_section: str,
+    is_direct: bool,
+) -> str:
+    """Classifier for deciding if the bot can naturally contribute."""
+    bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
+    if is_direct:
+        context_line = (
+            "The user is talking DIRECTLY to the bot (replied to it, mentioned it, etc.). "
+            "The bot should usually respond — but not always."
+        )
+        unsure_guidance = (
+            "When genuinely unsure, lean toward 'REPLY' — "
+            "the user is talking to the bot, so silence is rude unless truly pointless."
+        )
+    else:
+        context_line = (
+            "The bot randomly decided to jump into this conversation. "
+            "Decide whether the bot can NATURALLY and MEANINGFULLY contribute."
+        )
+        unsure_guidance = (
+            "When genuinely unsure, lean slightly toward 'SKIP' — "
+            "it's better to stay quiet than to force an awkward interjection."
+        )
+
+    return (
+        "You are a relevance classifier for a group chat bot. "
+        "Output ONLY 'REPLY' or 'SKIP'.\n\n"
+        f"--- BOT IDENTITY ---\n{bot_identity}\n\n"
+        f"{context_line}\n\n"
+        "Output 'REPLY' if:\n"
+        "- The user asked a question or made a request.\n"
+        "- The topic is something the bot can joke about, react to, or comment on naturally.\n"
+        "- The message is funny, emotional, or invites casual engagement.\n"
+        "- The bot has relevant knowledge or a natural opinion on the subject.\n"
+        "- The conversation is general/social and the bot can fit in.\n\n"
+        "Output 'SKIP' if:\n"
+        "- The message is a low-content reaction (laughing emojis, 'lol', 'haha', a sticker, "
+        "thumbs up, etc.) that doesn't need a response.\n"
+        "- The conversation is deeply personal between specific people and the bot would be intruding.\n"
+        "- The topic is so niche or technical that the bot has nothing natural to add.\n"
+        "- The message is mundane logistics between other people (e.g. 'meet me at 5', 'okay omw').\n"
+        "- The bot's point is already conveyed in recent chat — someone (including the bot) "
+        "already said essentially what the bot would say.\n"
+        "- Jumping in would feel forced or awkward.\n\n"
+        f"{unsure_guidance}\n\n"
+        "--- RECENT CHAT HISTORY ---\n"
+        f"{recent_context_section}\n"
+    )
+
+
+
+_TRIVIAL_LAUGH_PATTERN = _re.compile(
+    r"^[هح\s]+$"          # Arabic laughing (ههههه / ححح)
+    r"|^h[ha]+$"           # English laughing (haha, hahaha)
+    r"|^lo+l+$"            # lol, looool
+    r"|^lma+o+$"           # lmao
+    r"|^x+d+$"             # xD, xxdd
+    r"|^😂+$|^🤣+$|^😭+$"  # Pure laughing/crying emoji strings
+    r"|^ك+$",              # ككككك (Arabic laughing)
+    _re.IGNORECASE,
+)
+
+
+def _is_trivial_message(msg: UnifiedMessage) -> bool:
+    """Fast-path check for messages that are meaningless to respond to."""
+    text = (msg.text or msg.caption or "").strip()
+
+    # Sticker with no meaningful text
+    if msg.sticker and not text:
+        return True
+
+    if not text:
+        return False
+
+    # Pure emoji strings (no letters/digits)
+    if all(
+        _ud.category(ch).startswith(("So", "Sk", "Sm"))  # Symbol categories
+        or _ud.category(ch) == "Zs"                       # Spaces
+        or ch in "\ufe0f\u200d"                           # Variation selectors / ZWJ
+        for ch in text
+    ):
+        return True
+
+    # Common laughing / low-content patterns
+    cleaned = _re.sub(r"[\s.,!?]+", "", text)
+    if cleaned and _TRIVIAL_LAUGH_PATTERN.match(cleaned):
+        return True
+
+    return False
+
+
 async def _should_skip_queued_reply(
     msg: UnifiedMessage,
     prompt: str,
     recent_context_section: str,
 ) -> bool:
-    # Never skip direct interactions — the user is explicitly talking to the bot
-    if _is_direct_interaction(msg):
-        logger.debug("Skip classifier bypassed: direct interaction")
-        return False
+    # Fast-path: trivial messages (stickers, emoji, laughing) never need a reply
+    if _is_trivial_message(msg):
+        logger.debug("Skip classifier: trivial message, skipping")
+        return True
 
-    # Never skip random interjections — the bot already passed a probability
-    # gate to engage with this message; skipping defeats the purpose
-    if not _should_use_speculative_reply(msg):
-        logger.debug("Skip classifier bypassed: random interjection")
-        return False
+    # Pick the right classifier based on interaction type
+    if _should_use_speculative_reply(msg):
+        # Speculative reply: only skip true duplicates
+        eval_system = _build_duplicate_classifier_prompt(recent_context_section)
+    else:
+        # Direct interaction or random interjection: check if the bot
+        # can naturally and meaningfully contribute
+        is_direct = _is_direct_interaction(msg)
+        eval_system = _build_relevance_classifier_prompt(
+            recent_context_section, is_direct=is_direct,
+        )
 
-    eval_system = _build_skip_classifier_system_prompt(recent_context_section)
     eval_prompt = f"User message: \"{prompt}\""
 
     try:
