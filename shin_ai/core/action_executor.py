@@ -110,7 +110,7 @@ def _human_inter_message_delay(parsed: ParsedResponse) -> float:
 
     - Reactions: 1–4s (scroll through reactions, pick one).
     - Stickers without text: 3–10s (browse sticker packs, pick one).
-    - Text: scaled to character count at ~2-3 chars/sec (phone typing),
+    - Text: scaled to character count at ~5, 6 chars/sec (phone typing),
       with Gaussian jitter so the cadence isn't perfectly linear.
     """
     # Reaction-only
@@ -127,8 +127,8 @@ def _human_inter_message_delay(parsed: ParsedResponse) -> float:
     if chars == 0:
         return random.uniform(0.5, 1.0)
 
-    # ~2-3 chars/sec for phone typing
-    base = chars / random.uniform(2, 3)
+    # ~5, 6 chars/sec for phone typing
+    base = chars / random.uniform(5, 6)
     jitter = random.gauss(0, 0.3)
     return max(0.5, min(base + jitter, 25.0))
 
