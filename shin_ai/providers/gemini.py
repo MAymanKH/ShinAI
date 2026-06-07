@@ -79,6 +79,19 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     )
                     continue
 
+                # Log cache hit stats for monitoring
+                usage = getattr(response, "usage_metadata", None)
+                if usage:
+                    cached = getattr(usage, "cached_content_token_count", 0) or 0
+                    total_in = getattr(usage, "prompt_token_count", 0) or 0
+                    if total_in:
+                        pct = cached / total_in * 100
+                        logger.info(
+                            f"Gemini cache stats: {cached}/{total_in} input tokens cached ({pct:.0f}%)"
+                        )
+                    else:
+                        logger.info("Gemini cache stats: no token counts in usage metadata")
+
                 logger.info(f"Gemini API call successful (model: {model}, Key: {key_name})")
                 update_key_status(key_name, "active", model)
                 

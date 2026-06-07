@@ -174,15 +174,15 @@ async def _passes_speculative_preflight(
         "You are a strict boolean evaluator. "
         "Your task is to determine if the user's message is addressed to you (the AI assistant) or clearly continuing a conversation with you.\n"
         "You recently sent a message, and this is the very next message in the group.\n\n"
-        f"--- BOT CONTEXT ---\n"
-        f"{bot_identity}\n"
-        f"--- RECENT CHAT HISTORY ---\n"
-        f"{recent_context_section}\n\n"
         "Rules:\n"
         "1. Output 'YES' if the user explicitly addresses you (using your name from the Bot Context), asks you a question, or says something like 'thanks' or 'haha' in clear direct response to what you just said.\n"
         "2. Output 'NO' if the user addresses someone else by name, responds to another user, or says something completely unrelated to your recent message.\n"
         "3. If in doubt, output 'NO'.\n"
-        "You MUST output exactly 'YES' or 'NO' and nothing else."
+        "You MUST output exactly 'YES' or 'NO' and nothing else.\n\n"
+        f"--- BOT CONTEXT ---\n"
+        f"{bot_identity}\n"
+        f"--- RECENT CHAT HISTORY ---\n"
+        f"{recent_context_section}\n"
     )
     eval_prompt = f"User's message: \"{prompt}\""
     try:
@@ -629,7 +629,7 @@ def _build_duplicate_classifier_prompt(recent_context_section: str) -> str:
         "- The assistant's previous replies only partially or tangentially addressed the topic.\n"
         "- You are unsure whether it was already answered.\n\n"
         "When in doubt, ALWAYS output 'REPLY'.\n\n"
-        "--- RECENT CHAT HISTORY ---\n"
+        "--- CONTEXT ---\n"
         f"{recent_context_section}\n"
     )
 
@@ -662,7 +662,6 @@ def _build_relevance_classifier_prompt(
     return (
         "You are a relevance classifier for a group chat bot. "
         "Output ONLY 'REPLY' or 'SKIP'.\n\n"
-        f"--- BOT IDENTITY ---\n{bot_identity}\n\n"
         f"{context_line}\n\n"
         "Output 'REPLY' if:\n"
         "- The user asked a question or made a request.\n"
@@ -680,6 +679,8 @@ def _build_relevance_classifier_prompt(
         "already said essentially what the bot would say.\n"
         "- Jumping in would feel forced or awkward.\n\n"
         f"{unsure_guidance}\n\n"
+        "--- BOT IDENTITY ---\n"
+        f"{bot_identity}\n\n"
         "--- RECENT CHAT HISTORY ---\n"
         f"{recent_context_section}\n"
     )
