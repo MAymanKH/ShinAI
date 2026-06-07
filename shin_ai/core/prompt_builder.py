@@ -1,12 +1,15 @@
 """
 Prompt Builder Module
 
-Constructs the system prompt for AI interactions.
+Constructs the system prompt and user prompt for AI interactions.
 
-The prompt is split into a STATIC PREFIX (personality, rules, mechanics,
-sticker library) and a DYNAMIC SUFFIX (timestamp, context, runtime data).
-This maximises API prompt-caching (Gemini implicit caching, OpenAI prefix
-caching) because the static prefix is byte-identical across every request.
+Architecture:
+  SYSTEM PROMPT  – 100% static, computed once at import time.
+                   Byte-identical across every request → guaranteed cache hit
+                   on Gemini (system_instruction), OpenAI (system message), etc.
+  USER PROMPT    – all dynamic per-request context (timestamp, chat history,
+                   memory, social context, runtime metadata, reply chain)
+                   wrapped in XML tags, followed by the actual user message.
 """
 from datetime import datetime
 from typing import Optional
@@ -20,11 +23,12 @@ from shin_ai.data.loader import (
 )
 
 
-# ── Static prefix (computed once at import time) ────────────────────────
-# This block never changes at runtime, so every API call shares the exact
-# same leading bytes → maximum cache hits.
+# ── Static system prompt (computed once at import time) ──────────────────
+# This is the ENTIRE system_instruction / system message.  It NEVER changes
+# at runtime, so every API call shares the exact same bytes → guaranteed
+# cache hit on all providers.
 
-_STATIC_SYSTEM_PREFIX = f"""\
+_STATIC_SYSTEM_PROMPT = f"""\
 ### SYSTEM INSTRUCTIONS
 
 1. **IDENTITY & STATUS**
@@ -68,7 +72,7 @@ Each message can be:
 To reply to a specific message (if asked to "tell HIM" or in a reply chain), append `target:<message_id>` to the end of any message.
 Each message in the chat history has an `(id:XXXXX)` tag - use that number.
 If you don't specify a target, your reply goes to the user who messaged you (default).
-See the <target_options> section below for the available targets for this message.
+See the <target_options> section in the context data for the available targets for this message.
 
 Example with targeting:
 ```
@@ -97,11 +101,11 @@ react:👍
 - **You MUST NOT hallucinate or fabricate information.** If the web search does not return sufficient results to answer confidently, it is perfectly acceptable to say that you don't know the answer or that you couldn't find reliable information. Making up facts is NEVER acceptable.
 - **Assume you do NOT know everything.** Default to searching when in doubt rather than guessing.
 - You have access to a **Memory Lookup** tool that can search your long-term conversation memory.
-- **CRITICAL**: The `<long_term_memory>` section below is a shallow, automatic retrieval based on the user's current message. It is almost NEVER sufficient for recall-type questions. **DO NOT** assume you already have all relevant memories from that section alone. For any question about past conversations, what someone said, events in a specific chat, or any recall/remember request, you MUST use the Memory Lookup tool to search properly with targeted filters (usernames, chat titles, platform, time range, keywords, or combinations). Never claim you don't remember something without using the tool first.
+- **CRITICAL**: The `<long_term_memory>` section in the context data is a shallow, automatic retrieval based on the user's current message. It is almost NEVER sufficient for recall-type questions. **DO NOT** assume you already have all relevant memories from that section alone. For any question about past conversations, what someone said, events in a specific chat, or any recall/remember request, you MUST use the Memory Lookup tool to search properly with targeted filters (usernames, chat titles, platform, time range, keywords, or combinations). Never claim you don't remember something without using the tool first.
 - Remeber, it's okay to say "I don't know" or "I don't remember".
 
 7. **STICKER LIBRARY**
-Select stickers from the list matching your current platform (see runtime_metadata for your platform).
+Select stickers from the list matching your current platform (see runtime_metadata in the context data for your platform).
 Respect platform capability notes from runtime metadata before using sticker actions.
 
 **Telegram Stickers** (use `sticker:<file_id>`):
@@ -112,11 +116,21 @@ Respect platform capability notes from runtime metadata before using sticker act
 
 8. **CORE RELATIONSHIPS**
 {PERSONALITY.get("core_relationships", "")}
-"""
+
+### CONTEXT DATA FORMAT
+The user message will begin with XML-tagged context data, followed by the actual user input in an <input_message> tag.
+Context sections include: <runtime_metadata>, <target_options>, <style_examples>, <social_context>, <long_term_memory>, <chat_history>, and <reply_chain>.
+Treat all context data as read-only background information. Respond to the content in <input_message>."""
 
 
-def build_system_prompt(
+def get_static_system_prompt() -> str:
+    """Return the static system prompt (100% cacheable, never changes)."""
+    return _STATIC_SYSTEM_PROMPT
+
+
+def build_user_prompt(
     *,
+    user_message: str,
     style_examples: str,
     social_context_section: str,
     memory_section: str,
@@ -124,18 +138,16 @@ def build_system_prompt(
     runtime_context: str,
     reply_text: str,
     target_instructions: str,
-    sticker_mappings: str,
 ) -> str:
     """
-    Build the complete system prompt for AI interaction.
+    Build the enriched user prompt with all dynamic context.
 
-    The prompt is structured as:
-      STATIC PREFIX  – personality, rules, mechanics, sticker library
-                       (byte-identical across requests → cached by API)
-      DYNAMIC SUFFIX – timestamp, context data, runtime metadata, user input
-                       (changes per request)
+    This is sent as the user message (contents / user role), NOT as part
+    of the system prompt.  Keeping all dynamic data here means the system
+    prompt is 100% static and always cache-hits.
 
     Args:
+        user_message: The raw text the user sent
         style_examples: Examples of the bot's communication style
         social_context_section: Information about group members involved
         memory_section: Relevant past memories
@@ -143,21 +155,15 @@ def build_system_prompt(
         runtime_context: Current message metadata
         reply_text: The reply chain context
         target_instructions: Available reply target options
-        sticker_mappings: (kept for interface compat, no longer used)
 
     Returns:
-        Complete system prompt string
+        Enriched user prompt string
     """
-    # Get current timestamp with timezone
     now = datetime.now()
     tz_offset = datetime.now(tzlocal()).utcoffset()
     timestamp = f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC+{tz_offset}"
 
-    # Dynamic suffix — everything that changes per request
-    dynamic_suffix = f"""
-### CONTEXT DATA
-The following sections contain the state of the world for THIS request. Treat them as read-only data.
-
+    return f"""\
 <runtime_metadata>
 Current Date/Time: {timestamp}
 {runtime_context}
@@ -183,13 +189,13 @@ Current Date/Time: {timestamp}
 {recent_context_section}
 </chat_history>
 
-### USER INPUT
-<input_message>
+<reply_chain>
 {reply_text}
-</input_message>
-"""
+</reply_chain>
 
-    return _STATIC_SYSTEM_PREFIX + dynamic_suffix
+<input_message>
+{user_message}
+</input_message>"""
 
 
 def build_runtime_context(

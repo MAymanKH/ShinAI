@@ -12,7 +12,8 @@ from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.core import state
 from shin_ai.core.prompt_builder import (
-    build_system_prompt,
+    get_static_system_prompt,
+    build_user_prompt,
     build_runtime_context,
     build_target_instructions,
 )
@@ -346,7 +347,12 @@ async def _execute_frozen_message(
     typing_task = None
     recent_context_section = _get_recent_context(platform.platform_name, msg)
 
-    system_prompt = build_system_prompt(
+    # Static system prompt — 100% cacheable, never changes
+    system_prompt = get_static_system_prompt()
+
+    # Dynamic context packed into user message
+    enriched_prompt = build_user_prompt(
+        user_message=prompt,
         style_examples=style_examples,
         social_context_section=social_context_section,
         memory_section=memory_section,
@@ -354,7 +360,6 @@ async def _execute_frozen_message(
         runtime_context=runtime_context,
         reply_text=reply_text,
         target_instructions=target_instructions,
-        sticker_mappings=sticker_mappings,
     )
 
     if await _should_skip_queued_reply(msg, prompt, recent_context_section):
@@ -372,7 +377,7 @@ async def _execute_frozen_message(
         answer = await _call_ai_provider(
             msg=msg,
             system_prompt=system_prompt,
-            prompt=prompt,
+            prompt=enriched_prompt,
             media_list=media_list,
         )
 
