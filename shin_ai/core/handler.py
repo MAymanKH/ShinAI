@@ -364,7 +364,7 @@ async def _execute_frozen_message(
 
     if await _should_skip_queued_reply(msg, prompt, recent_context_section):
         logger.info(
-            "Skipping queued reply for chat %s (message %s already answered)",
+            "Skipping queued reply for chat %s (message %s trivial/laugh/sticker)",
             msg.chat.id,
             msg.id,
         )
@@ -387,6 +387,15 @@ async def _execute_frozen_message(
 
         if not answer:
             logger.warning("AI returned empty response, skipping response")
+            return
+
+        clean_ans = answer.strip().strip("`").strip().upper()
+        if clean_ans == "[SKIP]" or clean_ans == "SKIP":
+            logger.info(
+                "Skipping queued reply for chat %s (AI returned %s)",
+                msg.chat.id,
+                clean_ans,
+            )
             return
 
         parsed = parse_ai_response(answer)
@@ -680,80 +689,6 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     return "RECENT CHAT ACTIVITY: None recorded yet."
 
 
-def _build_duplicate_classifier_prompt(recent_context_section: str) -> str:
-    """Classifier for speculative replies: skip only true duplicates."""
-    return (
-        "You are a strict duplicate-detection classifier. "
-        "Output ONLY 'REPLY' or 'SKIP'.\n\n"
-        "SKIP ONLY if ALL of the following are true:\n"
-        "1. The assistant has ALREADY sent a direct reply to THIS EXACT user message "
-        "(not just a similar topic — the same question/statement).\n"
-        "2. That reply fully and completely answered the user's message.\n"
-        "3. No new information or follow-up was added by the user after the assistant's reply.\n\n"
-        "REPLY in ALL other cases, including:\n"
-        "- The user asked a question, even if a related topic was discussed before.\n"
-        "- The user's message is a new thought, joke, or interjection.\n"
-        "- The assistant's previous replies only partially or tangentially addressed the topic.\n"
-        "- You are unsure whether it was already answered.\n\n"
-        "When in doubt, ALWAYS output 'REPLY'.\n\n"
-        "--- CONTEXT ---\n"
-        f"{recent_context_section}\n"
-    )
-
-
-def _build_relevance_classifier_prompt(
-    recent_context_section: str,
-    is_direct: bool,
-) -> str:
-    """Classifier for deciding if the bot can naturally contribute."""
-    bot_identity = PERSONALITY.get("identity", "You are an AI assistant.")
-    if is_direct:
-        context_line = (
-            "The user is talking DIRECTLY to the bot (replied to it, mentioned it, etc.). "
-            "The bot should usually respond — but not always."
-        )
-        unsure_guidance = (
-            "When genuinely unsure, lean toward 'REPLY' — "
-            "the user is talking to the bot, so silence is rude unless truly pointless."
-        )
-    else:
-        context_line = (
-            "The bot randomly decided to jump into this conversation. "
-            "Decide whether the bot can NATURALLY and MEANINGFULLY contribute."
-        )
-        unsure_guidance = (
-            "When genuinely unsure, lean slightly toward 'SKIP' — "
-            "it's better to stay quiet than to force an awkward interjection."
-        )
-
-    return (
-        "You are a relevance classifier for a group chat bot. "
-        "Output ONLY 'REPLY' or 'SKIP'.\n\n"
-        f"{context_line}\n\n"
-        "Output 'REPLY' if:\n"
-        "- The user asked a question or made a request.\n"
-        "- The topic is something the bot can joke about, react to, or comment on naturally.\n"
-        "- The message is funny, emotional, or invites casual engagement.\n"
-        "- The bot has relevant knowledge or a natural opinion on the subject.\n"
-        "- The conversation is general/social and the bot can fit in.\n\n"
-        "Output 'SKIP' if:\n"
-        "- The message is a low-content reaction (laughing emojis, 'lol', 'haha', a sticker, "
-        "thumbs up, etc.) that doesn't need a response.\n"
-        "- The conversation is deeply personal between specific people and the bot would be intruding.\n"
-        "- The topic is so niche or technical that the bot has nothing natural to add.\n"
-        "- The message is mundane logistics between other people (e.g. 'meet me at 5', 'okay omw').\n"
-        "- The bot's point is already conveyed in recent chat — someone (including the bot) "
-        "already said essentially what the bot would say.\n"
-        "- Jumping in would feel forced or awkward.\n\n"
-        f"{unsure_guidance}\n\n"
-        "--- BOT IDENTITY ---\n"
-        f"{bot_identity}\n\n"
-        "--- RECENT CHAT HISTORY ---\n"
-        f"{recent_context_section}\n"
-    )
-
-
-
 _TRIVIAL_LAUGH_PATTERN = _re.compile(
     r"^[هح\s]+$"          # Arabic laughing (ههههه / ححح)
     r"|^h[ha]+$"           # English laughing (haha, hahaha)
@@ -804,36 +739,7 @@ async def _should_skip_queued_reply(
         logger.debug("Skip classifier: trivial message, skipping")
         return True
 
-    # Pick the right classifier based on interaction type
-    if _should_use_speculative_reply(msg):
-        # Speculative reply: only skip true duplicates
-        eval_system = _build_duplicate_classifier_prompt(recent_context_section)
-    else:
-        # Direct interaction or random interjection: check if the bot
-        # can naturally and meaningfully contribute
-        is_direct = _is_direct_interaction(msg)
-        eval_system = _build_relevance_classifier_prompt(
-            recent_context_section, is_direct=is_direct,
-        )
-
-    eval_prompt = f"User message: \"{prompt}\""
-
-    try:
-        eval_ans = await _call_ai_provider(
-            msg=msg,
-            system_prompt=eval_system,
-            prompt=eval_prompt,
-            media_list=[],
-        )
-    except Exception as e:
-        logger.warning(f"Queued skip classifier failed: {e}")
-        return False
-
-    if not eval_ans:
-        return False
-
-    verdict = eval_ans.strip().upper()
-    return "SKIP" in verdict
+    return False
 
 
 def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:
