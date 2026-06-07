@@ -65,7 +65,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     style_examples = _get_style_examples(prompt)
     reply_text = await _get_reply_chain_text(platform, msg)
     runtime_context = await _build_runtime_context(platform, msg)
-    memory_section = await _get_memory_section(prompt)
+    memory_section = await _get_memory_section(prompt, msg)
     social_context_section = get_social_context(msg, reply_text)
 
     _enqueue_frozen_message(
@@ -598,7 +598,69 @@ async def _get_member_statuses(platform: PlatformAdapter, msg: UnifiedMessage) -
     return user_status, reply_target_status
 
 
-async def _get_memory_section(prompt: str) -> str:
+_MEMORY_RECALL_PATTERN = _re.compile(
+    r"\b("
+    r"remember|recall|memory|memories|forgot|forget|"
+    r"previous|previously|earlier|before|last|yesterday|ago|"
+    r"history|past|old|what did|when did|where did|who said|"
+    r"did i|did we|have i|have we|my name|who am i|know me"
+    r")\b",
+    _re.IGNORECASE,
+)
+
+_ARABIC_MEMORY_RECALL_TERMS = (
+    "فاكر",
+    "فكرك",
+    "تفتكر",
+    "افتكر",
+    "نسيت",
+    "ذاكرة",
+    "اتقال",
+    "قلت",
+    "قولت",
+    "قال",
+    "قالت",
+    "قولنا",
+    "اتكلمنا",
+    "كلمنا",
+    "قبل",
+    "زمان",
+    "امبارح",
+    "مبارح",
+    "النهارده",
+    "انهارده",
+    "امتى",
+    "فين",
+    "مين انا",
+    "اسمي",
+    "تعرفني",
+)
+
+
+def _should_retrieve_memory(prompt: str, msg: UnifiedMessage) -> bool:
+    """Cheaply decide whether automatic long-term memory is likely useful."""
+    text = (prompt or "").strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    if _MEMORY_RECALL_PATTERN.search(lowered):
+        return True
+
+    if any(term in text for term in _ARABIC_MEMORY_RECALL_TERMS):
+        return True
+
+    if msg.reply_to_message and any(marker in lowered for marker in ("this", "that", "ده", "دا", "دي")):
+        return True
+
+    return False
+
+
+async def _get_memory_section(prompt: str, msg: UnifiedMessage) -> str:
+    if not _should_retrieve_memory(prompt, msg):
+        logger.debug("Skipping automatic memory retrieval for non-recall prompt")
+        return ""
+
     try:
         retrieved_mems = await retrieve_memories(prompt)
         if retrieved_mems:

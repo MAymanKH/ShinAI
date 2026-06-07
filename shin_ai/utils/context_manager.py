@@ -3,9 +3,9 @@ import time
 from datetime import datetime
 from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia, UnifiedUser
 
-# Store last 100 messages per chat
+# Store last 50 messages per chat
 # Map f"{platform}_{chat_id}" -> deque of message dicts
-_context_buffer = defaultdict(lambda: deque(maxlen=100))
+_context_buffer = defaultdict(lambda: deque(maxlen=50))
 
 
 def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
