@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import inspect
 import json
 from collections.abc import Callable
 from typing import Any
@@ -18,25 +20,57 @@ async def run_tool_calling_chat(
     system_prompt: str,
     prompt: str,
     model: str | None,
+    media_list: list[dict] | None = None,
     max_turns: int = 3,
     **completion_kwargs: Any,
 ) -> str:
     """Run an OpenAI-compatible chat completion loop with supported tools."""
+    if media_list:
+        content = [{"type": "text", "text": prompt}]
+        for idx, media_info in enumerate(media_list, 1):
+            image_bytes = media_info['bytes']
+            mime_type = media_info['mime_type']
+            sender = media_info['sender']
+            position = media_info['position']
+            media_type = media_info['media_type']
+
+            label = f"\n[Image {idx}/{len(media_list)}: {media_type} from {sender}, {position}]"
+            content.append({"type": "text", "text": label})
+
+            b64_str = base64.b64encode(image_bytes).decode('utf-8')
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{b64_str}"
+                }
+            })
+    else:
+        content = prompt
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": content},
     ]
 
     response = None
     for _ in range(max_turns):
-        response = await asyncio.to_thread(
-            create_completion,
-            messages=messages,
-            model=model,
-            tools=TOOLS,
-            tool_choice="auto",
-            **completion_kwargs,
-        )
+        if inspect.iscoroutinefunction(create_completion):
+            response = await create_completion(
+                messages=messages,
+                model=model,
+                tools=TOOLS,
+                tool_choice="auto",
+                **completion_kwargs,
+            )
+        else:
+            response = await asyncio.to_thread(
+                create_completion,
+                messages=messages,
+                model=model,
+                tools=TOOLS,
+                tool_choice="auto",
+                **completion_kwargs,
+            )
 
         response_message = response.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)

@@ -866,7 +866,7 @@ async def _execute_ai_provider_once(
     if provider == "openrouter":
         return await openrouter_api(system_prompt, prompt)
     if provider == "openai-compat":
-        return await openai_compatible_api(system_prompt, prompt)
+        return await openai_compatible_api(system_prompt, prompt, media_list=media_list)
     if provider == "manual":
         from shin_ai.providers.manual import manual_response
         return await manual_response(prompt, msg.from_user)

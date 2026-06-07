@@ -1,10 +1,10 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from shin_ai.config import OPENAI_COMPAT_API_KEY, OPENAI_COMPAT_BASE_URL, OPENAI_COMPAT_MODEL
 from shin_ai.providers.tool_loop import run_tool_calling_chat
 from shin_ai.utils.logger_config import logger
 
 
-async def openai_compatible_api(system_prompt, prompt) -> str:
+async def openai_compatible_api(system_prompt, prompt, media_list=None) -> str:
     api_key = OPENAI_COMPAT_API_KEY
     base_url = OPENAI_COMPAT_BASE_URL
     model = OPENAI_COMPAT_MODEL
@@ -22,7 +22,7 @@ async def openai_compatible_api(system_prompt, prompt) -> str:
         return ""
 
     try:
-        client = OpenAI(
+        client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
         )
@@ -32,6 +32,7 @@ async def openai_compatible_api(system_prompt, prompt) -> str:
             system_prompt=system_prompt,
             prompt=prompt,
             model=model,
+            media_list=media_list,
         )
     except Exception as e:
         logger.error(f"Error with OpenAI-Compatible API (base_url: {base_url}, model: {model}): {e}")
