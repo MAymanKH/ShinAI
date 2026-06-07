@@ -72,6 +72,9 @@ async def run_tool_calling_chat(
                 **completion_kwargs,
             )
 
+        if inspect.isawaitable(response):
+            response = await response
+
         response_message = response.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)
         if not tool_calls:
