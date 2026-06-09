@@ -29,4 +29,4 @@ async def local_llm(system_prompt, prompt) -> str:
                 
         except Exception as e:
             logger.error(f"Ollama Error (via API): {e}")
-            return ""
+            raise

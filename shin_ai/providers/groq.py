@@ -24,4 +24,4 @@ async def groq_api(system_prompt, prompt) -> str:
         )
     except Exception as e:
         logger.error(f"Error with Groq API (model: {model}): {e}")
-        return ""
+        raise

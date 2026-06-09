@@ -28,4 +28,4 @@ async def cerebras_api(system_prompt, prompt) -> str:
         )
     except Exception as e:
         logger.error(f"Error with Cerebras API (model: {model}): {e}")
-        return ""
+        raise

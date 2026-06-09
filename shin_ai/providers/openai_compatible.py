@@ -36,4 +36,4 @@ async def openai_compatible_api(system_prompt, prompt, media_list=None) -> str:
         )
     except Exception as e:
         logger.error(f"Error with OpenAI-Compatible API (base_url: {base_url}, model: {model}): {e}")
-        return ""
+        raise

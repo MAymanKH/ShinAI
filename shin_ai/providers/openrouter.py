@@ -27,4 +27,4 @@ async def openrouter_api(system_prompt, prompt) -> str:
         )
     except Exception as e:
         logger.error(f"Error with OpenRouter API (model: {model}): {e}")
-        return ""
+        raise

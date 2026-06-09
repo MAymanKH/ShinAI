@@ -55,6 +55,7 @@ def _extract_gemini_text(response) -> str:
 
 async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
     models_to_try = list(MODELS_LIST)
+    last_exception = None
 
     for model in models_to_try:
         failed_keys_count = 0
@@ -103,6 +104,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                     logger.warning(f"Gemini timed out/cancelled (model: {model}, Key: {key_name}). Rotating key.")
                 raise
             except Exception as e:
+                last_exception = e
                 failed_keys_count += 1
                 _rotate_key_to_back(key_name)
 
@@ -130,6 +132,8 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
         if len(available_models) > 1:
             _set_model_cooldown(model)
 
+    if last_exception:
+        raise last_exception
     return ""
 
 
