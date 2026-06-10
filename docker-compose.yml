@@ -9,11 +9,11 @@ services:
       # Data and database persistence
       - ./data:/app/data
       - ./chroma_db:/app/chroma_db
-      
-      # Environment variables
-      # Make sure .env exists in the same directory as docker-compose.yml
-      # - ./.env:/app/.env
-      
+
+      # Main configuration file (contains all settings and secrets)
+      # Make sure config.yaml exists before starting the container
+      - ./config.yaml:/app/config.yaml
+
       # Telegram session files
       # WARNING: Touch these files to create them locally before starting the container
       # using `touch shin_ai_bot.session shin_ai_bot.session-journal`

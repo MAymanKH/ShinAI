@@ -20,8 +20,6 @@ from shin_ai.core.prompt_builder import (
 from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
 from shin_ai.core.action_executor import execute_response
 from shin_ai.config import (
-    AI_CHOICE,
-    AI_FALLBACK_PROVIDERS,
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
     MAX_REPLY_DELAY_SECONDS,
@@ -31,12 +29,9 @@ from shin_ai.utils.logger_config import logger
 from shin_ai.utils.rate_limit import check_rate_limit
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
-from shin_ai.providers.local_llm import local_llm
 from shin_ai.providers.gemini import gemini_api
-from shin_ai.providers.cerebras import cerebras_api
-from shin_ai.providers.groq import groq_api
-from shin_ai.providers.openrouter import openrouter_api
-from shin_ai.providers.openai_compatible import openai_compatible_api
+from shin_ai.providers.openai_compatible import openai_provider
+from shin_ai.providers.registry import get_provider_chain, get_first_gemini_provider
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
@@ -53,7 +48,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         return
 
     # Rate limit check
-    if msg.from_user and not check_rate_limit(msg.from_user.id) and AI_CHOICE != "manual":
+    if msg.from_user and not check_rate_limit(msg.from_user.id):
         return
 
     prompt, media_list = await _prepare_prompt_and_media(platform, msg)
@@ -769,14 +764,15 @@ async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyn
 
 async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
     base_prompt = prompt
-    provider_chain = _get_provider_chain()
+    provider_chain = get_provider_chain()
     last_error = None
     media_context = None
 
-    for provider in provider_chain:
+    for provider_cfg in provider_chain:
         provider_prompt = base_prompt
-        provider_media = media_list if provider == "gemini" else []
-        if media_list and provider != "gemini":
+        provider_media = media_list if provider_cfg.type == "gemini" else []
+
+        if media_list and provider_cfg.type != "gemini":
             if media_context is None:
                 media_context = await _describe_media_with_gemini(base_prompt, media_list)
 
@@ -785,7 +781,7 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
             else:
                 logger.warning(
                     "Provider '%s' does not receive raw media and Gemini media description failed.",
-                    provider,
+                    provider_cfg.name,
                 )
 
         retry_prompt = provider_prompt
@@ -794,12 +790,12 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
         for attempt in range(1, max_attempts + 1):
             try:
                 answer = await asyncio.wait_for(
-                    _execute_ai_provider_once(provider, msg, system_prompt, retry_prompt, provider_media),
+                    _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media),
                     timeout=AI_PROVIDER_TIMEOUT_SECONDS,
                 )
                 if not isinstance(answer, str) or not answer.strip():
                     raise RuntimeError("AI provider returned empty response")
-                logger.info("AI provider '%s' succeeded on attempt %s.", provider, attempt)
+                logger.info("AI provider '%s' succeeded on attempt %s.", provider_cfg.name, attempt)
                 return answer
             except asyncio.TimeoutError as e:
                 last_error = e
@@ -818,7 +814,7 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
                 )
 
         if len(provider_chain) > 1:
-            logger.warning("Provider '%s' failed after %s attempts. Falling back.", provider, max_attempts)
+            logger.warning("Provider '%s' failed after %s attempts. Falling back.", provider_cfg.name, max_attempts)
 
     if last_error:
         logger.error("All providers failed. Last error: %s", last_error)
@@ -826,6 +822,12 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
 
 
 async def _describe_media_with_gemini(prompt: str, media_list: list[dict]) -> str:
+    """Use the configured Gemini provider to describe media for non-vision providers."""
+    gemini_cfg = get_first_gemini_provider()
+    if gemini_cfg is None:
+        logger.warning("No Gemini provider configured; cannot describe media for non-vision provider.")
+        return ""
+
     media_description_system = (
         "You describe attached media for another AI model. Return only a concise, "
         "factual description of what is visible and any readable text."
@@ -857,34 +859,22 @@ def _append_media_context(prompt: str, media_context: str) -> str:
     )
 
 
-def _get_provider_chain() -> list[str]:
-    primary = AI_CHOICE
-    fallbacks = [p for p in AI_FALLBACK_PROVIDERS if p and p != primary]
-    return [primary] + fallbacks
-
-
 async def _execute_ai_provider_once(
-    provider: str,
+    provider_cfg,
     msg: UnifiedMessage,
     system_prompt: str,
     prompt: str,
     media_list: list[dict],
 ) -> str | None:
-    if provider == "local":
-        return await local_llm(system_prompt, prompt)
-    if provider == "gemini":
+    if provider_cfg.type == "gemini":
         return await gemini_api(system_prompt, prompt, media_list=media_list)
-    if provider == "cerebras":
-        return await cerebras_api(system_prompt, prompt)
-    if provider == "groq":
-        return await groq_api(system_prompt, prompt)
-    if provider == "openrouter":
-        return await openrouter_api(system_prompt, prompt)
-    if provider == "openai-compat":
-        return await openai_compatible_api(system_prompt, prompt, media_list=media_list)
-    if provider == "manual":
+
+    if provider_cfg.type == "openai":
+        return await openai_provider(provider_cfg, system_prompt, prompt, media_list=media_list)
+
+    if provider_cfg.name == "manual":
         from shin_ai.providers.manual import manual_response
         return await manual_response(prompt, msg.from_user)
 
-    logger.error("Unknown AI provider: %s", provider)
+    logger.error("Unknown provider type '%s' for provider '%s'", provider_cfg.type, provider_cfg.name)
     return None

@@ -17,12 +17,10 @@ sentence-transformers
 
 # AI Providers
 google-genai
-cerebras-cloud-sdk
-groq
 openai
 
 # Utilities
-python-dotenv
+PyYAML
 python-dateutil
 ddgs
 beautifulsoup4

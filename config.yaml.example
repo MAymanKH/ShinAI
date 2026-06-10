@@ -1,0 +1,130 @@
+# ============================================================
+# ShinAI Configuration Example
+# Copy this file to config.yaml and fill in your real values.
+# NEVER commit config.yaml to git — it contains your secrets!
+# ============================================================
+
+# --- Platform ---
+platform:
+  telegram:
+    enabled: true
+    # Get these from https://my.telegram.org/apps
+    api_id: "YOUR_API_ID"
+    api_hash: "your_api_hash_here"
+    # Get this from @BotFather on Telegram
+    bot_token: "your_bot_token_here"
+  discord:
+    enabled: false
+    # Get this from https://discord.com/developers/applications
+    bot_token: "your_discord_token_here"
+  whatsapp:
+    enabled: false  # When enabled, scan the QR code printed on first run
+
+# --- Admin ---
+# Your primary user ID (Telegram or Discord) for admin-only commands
+admin_user_id: 123456789
+
+# --- Debug ---
+debug: false
+
+# --- Response Timing ---
+response:
+  # Randomized delay before the bot responds
+  # Multiple messages arriving during the delay are batched/queued
+  min_delay_seconds: 5.0
+  max_delay_seconds: 300.0
+  # Random chance to respond to messages in group chats (0.05 = 5%)
+  random_trigger_probability: 0.05
+
+# --- Audio Transcription (Whisper) ---
+whisper:
+  # Recommended: large-v3-turbo (best quality-to-speed ratio, ~3GB RAM with int8)
+  # Options: tiny | base | small | medium | large-v2 | large-v3-turbo
+  model: large-v3-turbo
+  # Transcription language: 'ar' for Arabic, 'en' for English, 'auto' to detect
+  language: auto
+  # Max CPU threads for Whisper inference (keep low on shared/weak servers)
+  cpu_threads: 2
+
+# --- Embeddings ---
+# Used for RAG memory indexing, retrieval, and style learning
+embedding_model: intfloat/multilingual-e5-large
+
+# --- Style Learning (optional) ---
+# Telegram group ID to learn communication style from
+# Get it by forwarding a message from the group to @RawDataBot
+# style_group_id: "-1001234567890"
+
+# --- AI ---
+ai:
+  # Per-attempt timeout for AI provider calls
+  timeout_seconds: 60
+  # Maximum retry attempts per provider per request
+  max_retries: 3
+
+  # -------------------------------------------------------
+  # Define as many providers as you like.
+  # All non-Gemini providers use the OpenAI-compatible API
+  # (works with OpenRouter, Groq, Cerebras, DeepSeek,
+  #  Together AI, Fireworks, vLLM, Ollama, and more).
+  # -------------------------------------------------------
+  providers:
+    # OpenRouter — access hundreds of models via one API
+    - name: my_openrouter
+      type: openai
+      base_url: https://openrouter.ai/api/v1
+      api_key: "sk-or-your-key-here"
+      model: anthropic/claude-3.5-sonnet
+
+    # Groq — ultra-fast inference
+    - name: my_groq
+      type: openai
+      base_url: https://api.groq.com/openai/v1
+      api_key: "gsk_your_key_here"
+      model: llama-3.3-70b-versatile
+
+    # Cerebras — fast inference
+    - name: my_cerebras
+      type: openai
+      base_url: https://api.cerebras.ai/v1
+      api_key: "csk_your_key_here"
+      model: llama-3.3-70b
+
+    # DeepSeek
+    - name: my_deepseek
+      type: openai
+      base_url: https://api.deepseek.com
+      api_key: "sk-your-deepseek-key-here"
+      model: deepseek-chat
+
+    # Local Ollama (no API key needed)
+    - name: my_local_ollama
+      type: openai
+      base_url: http://localhost:11434/v1
+      api_key: ollama          # Required by SDK but ignored by Ollama
+      model: llama3.2
+      concurrency: 1           # Limit to 1 concurrent call on CPU-bound hardware
+    
+    # Google Gemini
+    - name: my_gemini
+      type: gemini
+      # API keys are managed in data/gemini_keys.json (supports many keys with rotation)
+      # Optionally override which models to use:
+      models:
+        - gemini-3.5-flash
+        - gemini-3-flash
+
+  # Which provider to use as the primary (must match a name above)
+  primary: my_openrouter
+
+  # Ordered fallback providers (tried in sequence if primary fails)
+  # Must match names defined above. Leave empty for no fallbacks.
+  fallbacks:
+    - my_gemini
+    - my_groq
+    - my_deepseek
+
+  # How to rotate through providers:
+  #   failover    — stick with primary; fall to next only on error/timeout (recommended)
+  #   round_robin — cycle through all providers on every request
+  rotation: failover

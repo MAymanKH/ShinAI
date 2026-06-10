@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import time
 from datetime import datetime
 
@@ -17,7 +16,7 @@ MODELS_LIST = GEMINI_MODELS
 
 
 def load_keys() -> dict[str, str]:
-    """Load API keys from JSON file or environment variables."""
+    """Load API keys from data/gemini_keys.json."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     if GEMINI_KEYS_FILE.exists():
@@ -26,19 +25,16 @@ def load_keys() -> dict[str, str]:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Failed to load keys from {GEMINI_KEYS_FILE}: {e}")
+            return {}
 
-    logger.info("Initializing gemini_keys.json from environment variables...")
-    keys_map = {}
-    for i in range(1, 40):
-        key_name = f"GEMINI_API_KEY{i}"
-        api_key = os.getenv(key_name)
-        if api_key:
-            keys_map[key_name] = api_key
-
-    if keys_map:
-        save_keys(keys_map)
-
-    return keys_map
+    # No keys file found — create an empty one and instruct the user
+    logger.warning(
+        f"{GEMINI_KEYS_FILE} not found. "
+        "Please add your Gemini API keys to data/gemini_keys.json in the format: "
+        '{"GEMINI_API_KEY1": "AIza...", "GEMINI_API_KEY2": "AIza..."}'
+    )
+    save_keys({})
+    return {}
 
 
 def save_keys(current_map: dict[str, str]) -> None:

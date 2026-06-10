@@ -8,8 +8,8 @@ shin_ai/data/personality.py
 shin_ai/data/stickers.py
 shin_ai/data/members.py
 
-# Environment file with secrets
-.env
+# Configuration file with secrets
+config.yaml
 
 # Data Files
 data/
