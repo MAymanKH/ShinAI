@@ -181,7 +181,7 @@ async def _passes_speculative_preflight(
     eval_prompt = f"User's message: \"{prompt}\""
     try:
         logger.info("Running speculative reply pre-flight evaluation...")
-        eval_ans = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
+        eval_ans, _ = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
         if not eval_ans or "YES" not in eval_ans.strip().upper():
             logger.info(f"Pre-flight eval rejected speculative message. Eval: {eval_ans}")
             return False
