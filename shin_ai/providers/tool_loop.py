@@ -22,6 +22,7 @@ async def run_tool_calling_chat(
     prompt: str,
     model: str | None,
     media_list: list[dict] | None = None,
+    include_raw_images: bool = False,
     max_turns: int = 3,
     **completion_kwargs: Any,
 ) -> tuple[str, list[dict]]:
@@ -32,7 +33,7 @@ async def run_tool_calling_chat(
         action dicts queued by send_reaction / send_sticker / moderate_user
         tool calls during the generation loop.
     """
-    if media_list:
+    if media_list and include_raw_images:
         content: Any = [{"type": "text", "text": prompt}]
         for idx, media_info in enumerate(media_list, 1):
             image_bytes = media_info['bytes']
@@ -59,6 +60,31 @@ async def run_tool_calling_chat(
         {"role": "user", "content": content},
     ]
 
+    active_tools = list(TOOLS)
+    if media_list:
+        active_tools.append({
+            "type": "function",
+            "function": {
+                "name": "ask_gemini_about_image",
+                "description": (
+                    "Ask the Gemini vision model a specific question about the attached image(s) "
+                    "to get detailed visual information, read text, identify objects, or verify specific details. "
+                    "Use this tool when the user's message/question asks about something specific in the image "
+                    "and the initial media description is not detailed enough."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The specific question to ask Gemini about the image(s)."
+                        }
+                    },
+                    "required": ["question"]
+                }
+            }
+        })
+
     response = None
     pending_actions: list[dict] = []
 
@@ -67,7 +93,7 @@ async def run_tool_calling_chat(
             response = await create_completion(
                 messages=messages,
                 model=model,
-                tools=TOOLS,
+                tools=active_tools,
                 tool_choice="auto",
                 **completion_kwargs,
             )
@@ -76,7 +102,7 @@ async def run_tool_calling_chat(
                 create_completion,
                 messages=messages,
                 model=model,
-                tools=TOOLS,
+                tools=active_tools,
                 tool_choice="auto",
                 **completion_kwargs,
             )
@@ -92,7 +118,7 @@ async def run_tool_calling_chat(
 
         messages.append(response_message.model_dump(exclude_unset=True))
         for tool_call in tool_calls:
-            tool_result, pending_action = await _execute_tool_call(provider_name, tool_call)
+            tool_result, pending_action = await _execute_tool_call(provider_name, tool_call, media_list)
             if pending_action is not None:
                 pending_actions.append(pending_action)
             messages.append(
@@ -109,7 +135,11 @@ async def run_tool_calling_chat(
     return response.choices[0].message.content or "", pending_actions
 
 
-async def _execute_tool_call(provider_name: str, tool_call: Any) -> tuple[str, dict | None]:
+async def _execute_tool_call(
+    provider_name: str,
+    tool_call: Any,
+    media_list: list[dict] | None = None,
+) -> tuple[str, dict | None]:
     """Execute a tool call and return (result_str, pending_action_or_None)."""
     tool_name = tool_call.function.name
 
@@ -128,6 +158,27 @@ async def _execute_tool_call(provider_name: str, tool_call: Any) -> tuple[str, d
         logger.info(f"{provider_name} requested memory lookup with args: {args}")
         result = await memory_lookup_tool(**args)
         return result, None
+
+    if tool_name == "ask_gemini_about_image":
+        question = args.get("question", "")
+        logger.info(f"{provider_name} requested Gemini image info for question: '{question}'")
+        if not media_list:
+            return "No image is currently attached to this conversation context.", None
+        from shin_ai.providers.gemini import gemini_api
+        try:
+            system_prompt = (
+                "You are an assistant that answers specific questions about attached media/images. "
+                "Answer the user's question accurately, concisely, and factually based on the visual content."
+            )
+            answer, _ = await gemini_api(
+                system_prompt=system_prompt,
+                prompt=question,
+                media_list=media_list
+            )
+            return answer, None
+        except Exception as e:
+            logger.error(f"Failed to ask Gemini about image: {e}")
+            return f"Error querying Gemini about the image: {str(e)}", None
 
     handler = ACTION_TOOL_HANDLERS.get(tool_name)
     if handler:

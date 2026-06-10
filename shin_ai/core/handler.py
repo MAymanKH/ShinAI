@@ -333,6 +333,7 @@ async def _execute_frozen_message(
             system_prompt=system_prompt,
             prompt=enriched_prompt,
             media_list=media_list,
+            original_prompt=prompt,
         )
 
         if not answer and not pending_actions:
@@ -738,6 +739,7 @@ async def _call_ai_provider(
     system_prompt: str,
     prompt: str,
     media_list: list[dict],
+    original_prompt: str | None = None,
 ) -> tuple[str | None, list[dict]]:
     base_prompt = prompt
     provider_chain = get_provider_chain()
@@ -746,11 +748,11 @@ async def _call_ai_provider(
 
     for provider_cfg in provider_chain:
         provider_prompt = base_prompt
-        provider_media = media_list if provider_cfg.type == "gemini" else []
+        provider_media = media_list if media_list else []
 
         if media_list and provider_cfg.type != "gemini":
             if media_context is None:
-                media_context = await _describe_media_with_gemini(base_prompt, media_list)
+                media_context = await _describe_media_with_gemini(original_prompt or base_prompt, media_list)
 
             if media_context:
                 provider_prompt = _append_media_context(base_prompt, media_context)
@@ -797,7 +799,7 @@ async def _call_ai_provider(
     return None, []
 
 
-async def _describe_media_with_gemini(prompt: str, media_list: list[dict]) -> str:
+async def _describe_media_with_gemini(user_message: str, media_list: list[dict]) -> str:
     """Use the configured Gemini provider to describe media for non-vision providers."""
     gemini_cfg = get_first_gemini_provider()
     if gemini_cfg is None:
@@ -805,14 +807,18 @@ async def _describe_media_with_gemini(prompt: str, media_list: list[dict]) -> st
         return ""
 
     media_description_system = (
-        "You describe attached media for another AI model. Return only a concise, "
-        "factual description of what is visible and any readable text."
+        "You describe attached media for another AI model. Return a concise, "
+        "factual description of what is visible and any readable text. "
+        "IMPORTANT: If the user is asking about something specific in the media, you MUST "
+        "identify it and answer it directly, accurately, and in detail so the other AI model "
+        "can answer the user's question correctly."
     )
     summary_prompt = (
         "Describe the attached media for another AI provider that cannot see images. "
         "Be concise but include all visually relevant details, text/OCR, objects, people, "
         "actions, layout, and anything that may matter for answering the user's message.\n\n"
-        f"User message/context:\n{prompt}"
+        "User message/context:\n"
+        f"{user_message}"
     )
 
     try:
