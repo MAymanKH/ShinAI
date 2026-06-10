@@ -17,8 +17,7 @@ from shin_ai.core.prompt_builder import (
     build_runtime_context,
     build_target_instructions,
 )
-from shin_ai.core.response_parser import parse_ai_response, is_ai_response_valid
-from shin_ai.core.action_executor import execute_response
+from shin_ai.core.action_executor import execute_text_messages, execute_pending_actions
 from shin_ai.config import (
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
@@ -36,7 +35,7 @@ from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.audio_transcriber import transcribe_audio
-from shin_ai.data.loader import TELEGRAM_STICKER_MAPPINGS, WHATSAPP_STICKER_MAPPINGS, PERSONALITY
+from shin_ai.data.loader import PERSONALITY
 
 
 _chat_queues = {}
@@ -74,7 +73,6 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         memory_section=memory_section,
         runtime_context=runtime_context,
         target_instructions=_build_target_instructions(msg),
-        sticker_mappings=_select_sticker_mappings(platform),
     )
 
 
@@ -208,10 +206,7 @@ async def _build_runtime_context(platform: PlatformAdapter, msg: UnifiedMessage)
         interaction_type=_get_interaction_type(msg),
     )
 
-    runtime_context += (
-        f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
-        f"{_get_sticker_warning(platform)}{_get_moderation_warning(platform)}"
-    )
+    runtime_context += f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
 
     logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
     return runtime_context
@@ -227,34 +222,6 @@ def _get_interaction_type(msg: UnifiedMessage) -> str:
     return "RANDOM INTERJECTION (User is NOT talking to you, you are engaging proactively)"
 
 
-def _get_sticker_warning(platform: PlatformAdapter) -> str:
-    if not platform.supports_stickers:
-        return (
-            "\nCRITICAL: This platform ("
-            + platform.platform_name
-            + ") DOES NOT support sending stickers. DO NOT use 'sticker:' actions under any circumstances!"
-        )
-
-    if platform.platform_name == "whatsapp":
-        return (
-            "\nSTICKER NOTE: WhatsApp sticker sends require a media source. "
-            "Use 'sticker:wa:<https-url-or-local-path>'. "
-            "DO NOT use Telegram file IDs on WhatsApp.\n"
-        )
-
-    return ""
-
-
-def _get_moderation_warning(platform: PlatformAdapter) -> str:
-    if getattr(platform, "supports_member_restrictions", True):
-        return ""
-
-    return (
-        "\nMODERATION NOTE: This platform does not support per-user mute/unmute. "
-        "Do not use action:mute or action:unmute."
-    )
-
-
 def _build_target_instructions(msg: UnifiedMessage) -> str:
     sender_name = msg.from_user.first_name if msg.from_user else "User"
     return build_target_instructions(
@@ -263,11 +230,6 @@ def _build_target_instructions(msg: UnifiedMessage) -> str:
         reply_msg=msg.reply_to_message,
     )
 
-
-def _select_sticker_mappings(platform: PlatformAdapter) -> dict:
-    if platform.platform_name == "whatsapp":
-        return WHATSAPP_STICKER_MAPPINGS
-    return TELEGRAM_STICKER_MAPPINGS
 
 
 def _enqueue_frozen_message(
@@ -281,7 +243,6 @@ def _enqueue_frozen_message(
     memory_section: str,
     runtime_context: str,
     target_instructions: str,
-    sticker_mappings: dict,
 ) -> None:
     key = (platform.platform_name, msg.chat.id)
     if key not in _chat_queues:
@@ -298,7 +259,6 @@ def _enqueue_frozen_message(
         "memory_section": memory_section,
         "runtime_context": runtime_context,
         "target_instructions": target_instructions,
-        "sticker_mappings": sticker_mappings,
     })
 
     if key not in _chat_tasks or _chat_tasks[key].done():
@@ -337,7 +297,6 @@ async def _execute_frozen_message(
     memory_section: str,
     runtime_context: str,
     target_instructions: str,
-    sticker_mappings: dict,
 ):
     typing_task = None
     recent_context_section = _get_recent_context(platform.platform_name, msg)
@@ -369,39 +328,52 @@ async def _execute_frozen_message(
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
-        answer = await _call_ai_provider(
+        answer, pending_actions = await _call_ai_provider(
             msg=msg,
             system_prompt=system_prompt,
             prompt=enriched_prompt,
             media_list=media_list,
         )
 
-        if not is_ai_response_valid(answer):
-            logger.warning("AI failed, skipping response")
+        if not answer and not pending_actions:
+            logger.warning("AI returned empty response, skipping")
             return
 
-        if not answer:
-            logger.warning("AI returned empty response, skipping response")
-            return
+        if answer:
+            clean_ans = answer.strip().strip("`").strip().upper()
+            if clean_ans in ("[SKIP]", "SKIP"):
+                logger.info(
+                    "Skipping queued reply for chat %s (AI returned %s)",
+                    msg.chat.id,
+                    clean_ans,
+                )
+                return
 
-        clean_ans = answer.strip().strip("`").strip().upper()
-        if clean_ans == "[SKIP]" or clean_ans == "SKIP":
-            logger.info(
-                "Skipping queued reply for chat %s (AI returned %s)",
-                msg.chat.id,
-                clean_ans,
+        # Split text on '---' for multi-message support
+        text_messages = [
+            m.strip() for m in (answer or "").split("---") if m.strip()
+        ]
+
+        # Send text messages
+        if text_messages:
+            await execute_text_messages(
+                platform=platform,
+                msg=msg,
+                messages=text_messages,
+                default_reply_to_id=msg.id,
+                original_prompt=prompt,
+                raw_answer=answer or "",
+                reply_text=reply_text,
             )
-            return
 
-        parsed = parse_ai_response(answer)
-        
-        mod_errors = await execute_response(
+        # Execute tool-called actions (reactions, stickers, moderation)
+        mod_errors = await execute_pending_actions(
             platform=platform,
             msg=msg,
-            parsed=parsed,
-            default_target_id=msg.id,
+            pending_actions=pending_actions,
+            default_reply_to_id=msg.id,
             original_prompt=prompt,
-            raw_answer=answer,
+            raw_answer=answer or "",
             reply_text=reply_text,
         )
 
@@ -412,27 +384,26 @@ async def _execute_frozen_message(
                 "The following moderation action(s) you attempted have FAILED:\n"
                 f"{error_context}\n\n"
                 "Respond naturally to the user about this failure. "
-                "Do NOT use any action: commands in your response. "
+                "Do NOT call any moderation tools in your response. "
                 "Just send a text message reacting to the failure in your usual style."
             )
 
-            error_answer = await _call_ai_provider(
+            error_answer, _ = await _call_ai_provider(
                 msg=msg,
                 system_prompt=system_prompt,
                 prompt=error_prompt,
                 media_list=[],
             )
 
-            if error_answer and is_ai_response_valid(error_answer):
-                error_parsed = parse_ai_response(error_answer)
-                for p in error_parsed:
-                    p.mod_action = None
-                    p.mod_target_username = None
-                await execute_response(
+            if error_answer and error_answer.strip():
+                error_messages = [
+                    m.strip() for m in error_answer.split("---") if m.strip()
+                ]
+                await execute_text_messages(
                     platform=platform,
                     msg=msg,
-                    parsed=error_parsed,
-                    default_target_id=msg.id,
+                    messages=error_messages,
+                    default_reply_to_id=msg.id,
                     original_prompt=prompt,
                     raw_answer=error_answer,
                     reply_text=reply_text,
@@ -762,7 +733,12 @@ async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyn
         pass
 
 
-async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str, media_list: list[dict]) -> str | None:
+async def _call_ai_provider(
+    msg: UnifiedMessage,
+    system_prompt: str,
+    prompt: str,
+    media_list: list[dict],
+) -> tuple[str | None, list[dict]]:
     base_prompt = prompt
     provider_chain = get_provider_chain()
     last_error = None
@@ -789,14 +765,14 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
 
         for attempt in range(1, max_attempts + 1):
             try:
-                answer = await asyncio.wait_for(
+                answer, pending_actions = await asyncio.wait_for(
                     _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media),
                     timeout=AI_PROVIDER_TIMEOUT_SECONDS,
                 )
-                if not isinstance(answer, str) or not answer.strip():
+                if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
                     raise RuntimeError("AI provider returned empty response")
                 logger.info("AI provider '%s' succeeded on attempt %s.", provider_cfg.name, attempt)
-                return answer
+                return answer, pending_actions
             except asyncio.TimeoutError as e:
                 last_error = e
                 if attempt >= max_attempts:
@@ -818,7 +794,7 @@ async def _call_ai_provider(msg: UnifiedMessage, system_prompt: str, prompt: str
 
     if last_error:
         logger.error("All providers failed. Last error: %s", last_error)
-    return None
+    return None, []
 
 
 async def _describe_media_with_gemini(prompt: str, media_list: list[dict]) -> str:
@@ -840,7 +816,7 @@ async def _describe_media_with_gemini(prompt: str, media_list: list[dict]) -> st
     )
 
     try:
-        media_context = await gemini_api(media_description_system, summary_prompt, media_list=media_list)
+        media_context, _ = await gemini_api(media_description_system, summary_prompt, media_list=media_list)
     except Exception as e:
         logger.error(f"Gemini media fallback failed: {e}")
         return ""
@@ -865,7 +841,7 @@ async def _execute_ai_provider_once(
     system_prompt: str,
     prompt: str,
     media_list: list[dict],
-) -> str | None:
+) -> tuple[str, list[dict]]:
     if provider_cfg.type == "gemini":
         return await gemini_api(system_prompt, prompt, media_list=media_list)
 
@@ -874,7 +850,8 @@ async def _execute_ai_provider_once(
 
     if provider_cfg.name == "manual":
         from shin_ai.providers.manual import manual_response
-        return await manual_response(prompt, msg.from_user)
+        text = await manual_response(prompt, msg.from_user)
+        return text or "", []
 
     logger.error("Unknown provider type '%s' for provider '%s'", provider_cfg.type, provider_cfg.name)
-    return None
+    return "", []

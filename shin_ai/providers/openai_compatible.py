@@ -39,7 +39,7 @@ async def openai_provider(
     system_prompt: str,
     prompt: str,
     media_list: list[dict] | None = None,
-) -> str:
+) -> tuple[str, list[dict]]:
     """
     Call any OpenAI-compatible provider defined in config.yaml.
 
@@ -50,7 +50,9 @@ async def openai_provider(
         media_list:    Optional list of media dicts for vision-capable providers.
 
     Returns:
-        The model's text response.
+        (response_text, pending_actions) where pending_actions is a list of
+        action dicts queued by send_reaction / send_sticker / moderate_user
+        tool calls during the generation loop.
 
     Raises:
         Exception on any API or network error (caller handles retry/fallback).
@@ -74,7 +76,7 @@ async def openai_provider(
 
     semaphore = await _get_semaphore(cfg)
 
-    async def _call() -> str:
+    async def _call() -> tuple[str, list[dict]]:
         return await run_tool_calling_chat(
             provider_name=cfg.name,
             create_completion=client.chat.completions.create,

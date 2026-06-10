@@ -16,11 +16,7 @@ from typing import Optional
 
 from dateutil.tz import tzlocal
 
-from shin_ai.data.loader import (
-    PERSONALITY,
-    TELEGRAM_STICKER_MAPPINGS,
-    WHATSAPP_STICKER_MAPPINGS,
-)
+from shin_ai.data.loader import PERSONALITY
 
 
 # ── Static system prompt (computed once at import time) ──────────────────
@@ -40,7 +36,7 @@ _STATIC_SYSTEM_PROMPT = f"""\
 3. **INTERACTION STYLE**
 {PERSONALITY.get("interaction_style_personality", "")}
 
-4. **RESPONSE MECHANICS**
+4. **RESPONSE FORMAT**
 
 **Multiple Messages**:
 Prefer sending multiple short messages instead of one long message most of the time. Separate them with "---" between messages.
@@ -53,35 +49,6 @@ Example:
 بس المشكلة
 ---
 مو بسيطة
-```
-
-Each message can be:
-*   **TEXT**: Just the raw text response (1-20 words max)
-*   **REACT**: `react:<emoji>` (Valid: 👍, ❤️, 🔥, 😢, 🤮, 👎, 🤯, 👀)
-*   **STICKER**: `sticker:<file_id>` (See Sticker Library Below)
-*   **ACTION**: `action:<kick|ban|unban|mute|unmute|add>` (See Moderation Protocol)
-    - `action:kick` - Remove from group (can rejoin)
-    - `action:ban` - Permanently remove from group (cannot rejoin)
-    - `action:unban:@username` - Lift a ban (requires @username)
-    - `action:mute` - Silence a user (they can't send messages)
-    - `action:unmute` - Restore a muted user's permissions
-    - `action:add:@username` - Generate a one-time invite link and DM it to the user (requires @username)
-    - Optionally specify target: `action:kick:@username`
-
-**Targeting Syntax**:
-To reply to a specific message (if asked to "tell HIM" or in a reply chain), append `target:<message_id>` to the end of any message.
-Each message in the chat history has an `(id:XXXXX)` tag - use that number.
-If you don't specify a target, your reply goes to the user who messaged you (default).
-See the <target_options> section in the context data for the available targets for this message.
-
-Example with targeting:
-```
-اوكي فهمت
----
-target:48291
-شكرا على التوضيح
----
-react:👍
 ```
 
 5. **WHEN TO SKIP RESPONDING**
@@ -106,31 +73,15 @@ If the user's message does not need a response, you MUST output exactly `[SKIP]`
 - **ESCALATION**: {PERSONALITY.get("moderation_escalation", "")}
 
 7. **TOOLS & CAPABILITIES**
-- You have access to a **Web Search** tool (powered by DuckDuckGo).
-- **Guideline**: If the user asks about current events, news, weather, or information that changes (prices, dates, etc.), use the search tool. Do NOT refuse to answer based on "training data cutoff". You are connected to the live internet.
-- **CRITICAL – Anti-Hallucination Policy**: You MUST use the Web Search tool whenever the topic involves information that could change over time or that you are not 100% certain about. This includes but is not limited to:
-    • Whether a game, movie, show, or software has been released or not, and any details about them.
-    • Compatibility of niche software or hardware.
-    • Current versions, release dates, pricing, availability, or status of any product.
-    • Any factual claim you are not absolutely confident about from your training data.
-    • Do not hallucinate URLs. If you need to provide a URL, use the search tool to find it. If you cannot find a URL, say that you don't know.
-- **You MUST NOT hallucinate or fabricate information.** If the web search does not return sufficient results to answer confidently, it is perfectly acceptable to say that you don't know the answer or that you couldn't find reliable information. Making up facts is NEVER acceptable.
-- **Assume you do NOT know everything.** Default to searching when in doubt rather than guessing.
-- You have access to a **Memory Lookup** tool that can search your long-term conversation memory.
-- **CRITICAL**: The `<long_term_memory>` section in the context data is a shallow, automatic retrieval based on the user's current message. It is almost NEVER sufficient for recall-type questions. **DO NOT** assume you already have all relevant memories from that section alone. For any question about past conversations, what someone said, events in a specific chat, or any recall/remember request, you MUST use the Memory Lookup tool to search properly with targeted filters (usernames, chat titles, platform, time range, keywords, or combinations). Never claim you don't remember something without using the tool first.
-- Remeber, it's okay to say "I don't know" or "I don't remember".
+You have access to the following tools. Only invoke a tool when it genuinely adds value — do not use tools gratuitously.
 
-8. **STICKER LIBRARY**
-Select stickers from the list matching your current platform (see runtime_metadata in the context data for your platform).
-Respect platform capability notes from runtime metadata before using sticker actions.
+- **search_web_tool**: Search the live web via DuckDuckGo. Use whenever the user asks about current events, news, prices, release dates, or any fact you are not 100% certain about. **Never hallucinate URLs or facts** — search instead.
+- **memory_lookup_tool**: Search your long-term conversation memory with fine-grained filters (keywords, usernames, chat titles, platform, time range). Use for any recall/remember request. Do NOT assume the `<long_term_memory>` context section alone is sufficient — always call this tool for recall questions.
+- **send_reaction**: React to a message with an emoji. Use when a reaction genuinely adds value. Supported on Telegram, WhatsApp, Discord.
+- **send_sticker**: Send a sticker to the chat. The tool description contains the full sticker library for all platforms. Supported on Telegram and WhatsApp only.
+- **moderate_user**: Perform a moderation action (kick/ban/unban/mute/unmute/add). The tool description details which actions are supported on each platform and the full moderation rules. Only use when moderation is genuinely warranted.
 
-**Telegram Stickers** (use `sticker:<file_id>`):
-{TELEGRAM_STICKER_MAPPINGS}
-
-**WhatsApp Stickers** (use `sticker:wa:<filename>`):
-{WHATSAPP_STICKER_MAPPINGS}
-
-9. **CORE RELATIONSHIPS**
+8. **CORE RELATIONSHIPS**
 {PERSONALITY.get("core_relationships", "")}
 
 ### CONTEXT DATA FORMAT
@@ -261,33 +212,20 @@ def build_target_instructions(
     reply_msg: Optional[object] = None,
 ) -> str:
     """
-    Build target instructions for the AI prompt.
-    
-    The bot sees actual message IDs (id:XXXXX) in the chat history and can
-    use them directly with `target:<id>` to reply to any message.
-    
-    Args:
-        msg_id: Current message ID
-        sender_name: Name of the message sender
-        reply_msg: The reply_to_message object if any
-        
-    Returns:
-        Target instructions string for the system prompt
+    Build target message ID options for the tools (e.g. send_reaction, moderate_user).
     """
-    parts = [f"- `target:{msg_id}` (Default): Reply to {sender_name} (the user talking to you)"]
+    parts = [f"- Message ID '{msg_id}' was sent by {sender_name} (the user who just sent the triggering message)"]
 
     if reply_msg:
         parent_name = "Unknown"
         if hasattr(reply_msg, 'from_user') and reply_msg.from_user:
             parent_name = reply_msg.from_user.first_name or "Unknown"
-        
-        parts.append(f"- `target:{reply_msg.id}`: Reply to {parent_name} (the message the user replied to)")
-        
-        if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
-            parts.append(f"- `target:{reply_msg.reply_to_message_id}`: Reply to the message before {parent_name}")
-    
-    parts.append("- `target:<id>`: Reply to ANY message from the chat history. Use the (id:XXXXX) shown next to each message.")
-    
-    target_instructions = "\n".join(parts)
 
-    return target_instructions
+        parts.append(f"- Message ID '{reply_msg.id}' was sent by {parent_name} (the message the user replied to)")
+
+        if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
+            parts.append(f"- Message ID '{reply_msg.reply_to_message_id}' (the parent of the replied message)")
+
+    parts.append("- You can also target any other message ID shown as (id:XXXXX) in the chat history.")
+
+    return "\n".join(parts)

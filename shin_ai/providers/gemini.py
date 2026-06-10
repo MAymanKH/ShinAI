@@ -17,6 +17,7 @@ from shin_ai.providers.gemini_keys import (
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.web_search import search_web_tool
 from shin_ai.utils.memory_lookup import memory_lookup_tool
+from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS
 import asyncio
 
 
@@ -53,7 +54,14 @@ def _extract_gemini_text(response) -> str:
     return "\n".join(collected_parts).strip()
 
 
-async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
+async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[dict]]:
+    """Call the Gemini API with tool support.
+
+    Returns:
+        (response_text, pending_actions) where pending_actions is a list of
+        action dicts queued by send_reaction / send_sticker / moderate_user
+        tool calls during the generation loop.
+    """
     models_to_try = list(MODELS_LIST)
     last_exception = None
 
@@ -71,7 +79,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 genai_client = genai.Client(api_key=api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model)
-                response = await _run_gemini_generation_loop(genai_client, model, contents, config)
+                response, pending_actions = await _run_gemini_generation_loop(genai_client, model, contents, config)
 
                 response_text = _extract_gemini_text(response)
                 if not response_text:
@@ -98,7 +106,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
                 
                 _rotate_key_to_back(key_name)
                     
-                return response_text
+                return response_text, pending_actions
             except asyncio.CancelledError:
                 if _rotate_key_to_back(key_name):
                     logger.warning(f"Gemini timed out/cancelled (model: {model}, Key: {key_name}). Rotating key.")
@@ -134,7 +142,7 @@ async def gemini_api(system_prompt, prompt, media_list=None)  -> str:
 
     if last_exception:
         raise last_exception
-    return ""
+    return "", []
 
 
 def _build_gemini_contents(prompt: str, media_list=None) -> list:
@@ -161,18 +169,81 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
 
 
 def _build_gemini_config(system_prompt: str, model: str):
+    from shin_ai.utils.action_tools import (
+        SEND_REACTION_TOOL_SCHEMA,
+        SEND_STICKER_TOOL_SCHEMA,
+        MODERATE_USER_TOOL_SCHEMA,
+    )
+
+    # Build Gemini-native tool declarations from the OpenAI schemas
+    gemini_tools = [
+        search_web_tool,
+        memory_lookup_tool,
+        _openai_schema_to_gemini_function(SEND_REACTION_TOOL_SCHEMA),
+        _openai_schema_to_gemini_function(SEND_STICKER_TOOL_SCHEMA),
+        _openai_schema_to_gemini_function(MODERATE_USER_TOOL_SCHEMA),
+    ]
+
     thinking_config = genai.types.ThinkingConfig(thinking_level="high") if "gemini-3" in model else None
     return genai.types.GenerateContentConfig(
         system_instruction=system_prompt,
-        tools=[search_web_tool, memory_lookup_tool],
+        tools=gemini_tools,
         thinking_config=thinking_config,
     )
 
 
-async def _run_gemini_generation_loop(genai_client, model: str, contents: list, config) -> object:
+def _openai_schema_to_gemini_function(schema: dict):
+    """Convert an OpenAI function-calling schema to a Gemini FunctionDeclaration."""
+    fn = schema["function"]
+    params = fn.get("parameters", {})
+
+    return genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name=fn["name"],
+                description=fn.get("description", ""),
+                parameters=genai.types.Schema(
+                    type=genai.types.Type.OBJECT,
+                    properties={
+                        k: _param_to_gemini_schema(v)
+                        for k, v in params.get("properties", {}).items()
+                    },
+                    required=params.get("required", []),
+                ),
+            )
+        ]
+    )
+
+
+def _param_to_gemini_schema(param: dict):
+    """Convert a single OpenAI parameter dict to a Gemini Schema."""
+    type_map = {
+        "string": genai.types.Type.STRING,
+        "integer": genai.types.Type.INTEGER,
+        "number": genai.types.Type.NUMBER,
+        "boolean": genai.types.Type.BOOLEAN,
+        "array": genai.types.Type.ARRAY,
+        "object": genai.types.Type.OBJECT,
+    }
+    t = type_map.get(param.get("type", "string"), genai.types.Type.STRING)
+    kwargs = {
+        "type": t,
+        "description": param.get("description", ""),
+    }
+    if "enum" in param:
+        kwargs["enum"] = param["enum"]
+    if t == genai.types.Type.ARRAY and "items" in param:
+        kwargs["items"] = _param_to_gemini_schema(param["items"])
+    return genai.types.Schema(**kwargs)
+
+
+async def _run_gemini_generation_loop(
+    genai_client, model: str, contents: list, config
+) -> tuple[object, list[dict]]:
     max_turns = 3
     current_turn = 0
     response = None
+    pending_actions: list[dict] = []
 
     while current_turn < max_turns:
         response = await genai_client.aio.models.generate_content(
@@ -186,31 +257,44 @@ async def _run_gemini_generation_loop(genai_client, model: str, contents: list, 
 
         contents.append(response.candidates[0].content)
         for fn_call in response.function_calls:
-            await _append_gemini_tool_response(contents, fn_call)
+            tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call)
+            if pending_action is not None:
+                pending_actions.append(pending_action)
+            tool_part = genai.types.Part.from_function_response(
+                name=fn_call.name,
+                response={"result": tool_result_str},
+            )
+            contents.append(genai.types.Content(role="user", parts=[tool_part]))
 
         current_turn += 1
 
-    return response
+    return response, pending_actions
 
 
-async def _append_gemini_tool_response(contents: list, fn_call) -> None:
+async def _dispatch_gemini_tool(fn_call) -> tuple[str, dict | None]:
+    """Dispatch a Gemini function call to the appropriate handler.
+
+    Returns:
+        (tool_result_str, pending_action_or_None)
+    """
+    args = dict(fn_call.args) if fn_call.args else {}
+
     if fn_call.name == "search_web_tool":
-        query = fn_call.args.get("query", "")
+        query = args.get("query", "")
         logger.info(f"Gemini requested web search for: '{query}'")
-        tool_result_str = await search_web_tool(query)
-    elif fn_call.name == "memory_lookup_tool":
-        args = dict(fn_call.args) if fn_call.args else {}
-        logger.info(f"Gemini requested memory lookup with args: {args}")
-        tool_result_str = await memory_lookup_tool(**args)
-    else:
-        logger.warning(f"Gemini requested unknown tool: {fn_call.name}")
-        tool_result_str = f"Unknown tool: {fn_call.name}"
+        return await search_web_tool(query), None
 
-    tool_part = genai.types.Part.from_function_response(
-        name=fn_call.name,
-        response={"result": tool_result_str},
-    )
-    contents.append(genai.types.Content(role="user", parts=[tool_part]))
+    if fn_call.name == "memory_lookup_tool":
+        logger.info(f"Gemini requested memory lookup with args: {args}")
+        return await memory_lookup_tool(**args), None
+
+    handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
+    if handler:
+        logger.info(f"Gemini requested action tool '{fn_call.name}' with args: {args}")
+        return await handler(args)
+
+    logger.warning(f"Gemini requested unknown tool: {fn_call.name}")
+    return f"Unknown tool: {fn_call.name}", None
 
 
 def _rotate_key_to_back(key_name: str) -> bool:
