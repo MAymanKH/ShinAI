@@ -98,7 +98,11 @@ class TelegramPlatform(PlatformAdapter):
 
     async def react(self, chat_id: int | str, message_id: int | str, reaction: str) -> None:
         try:
-            await self.client.send_reaction(int(chat_id), int(message_id), reaction)
+            await self.client.send_reaction(
+                chat_id=int(chat_id),
+                message_id=int(message_id),
+                emoji=reaction,
+            )
         except AttributeError:
             # Using msg.react directly if possible on the native msg
             msg = await self.client.get_messages(int(chat_id), int(message_id))
