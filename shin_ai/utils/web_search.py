@@ -11,6 +11,7 @@ from shin_ai.utils.logger_config import logger
 # Request-scoped search counter. Since each user request runs in its own asyncio Task,
 # a ContextVar naturally tracks requests independently.
 web_search_count = contextvars.ContextVar("web_search_count", default=0)
+web_search_start_time = contextvars.ContextVar("web_search_start_time", default=0.0)
 
 # Simple thread-safe in-memory cache for search results
 # Key: lowered stripped query string
@@ -41,24 +42,53 @@ async def _fetch_url_content(client: httpx.AsyncClient, url: str) -> str:
         logger.warning("Failed to fetch or parse %s: %s", url, e)
         return ""
 
+def _format_error_as_result(query: str, err_msg: str) -> str:
+    """Format an error message as a standard successful search result JSON string."""
+    return json.dumps({
+        "query": query,
+        "results": [
+            {
+                "title": "Search Status",
+                "url": "",
+                "snippet": f"The search could not be completed. Details: {err_msg}",
+                "content": f"Search execution details: {err_msg}"
+            }
+        ]
+    }, ensure_ascii=False)
+
 async def search_web_tool(query: str) -> str:
     """
     Search the web for the given query and fetch contents from the top results.
     Returns a JSON string representing the search results and their contents.
     """
+    # Track overall time budget of 30 seconds for a single user request
+    now = time.time()
+    start_time = web_search_start_time.get()
+    if start_time == 0.0:
+        web_search_start_time.set(now)
+        start_time = now
+        
+    remaining_time = 30.0 - (now - start_time)
+    if remaining_time <= 0:
+        logger.warning(f"Web search time limit exceeded before executing query: '{query}'")
+        return _format_error_as_result(
+            query,
+            "Web search overall time limit of 30 seconds exceeded for this request. Please construct your final response using the search results already provided."
+        )
+
     # Increment and check the web search limit for this request
     current_count = web_search_count.get() + 1
     web_search_count.set(current_count)
     if current_count > 5:
         logger.warning(f"Web search limit reached (count: {current_count}) for query: '{query}'")
-        return json.dumps({
-            "error": "Web search limit reached for this request. Please construct your final response using the search results already provided."
-        })
+        return _format_error_as_result(
+            query,
+            "Web search limit reached for this request. Please construct your final response using the search results already provided."
+        )
 
-    logger.info(f"Executing web search tool for query: '{query}' (Request count: {current_count})")
+    logger.info(f"Executing web search tool for query: '{query}' (Request count: {current_count}, remaining time: {remaining_time:.1f}s)")
     
     clean_query = query.strip().lower()
-    now = time.time()
     
     # Check cache
     if clean_query in _search_cache:
@@ -67,11 +97,11 @@ async def search_web_tool(query: str) -> str:
             logger.info(f"Returning cached web search results for query: '{query}'")
             return cached_res
             
-    try:
+    async def _do_search():
         results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
         
         if not results_list:
-            return json.dumps({"error": f"No results found for the query: '{query}'."})
+            return _format_error_as_result(query, f"No results found for the query: '{query}'.")
             
         final_results = []
         headers = {
@@ -105,12 +135,25 @@ async def search_web_tool(query: str) -> str:
                 # Evict oldest entry
                 oldest_key = min(_search_cache.keys(), key=lambda k: _search_cache[k][0])
                 _search_cache.pop(oldest_key, None)
-            _search_cache[clean_query] = (now, output_json)
+            _search_cache[clean_query] = (time.time(), output_json)
             
         return output_json
+
+    try:
+        return await asyncio.wait_for(_do_search(), timeout=remaining_time)
+    except asyncio.TimeoutError:
+        logger.warning(f"Web search timed out (overall limit: 30s) for query: '{query}'")
+        return _format_error_as_result(
+            query,
+            "Web search overall time limit of 30 seconds exceeded for this request. Please construct your final response using the search results already provided."
+        )
     except Exception as e:
+        err_msg = str(e)
+        if "ddgsexception" in type(e).__name__.lower() or "no results found" in err_msg.lower():
+            logger.warning("DuckDuckGo search returned no results or failed: %s", e)
+            return _format_error_as_result(query, f"DuckDuckGo search failed or returned no results: {err_msg}")
         logger.error("Web search tool failed: %s", e, exc_info=True)
-        return json.dumps({"error": f"Search failed: {str(e)}"})
+        return _format_error_as_result(query, f"Web search failed: {err_msg}")
 
 # Definition schema to be used for LLM Tool bindings (OpenAI format)
 WEB_SEARCH_TOOL_SCHEMA = {
