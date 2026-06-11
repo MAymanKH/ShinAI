@@ -6,6 +6,15 @@ import warnings
 warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
 
+class AFCWarningFilter(logging.Filter):
+    """Filters out annoying Gemini SDK automatic function calling (AFC) warnings."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "automatic function calling" in msg or "AFC is disabled" in msg or "AFC will be disabled" in msg:
+            return False
+        return True
+
+
 def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: int = logging.INFO) -> logging.Logger:
     """
     Set up a logger with both file and console handlers.
@@ -41,6 +50,9 @@ def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: 
         logger.addHandler(c_handler)
         logger.addHandler(f_handler)
 
+    # Attach filter to the ShinAI logger
+    logger.addFilter(AFCWarningFilter())
+
     return logger
 
 
@@ -62,9 +74,11 @@ _THIRD_PARTY_LOGGERS = (
     # WhatsApp Go bridge (neonize pipes whatsmeow Go logs into Python logging)
     "whatsmeow",
     "whatsmeow.Client",
-    # Google Gemini SDK
+    # Google Gemini SDK (both underscore and dot package variants)
     "google_genai",
     "google_genai.models",
+    "google.genai",
+    "google.genai.models",
     "google.ai.generativelanguage",
     "google.api_core",
     # sentence-transformers: older versions show tqdm Batches bars when their
@@ -112,3 +126,9 @@ logger = setup_logger()
 # Apply production silence immediately on import (before reconfigure_logger is called).
 for _noisy in _THIRD_PARTY_LOGGERS:
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+# Register the AFC warning filter globally to root and Google loggers
+_afc_filter = AFCWarningFilter()
+logging.getLogger().addFilter(_afc_filter)
+for _name in ("google_genai", "google_genai.models", "google.genai", "google.genai.models"):
+    logging.getLogger(_name).addFilter(_afc_filter)
