@@ -58,6 +58,11 @@ _THIRD_PARTY_LOGGERS = (
     # WhatsApp Go bridge (neonize pipes whatsmeow Go logs into Python logging)
     "whatsmeow",
     "whatsmeow.Client",
+    # Google Gemini SDK
+    "google_genai",
+    "google_genai.models",
+    "google.ai.generativelanguage",
+    "google.api_core",
 )
 
 
