@@ -1,6 +1,3 @@
-import os
-os.environ.setdefault("TQDM_DISABLE", "1")
-
 from sentence_transformers import SentenceTransformer
 from shin_ai.utils.db import client
 from shin_ai.config import EMBEDDING_MODEL
