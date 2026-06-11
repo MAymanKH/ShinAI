@@ -113,7 +113,6 @@ async def run_tool_calling_chat(
         response_message = response.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)
         if not tool_calls:
-            logger.info(f"{provider_name} API call successful (model: {model})")
             return response_message.content or "", pending_actions
 
         messages.append(response_message.model_dump(exclude_unset=True))

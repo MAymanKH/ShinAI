@@ -62,3 +62,8 @@ def reconfigure_logger(debug: bool = False) -> None:
 
 # Module-level singleton — defaults to INFO until reconfigure_logger() is called.
 logger = setup_logger()
+
+# Silence chatty third-party loggers that spam at INFO level.
+# httpx logs every single HTTP request; pyrogram internals are noise at INFO.
+for _noisy in ("httpx", "httpcore", "hpack"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)

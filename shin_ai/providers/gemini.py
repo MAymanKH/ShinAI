@@ -100,7 +100,6 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
                             cached, total_in, pct, model,
                         )
 
-                logger.info(f"Gemini API call successful (model: {model}, Key: {key_name})")
                 update_key_status(key_name, "active", model)
                 
                 _rotate_key_to_back(key_name)
