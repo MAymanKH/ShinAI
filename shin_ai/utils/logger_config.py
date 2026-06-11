@@ -8,6 +8,7 @@ def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: 
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    logger.propagate = False
 
     if not logger.handlers:
         c_handler = logging.StreamHandler(sys.stdout)
