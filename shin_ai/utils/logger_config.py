@@ -1,5 +1,9 @@
 import logging
 import sys
+import warnings
+
+# Suppress google_genai SDK warnings about automatic function calling (AFC) compatibility
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
 
 def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: int = logging.INFO) -> logging.Logger:
