@@ -8,6 +8,9 @@ def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: 
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    # Prevent propagation to the root logger.
+    # neonize (the WhatsApp Go library) bridges Python's root logger to its own
+    # Go stderr logger, which causes every line to appear twice in PM2 logs.
     logger.propagate = False
 
     if not logger.handlers:
@@ -37,6 +40,27 @@ def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: 
     return logger
 
 
+# Third-party loggers that are too verbose at INFO.
+# Silenced to WARNING in production; restored to NOTSET (library default) in debug mode.
+_THIRD_PARTY_LOGGERS = (
+    # HTTP clients
+    "httpx", "httpcore", "hpack",
+    # Pyrogram (Telegram client internals)
+    "pyrogram",
+    "pyrogram.connection.connection",
+    "pyrogram.session.session",
+    "pyrogram.dispatcher",
+    # Discord.py client internals
+    "discord",
+    "discord.client",
+    "discord.gateway",
+    "discord.http",
+    # WhatsApp Go bridge (neonize pipes whatsmeow Go logs into Python logging)
+    "whatsmeow",
+    "whatsmeow.Client",
+)
+
+
 def reconfigure_logger(debug: bool = False) -> None:
     """
     Apply the DEBUG flag from config.yaml to the root ShinAI logger.
@@ -47,15 +71,25 @@ def reconfigure_logger(debug: bool = False) -> None:
         from shin_ai.config import DEBUG
         reconfigure_logger(DEBUG)
 
-    When debug=True the logger drops to DEBUG level, exposing all
-    logger.debug() call sites (time detection decisions, per-message
-    routing, memory skip reasons, etc.).
+    When debug=True:
+      - ShinAI logger drops to DEBUG level (all logger.debug() calls visible)
+      - Third-party loggers (pyrogram, discord, whatsmeow, httpx) are restored
+        to their natural level so you can see connection/session details.
+
+    When debug=False (production):
+      - Third-party loggers are silenced to WARNING — only errors/warnings show.
     """
     level = logging.DEBUG if debug else logging.INFO
     log = logging.getLogger("ShinAI")
     log.setLevel(level)
     for handler in log.handlers:
         handler.setLevel(level)
+
+    # Toggle third-party verbosity based on debug mode
+    third_party_level = logging.NOTSET if debug else logging.WARNING
+    for name in _THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(third_party_level)
+
     if debug:
         log.debug("Logger reconfigured to DEBUG level (debug: true in config.yaml)")
 
@@ -63,7 +97,6 @@ def reconfigure_logger(debug: bool = False) -> None:
 # Module-level singleton — defaults to INFO until reconfigure_logger() is called.
 logger = setup_logger()
 
-# Silence chatty third-party loggers that spam at INFO level.
-# httpx logs every single HTTP request; pyrogram internals are noise at INFO.
-for _noisy in ("httpx", "httpcore", "hpack"):
+# Apply production silence immediately on import (before reconfigure_logger is called).
+for _noisy in _THIRD_PARTY_LOGGERS:
     logging.getLogger(_noisy).setLevel(logging.WARNING)
