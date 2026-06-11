@@ -63,6 +63,9 @@ _THIRD_PARTY_LOGGERS = (
     "google_genai.models",
     "google.ai.generativelanguage",
     "google.api_core",
+    # sentence-transformers: older versions show tqdm Batches bars when their
+    # logger is at INFO level — raising to WARNING suppresses them per-request.
+    "sentence_transformers",
 )
 
 
