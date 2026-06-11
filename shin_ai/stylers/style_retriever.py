@@ -1,9 +1,13 @@
+import os
+os.environ.setdefault("TQDM_DISABLE", "1")
+
 from sentence_transformers import SentenceTransformer
 from shin_ai.utils.db import client
 from shin_ai.config import EMBEDDING_MODEL
 
 collection = client.get_or_create_collection("style_group")
-embedder = SentenceTransformer(EMBEDDING_MODEL, show_progress_bar=False)
+embedder = SentenceTransformer(EMBEDDING_MODEL)
+
 
 def get_style_examples(query, k=10):
     q_emb = embedder.encode(f"query: {query}").tolist()
