@@ -62,6 +62,35 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     memory_section = await _get_memory_section(prompt, msg)
     social_context_section = get_social_context(msg, reply_text)
 
+    # Trigger log always visible in production
+    user_name = (
+        (msg.from_user.username or msg.from_user.first_name)
+        if msg.from_user else "unknown"
+    )
+    user_id = msg.from_user.id if msg.from_user else "?"
+    text_preview = (msg.text or msg.caption or "").replace("\n", " ")[:100]
+    media_hint = ""
+    if msg.photo:      media_hint = " [photo]"
+    elif msg.voice:    media_hint = " [voice]"
+    elif msg.audio:    media_hint = " [audio]"
+    elif msg.video:    media_hint = " [video]"
+    elif msg.sticker:  media_hint = " [sticker]"
+    elif msg.document: media_hint = " [document]"
+    interaction = _get_interaction_type(msg)
+    logger.info(
+        "[%s] Triggered — chat=%s (%s) | user=%s (%s) | %s%s | text=\"%s%s\"",
+        platform.platform_name,
+        msg.chat.id,
+        msg.chat.title or msg.chat.type,
+        user_name,
+        user_id,
+        interaction.split("(")[0].strip(),
+        media_hint,
+        text_preview,
+        "..." if len(msg.text or msg.caption or "") > 100 else "",
+    )
+    # ─────────────────────────────────────────────────────────────────────────
+
     _enqueue_frozen_message(
         platform=platform,
         msg=msg,
@@ -269,7 +298,11 @@ def _enqueue_frozen_message(
 
     if key not in _chat_tasks or _chat_tasks[key].done():
         delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
-        logger.debug("[%s] Queuing reply for chat %s (delay=%.2fs)", platform.platform_name, msg.chat.id, delay)
+        if delay > 0.1:
+            logger.info(
+                "[%s] Reply queued for chat %s — waiting %.2fs before sending",
+                platform.platform_name, msg.chat.id, delay,
+            )
         _chat_tasks[key] = asyncio.create_task(_delayed_queue_processor(key, delay))
 
 
@@ -289,7 +322,7 @@ async def _delayed_queue_processor(key, delay: float):
         try:
             await _execute_frozen_message(**task_args)
         except Exception as e:
-            logger.error(f"Failed to execute frozen message in queue: {e}")
+            logger.error("Failed to execute frozen message in queue: %s", e, exc_info=True)
 
 
 async def _execute_frozen_message(
@@ -323,10 +356,12 @@ async def _execute_frozen_message(
     )
 
     if await _should_skip_queued_reply(msg, prompt, recent_context_section):
-        logger.debug(
-            "Skipping queued reply for chat %s (message %s trivial/laugh/sticker)",
+        logger.info(
+            "[%s] Skipped reply — chat=%s msg=%s (trivial/laugh/sticker) | text=\"%s\"",
+            msg.chat.type,
             msg.chat.id,
             msg.id,
+            (msg.text or msg.caption or "").replace("\n", " ")[:60],
         )
         return
 
@@ -343,16 +378,23 @@ async def _execute_frozen_message(
         )
 
         if not answer and not pending_actions:
-            logger.warning("AI returned empty response, skipping")
+            logger.warning(
+                "[%s] AI returned empty response for chat=%s user=%s — skipping",
+                platform.platform_name,
+                msg.chat.id,
+                msg.from_user.id if msg.from_user else "?",
+            )
             return
 
         if answer:
             clean_ans = answer.strip().strip("`").strip().upper()
             if clean_ans in ("[SKIP]", "SKIP"):
                 logger.info(
-                    "Skipping queued reply for chat %s (AI returned %s)",
+                    "[%s] AI chose to skip — chat=%s user=%s | trigger=\"%s\"",
+                    platform.platform_name,
                     msg.chat.id,
-                    clean_ans,
+                    msg.from_user.id if msg.from_user else "?",
+                    (prompt or "").replace("\n", " ")[:80],
                 )
                 return
 
