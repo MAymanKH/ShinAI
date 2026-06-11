@@ -20,31 +20,16 @@ An intelligent multi-platform bot that acts like a real group member - not an as
 - [Project Structure](#project-structure)
 - [Multi-Platform Support](#multi-platform-support)
 - [Triggers](#triggers)
-- [Bot Capabilities](#bot-capabilities)
-  - [Group Chat Member Persona](#group-chat-member-persona)
-  - [Smart Response Types](#smart-response-types)
-  - [Multi-Message Responses](#multi-message-responses)
-  - [Intelligent Reply Targeting](#intelligent-reply-targeting)
-  - [Speculative Responses](#speculative-responses)
-  - [Human-Like Delays](#human-like-delays)
-  - [Reliability & Retry Behavior](#reliability--retry-behavior)
-  - [Reactions & Stickers](#reactions--stickers)
-  - [Moderation System](#moderation-system)
-  - [Real-Time Web Search](#real-time-web-search)
-  - [Context Awareness](#context-awareness)
-  - [Voice Message Transcription](#voice-message-transcription)
-- [How It Works](#how-it-works)
+- [Capabilities & Technical Deep Dive](#capabilities--technical-deep-dive)
   - [Architecture Overview](#architecture-overview)
-  - [Vector Embeddings & ChromaDB](#vector-embeddings--chromadb)
-  - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
-  - [Memory System](#memory-system)
-  - [Memory Lookup Tool](#memory-lookup-tool)
-  - [Web Searching, Fetching, and Scraping  ](#web-searching-fetching-and-scraping)
-  - [Context Awareness](#context-awareness-1)
-  - [Speculative Generation](#speculative-generation)
-  - [Message Queuing & Delays](#message-queuing--delays)
-  - [Loop Prevention](#loop-prevention)
+  - [Group Chat Member Persona](#group-chat-member-persona)
+  - [Smart Response Types & Platform Tool-Calling](#smart-response-types--platform-tool-calling)
+  - [Memory & Retrieval System](#memory--retrieval-system)
+  - [Context Awareness & RAG Engine](#context-awareness--rag-engine)
+  - [Real-Time Web Search](#real-time-web-search)
+  - [Conversational Dynamics](#conversational-dynamics)
   - [Audio Processing Pipeline](#audio-processing-pipeline)
+  - [Reliability & Retries](#reliability--retries)
 - [AI Provider Details](#ai-provider-details)
 - [License](#license)
 
@@ -62,7 +47,7 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - 💬 **Personality System**: Fully customizable bot personality and behavior
 - 🎭 **Social Context**: Recognizes group members across platforms and adapts responses
 - 🔄 **Reply Chain Tracking**: Understands conversation context with deep history retrieval
-- 📝 **Long-term Memory**: Remembers past conversations using vector embeddings (cross-platform awareness)
+- 📝 **Long-term Memory**: Remembers past conversations using vector embeddings
 - 🎨 **Style Learning**: Learns communication patterns from example messages
 - 🌐 **Real-Time Web Search**: Web searching, fetching, and scraping capabilities used when needed
 - 🎙️ **Voice Message Transcription**: Local, fast, and free audio transcription using faster-whisper
@@ -93,7 +78,7 @@ git clone https://github.com/MAymanKH/ShinAI.git
 cd ShinAI
 ```
 
-### 2. (Optional) Create a Virtual Environment
+### 2. Create a Virtual Environment (Recommended)
 
 ```bash
 python -m venv venv
@@ -112,8 +97,8 @@ pip install -r requirements.txt
 ### 4. Configure Environment
 
 ```bash
-cp .env.example .env
-# Edit .env with your credentials and settings
+cp config.yaml.example config.yaml
+# Edit config.yaml with your credentials and settings
 ```
 
 ### 5. Customize Your Bot
@@ -136,7 +121,7 @@ cp shin_ai/data/members_template.py shin_ai/data/members.py
 If you want the bot to learn from a specific group's communication style:
 
 ```bash
-# 1. Add STYLE_GROUP_ID to your .env (get group ID from @RawDataBot or Discord Developer Portal)
+# 1. Add style_group_id to your config.yaml (get Telegram's group ID from @RawDataBot)
 # 2. Run the style indexer
 python -m shin_ai.stylers.style_indexer
 ```
@@ -164,43 +149,83 @@ docker-compose logs -f
 
 ## Configuration
 
-### Environment Variables
+ShinAI is configured using a centralized `config.yaml` file. Copy `config.yaml.example` to `config.yaml` and fill in your details.
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `TELEGRAM_ENABLED` | Enable or disable Telegram platform (`true`/`false`) | Optional |
-| `DISCORD_ENABLED` | Enable or disable Discord platform (`true`/`false`) | Optional |
-| `WHATSAPP_ENABLED` | Enable or disable WhatsApp platform (`true`/`false`) | Optional |
-| `TELEGRAM_API_ID` | Telegram API ID from my.telegram.org | For Telegram |
-| `TELEGRAM_API_HASH` | Telegram API Hash | For Telegram |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot token from @BotFather | For Telegram |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token from Developer Portal | For Discord |
-| `ADMIN_USER_ID` | Your principal user ID (Telegram or Discord) | ✅ |
-| `DEBUG` | Enable debug logging (`true`/`false`) | Optional |
-| `AI_CHOICE` | AI provider (gemini/openrouter/groq/cerebras/openai-compat/local/manual) | ✅ |
-| `AI_FALLBACK_PROVIDERS` | Comma-separated fallback providers if the primary fails | Optional |
-| `AI_PROVIDER_TIMEOUT_SECONDS` | Per-attempt timeout for AI provider calls (default: 60) | Optional |
-| `AI_PROVIDER_MAX_RETRIES` | Maximum AI call attempts per request (default: 3) | Optional |
-| `MIN_REPLY_DELAY_SECONDS` | Minimum random delay before responding | Optional |
-| `MAX_REPLY_DELAY_SECONDS` | Maximum random delay before responding | Optional |
-| `RANDOM_TRIGGER_PROBABILITY` | Chance to respond randomly in group chats (default: 0.05) | Optional |
-| `GEMINI_API_KEY<N>` | Gemini API keys (`GEMINI_API_KEY1`, `GEMINI_API_KEY2`, etc.) | For Gemini |
-| `GEMINI_MODELS` | Comma-separated list of Gemini models to use | For Gemini |
-| `OPENROUTER_API_KEY` | OpenRouter API key | For OpenRouter |
-| `OPENROUTER_MODEL` | OpenRouter model name | For OpenRouter |
-| `GROQ_API_KEY` | Groq API key | For Groq |
-| `GROQ_MODEL` | Groq model name | For Groq |
-| `CEREBRAS_API_KEY` | Cerebras API key | For Cerebras |
-| `CEREBRAS_MODEL` | Cerebras model name | For Cerebras |
-| `OPENAI_COMPAT_BASE_URL` | Base URL for any OpenAI-compatible API (e.g., `https://api.example.com/v1`) | For OpenAI-Compat |
-| `OPENAI_COMPAT_API_KEY` | OpenAI-compatible API key | For OpenAI-Compat |
-| `OPENAI_COMPAT_MODEL` | OpenAI-compatible model name | For OpenAI-Compat |
-| `LOCAL_MODEL` | Local LLM model name (Ollama) | For Local |
-| `STYLE_GROUP_ID` | Group ID to learn style from | Optional |
-| `EMBEDDING_MODEL` | Embedding model for style search (default: `intfloat/multilingual-e5-large`) | Optional |
-| `WHISPER_MODEL` | Faster-Whisper model name (default: large-v3-turbo) | Optional |
-| `WHISPER_CPU_THREADS` | Number of CPU threads for Whisper inference (default: 2) | Optional |
-| `WHISPER_LANGUAGE` | Default language for transcription (default: 'auto') | Optional |
+### Configuration Structure
+
+The structure of the `config.yaml` configuration is shown below as a commented template:
+
+```yaml
+# Platform Settings
+platform:
+  telegram:
+    enabled: true           # Enable/disable Telegram client (true/false)
+    api_id: 123456          # API ID from https://my.telegram.org
+    api_hash: "your_hash"   # API Hash from https://my.telegram.org
+    bot_token: "your_token" # Bot token from @BotFather
+  discord:
+    enabled: false          # Enable/disable Discord client (true/false)
+    bot_token: "your_token" # Discord Bot token from the Developer Portal
+  whatsapp:
+    enabled: false          # Enable/disable WhatsApp (will link session via console QR code)
+
+# Administration User ID
+admin_user_id: 123456789    # Platform user ID (Telegram or Discord) allowed to run admin commands
+
+# Verbose Logging Toggle
+debug: false                # Set to true to enable detailed log outputs
+
+# Response Timings & Probability
+response:
+  min_delay_seconds: 5.0    # Lower boundary for randomized response delay (simulate typing/reading)
+  max_delay_seconds: 300.0  # Upper boundary for randomized response delay
+  random_trigger_probability: 0.05 # Random chance (0.0 to 1.0) to respond to normal group messages without mention
+
+# Voice Transcription Service (Whisper)
+whisper:
+  model: large-v3-turbo     # Model size to load: tiny, base, small, medium, large-v2, large-v3-turbo
+  language: auto            # Language code (e.g., 'ar', 'en') or 'auto' to auto-detect
+  cpu_threads: 2            # Number of CPU threads dedicated to Whisper inference
+
+# Semantic Retrieval & Style Settings
+embedding_model: intfloat/multilingual-e5-large # Transformer model used for memories and style indexing
+style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
+
+# AI Providers Configuration
+ai:
+  timeout_seconds: 60       # Timeout limit per attempt on provider calls
+  max_retries: 3            # Max retries per provider before switching/failing
+  
+  # List of defined providers (support OpenRouter, Groq, Cerebras, DeepSeek, Ollama, Gemini, etc.)
+  providers:
+    - name: my_openrouter
+      type: openai          # 'openai' or 'gemini'
+      base_url: https://openrouter.ai/api/v1 # API base url (ignored for type: gemini)
+      api_key: "your-api-key"
+      model: anthropic/claude-3.5-sonnet
+      
+    - name: my_local_ollama
+      type: openai
+      base_url: http://localhost:11434/v1
+      api_key: ollama
+      model: llama3.2
+      concurrency: 1        # Optional: restrict concurrent requests (great for local hardware)
+
+    - name: my_gemini
+      type: gemini
+      # API keys for Gemini are loaded and rotated from data/gemini_keys.json
+      models:               # Optional: Gemini model name rotation list
+        - gemini-3.5-flash
+        - gemini-3-flash
+
+  primary: my_openrouter    # Primary provider to use by default
+  
+  fallbacks:                # Providers to try in sequence if primary fails
+    - my_gemini
+    - my_local_ollama
+    
+  rotation: failover        # Rotation strategy: 'failover' or 'round_robin'
+```
 
 ### Personality Configuration
 
@@ -314,11 +339,11 @@ The personality file essentially gives you **complete control** over:
 
 You're not just configuring a bot - you're **creating a character** with depth, preferences, and consistent behavior patterns.
 
-### Sticker Configuration
+### Sticker Configuration (Optional)
 
 Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map sticker file IDs to descriptions. Get sticker file IDs by forwarding stickers to @RawDataBot.
 
-### Member Configuration
+### Member Configuration (Optional)
  
  Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them across Telegram, Discord and WhatsApp and adapt its responses accordingly.
  
@@ -334,13 +359,13 @@ Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map s
 ```
 ShinAI/
 ├── main.py                 # Entry point
+├── config.yaml.example     # YAML Configuration template
 ├── shin_ai/
 │   ├── bot.py             # Bot initialization
 │   ├── config.py          # Configuration loading
 │   ├── core/              # Core functionality
 │   │   ├── client.py      # Pyrogram client
 │   │   ├── prompt_builder.py
-│   │   ├── response_parser.py
 │   │   ├── action_executor.py
 │   │   └── state.py
 │   ├── data/              # Data templates
@@ -354,10 +379,11 @@ ShinAI/
 │   │   └── stats.py
 │   ├── providers/         # AI providers
 │   │   ├── gemini.py
-│   │   ├── openrouter.py
-│   │   ├── groq.py
-│   │   ├── cerebras.py
-│   │   └── local_llm.py
+│   │   ├── gemini_keys.py
+│   │   ├── manual.py
+│   │   ├── openai_compatible.py
+│   │   ├── registry.py
+│   │   └── tool_loop.py
 │   ├── services/          # Business logic
 │   │   ├── social.py
 │   │   └── replies.py
@@ -365,11 +391,16 @@ ShinAI/
 │   │   ├── style_indexer.py
 │   │   └── style_retriever.py
 │   └── utils/             # Utilities
+│       ├── action_tools.py
 │       ├── context_manager.py
 │       ├── db.py
 │       ├── logger_config.py
 │       ├── memory.py
-│       └── rate_limit.py
+│       ├── memory_lookup.py
+│       ├── memory_lookup_filters.py
+│       ├── memory_time.py
+│       ├── rate_limit.py
+│       └── web_search.py
 └── data/                  # Runtime data (gitignored)
     ├── gemini_keys.json
     ├── gemini_stats.json
@@ -384,7 +415,7 @@ ShinAI/
  |---------|--------------------|--------------------|---------------------|
  | **Reactions** | Supported | Supported | Supported |
  | **Stickers** | Supported | Not supported | Supported |
- | **Media** | Photo/Video Awareness | Attachment Awareness | Attachment Awareness |
+ | **Media** | Supported | Supported | Supported |
  | **Moderation** | Ban, Kick, Mute, Invite | Ban, Kick, Timeout | Kick |
  | **Identity** | Unified via Telegram ID | Unified via Discord ID | Unified via WhatsApp JID |
  
@@ -402,106 +433,9 @@ The bot responds when:
 
  ---
  
- ## Bot Capabilities
- 
- ### Group Chat Member Persona
- 
- Unlike typical "assistant" bots, ShinAI acts like a **real group member**:
- 
- - **No "How can I help you?"** – Responds naturally without formal greetings.
- - **Random Interjections** – Sometimes jumps into conversations uninvited.
- - **Matches Dialect** – Adapts to the group's language style.
- - **Sloppy Typing** – Types like a casual chatter (no punctuation, lowercase, lazy spelling).
- - **Teasing & Sarcasm** – Can roast users effectively.
- 
- ### Smart Response Types
- 
- The AI chooses the most appropriate response format for the platform:
- 
- | Response Type | Format | Platform Notes |
- |---------------|--------|----------------|
- | **Text** | Plain message | Supported everywhere |
- | **Reaction** | `react:<emoji>` | Supported everywhere |
-| **Sticker** | `sticker:<id>` | Telegram supports native sticker IDs; WhatsApp supports `sticker:wa:<url_or_local_path>`; ignored on Discord |
- | **Moderation** | `action:<type>` | Translated to native actions (e.g. Timeout on Discord) |
- 
- ### Multi-Message Responses
- 
- The bot can send multiple messages in a single interaction for more natural pacing:
- - AI can split responses using `---` or `message:` separators.
- - A few seconds delay between messages.
- - Each message can target different users or perform different actions.
- 
- ### Intelligent Reply Targeting
- 
- The bot uses **Unified Message IDs** for precise reply targeting. The AI sees the chat history with embedded IDs and can pick exactly which message to reply to:
- 
- ```
- target:12345  → Reply to a specific message ID from the platform
- (no target)   → Reply to the user who triggered the bot (default)
- ```
+  ## Capabilities & Technical Deep Dive
 
- ### Speculative Responses
- 
- The bot can autonomously decide to jump into conversations without being explicitly mentioned:
- - Continuously monitors the chat context following its own messages to determine if a user's subsequent message is directed at it.
- - Uses a pre-flight evaluation step to intelligently avoid interrupting or responding to messages not meant for it.
- 
- ### Human-Like Delays
- 
- To feel more like a real group member, the bot doesn't reply instantly:
- - Implements a configurable randomized delay before responding to simulate reading and typing time.
- - Intelligently queues multiple messages that arrive during the delay and responds to them in order once the timer expires.
- 
- ### Reliability & Retry Behavior
- 
- - Every AI provider call is protected with a per-attempt timeout and automatic retries.
- - If an attempt fails, the previous error context is injected into the next attempt so the AI can adapt.
- - If all attempts fail, a graceful fallback or manual mode is triggered.
- 
-### Reactions & Stickers
-
-- **Reactions**: Preferred for acknowledging messages or ending conversations without text.
-- **Stickers**: Selected based on emotional context from a custom library.
-
- 
- ### Moderation System
- 
- The bot features a full moderation suite with platform-native actions:
- 
- | Action | Telegram Effect | Discord Effect | WhatsApp Effect |
- |--------|-----------------|----------------|
- | **Mute** | Restricted Permissions | Native Timeout | No Native Solution |
- | **Kick** | Remove from Group | Native Kick | Native Kick |
- | **Ban** | Permanent Ban | Native Ban | No Native Solution |
- | **Unban** | Lift Ban | Native Unban | No Native Solution |
- | **Invite** | Invite Link | DM Invite Link | No Native Solution |
- 
- **Safeguards**:
- - Cannot act on admins or owners.
- - Ignores moderation commands from unauthorized users.
- - Failed actions result in a natural AI-driven explanation.
- 
- ### Real-Time Web Search
- 
- All AI providers can trigger web searches when real-time information is needed. The bot fetches and scrapes top search results to provide grounded, factual responses.
- 
- ### Context Awareness
- 
- | Context Type | Purpose |
- | -------------- | --------- |
- | **Recent Context** | Recent messages in the chat for immediate flow |
- | **Reply Chain** | Deeply follows threaded discussions (up to 10 levels) |
- | **Long-term Memory** | Semantic retrieval from the entire history database |
- | **Visual Context** | (Gemini only) Sees photos and stickers on Telegram |
-
- ### Voice Message Transcription
- 
- The bot natively understands voice notes and audio files across all supported platforms. Instead of ignoring voice messages or relying on paid third-party APIs, it uses a local `faster-whisper` backend to rapidly transcribe audio. The transcribed text is then fed directly into the AI's context window, allowing it to seamlessly reply to spoken messages just as it would to text.
-
----
-
-## How It Works
+ShinAI combines conversational intelligence, platform integrations, RAG (Retrieval-Augmented Generation), and real-time execution tools into a unified agent. Below is a detailed view of its core capabilities and inner architecture.
 
 ### Architecture Overview
 
@@ -513,17 +447,17 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Context Collection                         │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐    │
-│  │ Recent Chat   │  │ Long-term     │  │ Social Context    │    │
-│  │ Context       │  │ Memory (RAG)  │  │ (Member Profiles) │    │
-│  └───────────────┘  └───────────────┘  └───────────────────┘    │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐    │
-│  │ Reply Chain   │  │ Style         │  │ Runtime Metadata  │    │
-│  │ Context       │  │ Examples      │  │ (User/Chat Info)  │    │
-│  └───────────────┘  └───────────────┘  └───────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Context Collection                      │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐ │
+│  │ Recent Chat   │  │ Long-term     │  │ Social Context    │ │
+│  │ Context       │  │ Memory (RAG)  │  │ (Member Profiles) │ │
+│  └───────────────┘  └───────────────┘  └───────────────────┘ │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐ │
+│  │ Reply Chain   │  │ Style Example │  │ Runtime Metadata  │ │
+│  │ Context       │  │   (Optional)  │  │ (User/Chat Info)  │ │
+│  └───────────────┘  └───────────────┘  └───────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -533,155 +467,131 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      AI Provider (LLM)                          │
-│  Gemini │ OpenRouter │ Groq │ Cerebras │ OpenAI-Compat │ Ollama │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Response Parser                             │
-│   Extracts: Text │ Reactions │ Stickers │ Actions │ Targets     │
+│                          AI Provider                            │
+│        Runs tool-calling generation loop with tools:            │
+│           web_search, memory_lookup, send_reaction              │
+│                send_sticker, moderate_user                      │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Action Executor                             │
-│    Sends messages, reactions, stickers, or moderates users      │
+│     Executes text responses and deferred pending actions        │
+│          (reactions, stickers, or moderation actions)           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Vector Embeddings & ChromaDB
- 
- ShinAI uses **vector embeddings** to enable semantic search across memories and member profiles. Here's how it works:
- 
- 1. **Text → Vector**: Text is converted into high-dimensional vectors (embeddings) using `sentence-transformers` with the `intfloat/multilingual-e5-large` model.
- 2. **Semantic Similarity**: Similar concepts cluster together in vector space, enabling "meaning-based" search rather than keyword matching.
- 3. **ChromaDB Storage**: Vectors are stored in ChromaDB, a lightweight vector database optimized for embedding search.
- 
- ```python
- # Example: "Who created you?" matches the creator's profile
- # even without exact keyword matches like "creator"
- query = "Who made this bot?"
- # → Semantically matches member with role "Bot creator"
- ```
- 
- ### RAG (Retrieval-Augmented Generation)
- 
- The bot uses RAG in three key areas:
- 
- | Component | What's Retrieved | How It's Used |
- |-----------|------------------|---------------|
- | **Long-term Memory** | Past conversations with the user | Provides continuity ("Remember when you said...") |
- | **Social Context** | Member profiles matching the conversation | Injects relationship info ("This is your creator") |
- | **Style Examples** | Similar past responses | Helps maintain consistent voice/tone |
- 
- ### Memory System
- 
- Every interaction and moderation action is saved to the vector database, tagged with its platform and chat origin:
- 
- ```text
- [2026-01-30 14:30:00 UTC] [Platform: Discord] [Chat: General]
- User (@username) said: What's your favorite anime?
- Bot replied: steins gate obviously, are you even asking?
- ```
- 
- When a relevant topic comes up later, these memories are retrieved and injected into the prompt. The retrieval system is platform-aware but not platform-isolated:
- - **Cross-Platform Retrieval**: You can ask on Telegram *"What did Sarah say on Discord yesterday?"* and the bot will pull the correct fragments from the Discord history.
- - **Semantic Time-Filtering**: It understands time phrases across dialects. If a time context is detected, it narrows the database search to that exact chronological window.
- - **Action Tracking**: The bot logs its own moderation decisions natively, remembering when it muted or banned someone across all platforms.
+### Group Chat Member Persona
 
-### Memory Lookup Tool
+Unlike typical formal assistant bots, ShinAI behaves like a natural participant in the chat:
+- **No Formalities**: It avoids standard AI boilerplate (e.g., "How can I help you?") and responds naturally.
+- **Random Interjections**: Can jump into ongoing conversations without being explicitly mentioned (speculative responses).
+- **Style Alignment**: Adapts to the group's specific language style and dialect.
+- **Sloppy Typing**: Uses lowercase, lazy spelling, and minimal punctuation to simulate a phone or casual chat user.
+- **Personality System**: Supports sarcasm, humor, and teasing, customizable in `shin_ai/data/personality.py`.
 
-ِA dedicated Memory Lookup tool is being exposed to the LLM for precise recall of past conversations. It is used when a question requires explicit memory retrieval instead of relying on shallow automatic context.
+### Smart Response Types & Platform Tool-Calling
 
-- **Filters**: `keywords` (semantic search), `usernames`, `chat_titles`, `platform`, `time_start`, `time_end`, and `limit`.
-- **Required input**: At least one filter must be provided; `limit` defaults to 30 and is capped at 200.
-- **Time formats**: ISO 8601 is supported (e.g., `2025-01-15` or `2025-01-15T14:30:00`), with common fallbacks like `YYYY/MM/DD` and `DD-MM-YYYY`.
-- **Ranking logic**: With `keywords`, the tool first filters by metadata, then re-ranks semantically using the E5 embedder and an MMR selection pass for diversity. Without `keywords`, it performs metadata-only lookup.
-- **Result shape**: Newest-first results that include timestamp, platform, username, user_id, chat_title, chat_id, and the stored text.
+The AI interacts with chat platforms natively using formal function-calling tools rather than raw text parsing:
 
-### Web Searching, Fetching, and Scraping
+| Tool | Parameters | Purpose | Platform Notes |
+|---------------|------------|---------|----------------|
+| `send_reaction` | `emoji`, `message_id` | Reacts to a message with an emoji | Telegram ✅ WhatsApp ✅ Discord ✅ |
+| `send_sticker` | `sticker_id`, `reply_to_message_id` | Sends a sticker from the custom library | Telegram ✅ WhatsApp ✅ Discord ❌ |
+| `moderate_user` | `action`, `target_username`, `target_message_id` | Restricts or manages group members | kick (all ✅), ban/unban/mute/unmute (Telegram & Discord ✅), add (Telegram ✅) |
 
-The bot features a comprehensive **Native Web Search Integration** that works across all AI providers using the `duckduckgo-search` library paired with `beautifulsoup4` and `httpx`.
+#### Stickers & Reactions
+- **Reactions**: Preferred for closing conversation loops, acknowledging messages, or ending a laugh chain.
+- **Stickers**: Chosen based on emotional context.
 
-- **Intelligent Execution**: The AI naturally detects when a user asks about live events, current information, or facts that require searching the internet, and delegates the query without any hardcoded thresholds.
-- **Deep Scraping**: Unlike standard bots that just parse headlines, the bot concurrently extracts the actual readable text content of the top websites retrieved, allowing it to give highly precise and fully contextual answers.
+#### Native Moderation System
+The bot features native moderation capabilities mapped across platforms:
 
-### Context Awareness
+| Action | Telegram Effect | Discord Effect | WhatsApp Effect |
+|--------|-----------------|----------------|-----------------|
+| **Mute** | Restricted Permissions | Native Timeout | No Native Solution |
+| **Kick** | Remove from Group | Native Kick | Native Kick |
+| **Ban** | Permanent Ban | Native Ban | No Native Solution |
+| **Unban** | Lift Ban | Native Unban | No Native Solution |
+| **Invite** | Invite Link | DM Invite Link | No Native Solution |
 
-The bot maintains awareness of:
+- **Safeguards**: The bot cannot act on admins/owners, ignores command triggers from unauthorized users, and falls back to a natural AI response explaining any execution failures.
 
-| Context Type | Window | Purpose |
-| -------------- | -------- | --------- |
-| **Recent Messages** | Last sent messages | Understand ongoing conversation |
-| **Reply Chain** | Up to 10 levels deep | Follow threaded discussions |
-| **User Status** | Real-time | Know user and chat info  |
-| **Long-term Memory** | Semantic RAG | Searches through memories and pulls relevant ones |
-| **Interaction Type** | Per-message | Direct mention vs. random interjection |
+### Memory & Retrieval System
 
-**Visual Context (Gemini only):**
-When using Gemini as the AI provider, the bot can "see" and understand images and stickers in the conversation. All photos, stickers, and visual content from the last sent messages are sent to Gemini along with text, enabling responses like:
+ShinAI saves every interaction and moderation action to a local vector database:
 
-- Commenting on shared photos
-- Understanding sticker emotions/context
-- Referencing visual content in conversations
-- Responding appropriately to memes and images
+```text
+[2026-01-30 14:30:00 UTC] [Platform: Discord] [Chat: General]
+User (@username) said: What's your favorite anime?
+Bot replied: steins gate obviously, are you even asking?
+```
 
-This multimodal capability makes conversations feel more natural, as the bot can fully participate in visual discussions just like a human member would.
+- **Vector Embeddings & ChromaDB**: Message and style text are converted into dense vector representations using `sentence-transformers` (defaulting to the multilingual `intfloat/multilingual-e5-large` model) and indexed inside a local ChromaDB instance.
+- **Cross-Platform Recall**: Retrieve memories across platforms (e.g., asking on Telegram *"What did you say on Discord yesterday?"*).
+- **Semantic Time Filtering**: The retrieval pipeline for the long-term memory retrieval (not the lookup tool call) parses relative time phrases (e.g., "yesterday", "three weeks ago") across dialects to isolate searches to exact chronological windows.
+- **Memory Lookup Tool**: A dedicated tool exposed directly to the AI for advanced retrieval. It accepts filters like `keywords`, `usernames`, `chat_titles`, `platform`, `time_start`, and `time_end`. Results are re-ranked semantically and filtered using a Maximal Marginal Relevance (MMR) selection pass to ensure diversity.
 
-### Speculative Generation
+### Context Awareness & RAG Engine
 
-When a new message arrives that might be a continuation of a conversation with the bot, it performs a lightweight "pre-flight" check using a strict boolean evaluation. This check assesses the context and determines if the message is truly intended for the bot before proceeding with a full AI response generation.
+The bot maintains a rich, multi-layered context window to understand the chat state before responding:
 
-### Message Queuing & Delays
+| Context Type | Window / Scope | Purpose |
+|--------------|----------------|---------|
+| **Recent Context** | Last chat messages | Standard chat history to maintain immediate flow. |
+| **Reply Chain** | Up to 10 levels deep | Deeply follows nested threaded discussions. |
+| **User Status** | Real-time | Detects usernames, mentions, roles, and platform permissions. |
+| **Long-term Memory** | Semantic database | Automatically retrieves past chat fragments related to the query. |
+| **Style Examples** | Semantic database | Injects matching past chat messages to guide response style. |
+| **Interaction Type** | Per-message | Distinguishes between direct mentions, replies, or speculative interjections. |
 
-When the bot decides to respond, the response is not sent immediately. Instead, a random delay timer is started based on the `.env` configuration (`MIN_REPLY_DELAY_SECONDS` and `MAX_REPLY_DELAY_SECONDS`). Any subsequent messages received during this delay are queued. Once the timer expires, the bot processes the queued messages in order, providing a much more natural and human-like conversational flow.
+#### Visual Context (Multimodal)
+- **Native Gemini Vision**: If using Gemini, the bot directly processes incoming photos and stickers. It can comment on images, understand sticker emotions, and reference visual memes.
+- **OpenAI-Compatible Vision & Fallback**: OpenAI-compatible providers that support vision receive image assets as base64-encoded data URIs. For text-only providers (e.g., Groq, Cerebras), ShinAI automatically utilizes the primary Gemini provider to generate a textual description of the media asset, appending it to the prompt. Text-only models can also invoke the `ask_gemini_about_image` tool to ask questions about visual attachments dynamically.
 
-### Loop Prevention
+### Real-Time Web Search
 
-The bot avoids awkward endless conversations:
+When the bot identifies a query requiring live data (e.g., current news, weather, or real-time lookup), the AI calls the web search tool:
+- **DuckDuckGo Integration**: Uses the `duckduckgo-search` library to pull top search results.
+- **Deep Web Scraping**: Rather than relying on search snippets, the bot concurrently fetches the raw page content using `httpx` and `beautifulsoup4`, stripping HTML, and providing the full relevant text to the AI for grounding.
 
-- Detects natural endings ("thanks", "ok", "bye", laughing)
-- Responds with reaction/sticker instead of forcing more text
-- Doesn't reply to its own messages
+### Conversational Dynamics
+
+#### Speculative Responses (Pre-flight Evaluation)
+To avoid invading group chats inappropriately, any message that might be a continuation of a conversation with the bot (but doesn't explicitly tag it) undergoes a quick, cost-effective "pre-flight" speculative check. A boolean classifier evaluates the recent context and user intent, determining if the bot should jump in.
+
+#### Queuing & Dynamic Delays
+- **Response Delay**: To simulate typing and reading, replies are held for a randomized delay configured via `config.yaml` (`min_delay_seconds` and `max_delay_seconds` under `response`). Set these to `0.0` to disable the delay entirely. Messages received during this window are queued and processed in order.
+- **Inter-Message Typing Delay**: When sending multiple messages split by `---`, the bot calculates typing speeds based on text length (~8-9 characters per second) with Gaussian jitter, triggering the platform's native "typing" indicators.
 
 ### Audio Processing Pipeline
 
 When a voice message or audio file is received, the platform adapter routes the raw audio bytes to the built-in transcription service. It runs `faster-whisper` inference on a dedicated thread pool to prevent blocking the async event loop. Once the audio is transcribed into text, it is injected into the standard message processing pipeline as if the user had typed it, maintaining a seamless conversational flow.
 
+### Reliability & Retries
+
+To ensure uninterrupted uptime:
+- All AI provider completions are wrapped in a configurable per-attempt timeout and retry policy.
+- If a provider request fails, the exception details are injected into the retry context, allowing the AI layer to adapt to previous errors.
+- If the primary provider fails completely, the registry executes `failover` or `round_robin` strategies against configured fallback APIs.
+
 ---
 
 ## AI Provider Details
 
-### Gemini (Recommended)
+ShinAI supports two main types of AI providers under the hood: Google Gemini (native SDK) and any OpenAI-Compatible API.
 
-- Supports **image understanding** (photos, stickers)
-- Multiple API key round-robin rotation for quota management
-- Tracks key health with `/gstats` command
+### Gemini
+- Supports native **multimodal image understanding** (photos, stickers).
+- Supports API key rotation (manage keys in `data/gemini_keys.json` to rotate and track quota/health via `/gstats`).
+- Configured using the `gemini` provider type in `config.yaml`.
 
-### OpenRouter
-
-- Access to multiple models (Claude, GPT-5.4, Llama, etc.)
-- Pay-per-token pricing
-- Good fallback option
-
-### Groq & Cerebras
-
-- Extremely fast inference
-- Good for high-traffic groups
-- Limited context windows
-
-### OpenAI-Compatible
-
-- Works with **any provider** that exposes an OpenAI-compatible API
-- Examples: vLLM, LM Studio, Together AI, Fireworks, text-generation-webui, etc.
-
-### Local LLM (Ollama)
-
-- Fully private, no data is sent outside
-- No API costs
-- Requires decent GPU and RAM
-- Uses `http://localhost:11434/v1` OpenAI-compatible API loops
+### OpenAI-Compatible APIs
+Any provider offering an OpenAI-compliant completions endpoint is supported under the `openai` provider type. This unifies external API services and local inference engines:
+- **Commercial API Hubs**: OpenRouter (Claude, GPT, Llama), DeepSeek, Together AI, Fireworks, Groq, Cerebras.
+- **Local Inference**: Ollama, vLLM, LM Studio, `text-generation-webui`.
+- **Multimodal Visual Fallback**: For providers that do not natively support vision (like Groq/Cerebras), the bot automatically calls the configured Gemini provider to generate a detailed text description of any attached images.
+- **Multimodal Image Tool**: Text-only models can dynamically call the `ask_gemini_about_image` tool during conversation to ask specific questions about the visual context.
 
 ---
 
