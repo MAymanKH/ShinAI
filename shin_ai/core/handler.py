@@ -146,7 +146,7 @@ async def _download_mentioned_recent_media(
     if not any(keyword in prompt_lower for keyword in image_keywords):
         return []
 
-    logger.info("User mentioned media but no reply chain - checking recent context")
+    logger.debug("User mentioned media but no reply chain — checking recent context for images")
     recent_media = get_recent_media_messages(platform.platform_name, msg.chat.id, max_count=10)
     if not recent_media:
         return []
@@ -180,15 +180,15 @@ async def _passes_speculative_preflight(
     )
     eval_prompt = f"User's message: \"{prompt}\""
     try:
-        logger.info("Running speculative reply pre-flight evaluation...")
+        logger.debug("Running speculative reply pre-flight evaluation...")
         eval_ans, _ = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
         if not eval_ans or "YES" not in eval_ans.strip().upper():
-            logger.info(f"Pre-flight eval rejected speculative message. Eval: {eval_ans}")
+            logger.debug(f"Pre-flight eval rejected speculative message. Eval: {eval_ans!r}")
             return False
-        logger.info("Pre-flight evaluation passed.")
+        logger.debug("Pre-flight evaluation passed.")
         return True
     except Exception as e:
-        logger.error(f"Pre-flight evaluation failed: {e}")
+        logger.error(f"Pre-flight evaluation failed: {e}", exc_info=True)
         return False
 
 
@@ -208,7 +208,13 @@ async def _build_runtime_context(platform: PlatformAdapter, msg: UnifiedMessage)
 
     runtime_context += f"\nPLATFORM: You are currently operating on {platform.platform_name.upper()}."
 
-    logger.info(f"[{platform.platform_name}] Built Runtime Metadata:\n{runtime_context}")
+    logger.debug(
+        "[%s] Runtime context built — chat=%s user=%s type=%s",
+        platform.platform_name,
+        msg.chat.id,
+        msg.from_user.id if msg.from_user else "?",
+        msg.chat.type,
+    )
     return runtime_context
 
 
@@ -263,7 +269,7 @@ def _enqueue_frozen_message(
 
     if key not in _chat_tasks or _chat_tasks[key].done():
         delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
-        logger.info(f"[{platform.platform_name}] Delaying reply in chat {msg.chat.id} by {delay:.2f}s")
+        logger.debug("[%s] Queuing reply for chat %s (delay=%.2fs)", platform.platform_name, msg.chat.id, delay)
         _chat_tasks[key] = asyncio.create_task(_delayed_queue_processor(key, delay))
 
 
@@ -317,7 +323,7 @@ async def _execute_frozen_message(
     )
 
     if await _should_skip_queued_reply(msg, prompt, recent_context_section):
-        logger.info(
+        logger.debug(
             "Skipping queued reply for chat %s (message %s trivial/laugh/sticker)",
             msg.chat.id,
             msg.id,
@@ -483,19 +489,25 @@ async def _transcribe_audio_message(platform: PlatformAdapter, msg: UnifiedMessa
     try:
         audio_bytes = await platform.download_media(media_handle)
         if not audio_bytes:
-            logger.warning("Audio download returned empty bytes")
+            logger.warning("[Audio] Download returned empty bytes — skipping transcription")
             return ""
 
         mime_type = media_handle.mime_type or "audio/ogg"
-        logger.info(f"Transcribing audio: {len(audio_bytes)} bytes, mime={mime_type}")
         transcription = await transcribe_audio(audio_bytes, mime_type)
         if transcription:
-            logger.info(f"Audio transcription result ({len(transcription)} chars): {transcription[:100]}...")
+            logger.info(
+                "[Audio] Transcribed %d bytes (%s) → %d chars: \"%s%s\"",
+                len(audio_bytes),
+                mime_type,
+                len(transcription),
+                transcription[:80],
+                "..." if len(transcription) > 80 else "",
+            )
         else:
-            logger.warning("Whisper returned empty transcription")
+            logger.warning("[Audio] Whisper returned empty transcription for %d bytes (%s)", len(audio_bytes), mime_type)
         return transcription
     except Exception as e:
-        logger.error(f"Audio transcription failed: {e}")
+        logger.error("Audio transcription failed: %s", e, exc_info=True)
         return ""
 
 
@@ -523,7 +535,7 @@ def _get_style_examples(prompt: str) -> str:
     try:
         return "\n".join(get_style_examples(prompt))
     except Exception as e:
-        logger.warning(f"No style examples retrieved: {e}")
+        logger.debug("No style examples retrieved: %s", e)
         return ""
 
 
@@ -533,7 +545,7 @@ async def _get_reply_chain_text(platform: PlatformAdapter, msg: UnifiedMessage) 
         if reply_chain:
             return "\n\nThe user's message is a reply to a conversation chain (most recent first):\n" + "\n".join([f"- {part}" for part in reply_chain])
     except Exception as e:
-        logger.error(f"Error building reply chain: {e}")
+        logger.error("Error building reply chain: %s", e, exc_info=True)
         if msg.reply_to_message and msg.reply_to_message.from_user:
             return (f"\n\nThe user's message is a reply to a previous message from "
                     f"{msg.reply_to_message.from_user.username}/{msg.reply_to_message.from_user.first_name} "

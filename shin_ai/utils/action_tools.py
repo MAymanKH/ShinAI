@@ -73,7 +73,7 @@ async def handle_send_reaction(args: dict) -> tuple[str, dict]:
     """Queue a reaction. Returns tool response text + pending action dict."""
     emoji = args.get("emoji", "")
     message_id = args.get("message_id")
-    logger.info("Queuing send_reaction: emoji=%r, message_id=%r", emoji, message_id)
+    logger.debug("Queuing send_reaction: emoji=%r, message_id=%r", emoji, message_id)
     action = {"type": "reaction", "emoji": emoji, "message_id": message_id}
     return json.dumps({"status": "queued", "action": "send_reaction", "emoji": emoji}), action
 
@@ -127,7 +127,7 @@ async def handle_send_sticker(args: dict) -> tuple[str, dict]:
     """Queue a sticker send. Returns tool response text + pending action dict."""
     sticker_id = args.get("sticker_id", "")
     reply_to = args.get("reply_to_message_id")
-    logger.info("Queuing send_sticker: sticker_id=%r, reply_to=%r", sticker_id, reply_to)
+    logger.debug("Queuing send_sticker: sticker_id=%r, reply_to=%r", sticker_id, reply_to)
     action = {"type": "sticker", "sticker_id": sticker_id, "reply_to_message_id": reply_to}
     return json.dumps({"status": "queued", "action": "send_sticker", "sticker_id": sticker_id}), action
 

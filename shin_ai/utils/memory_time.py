@@ -203,10 +203,9 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
 
     matched_example = _all_examples[best_example_idx].replace("query: ", "")
     matched_bucket_hours = TIME_BUCKETS[best_bucket_idx]["delta_hours"]
-    logger.info(
-        f"Time reference detected: '{matched_example}' (sim={max_time_sim:.3f}) "
-        f"→ matched {matched_bucket_hours}h, using safe window {delta_hours}h "
-        f"→ {start_epoch} to {end_epoch}"
+    logger.debug(
+        "Time reference detected: '%s' (sim=%.3f) → matched %sh, using safe window %sh → %d–%d",
+        matched_example, max_time_sim, matched_bucket_hours, delta_hours, start_epoch, end_epoch,
     )
 
     return start_epoch, end_epoch

@@ -24,7 +24,7 @@ def load_keys() -> dict[str, str]:
             with open(GEMINI_KEYS_FILE, "r") as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Failed to load keys from {GEMINI_KEYS_FILE}: {e}")
+            logger.error("Failed to load keys from %s: %s", GEMINI_KEYS_FILE, e, exc_info=True)
             return {}
 
     # No keys file found — create an empty one and instruct the user
@@ -44,7 +44,7 @@ def save_keys(current_map: dict[str, str]) -> None:
         with open(GEMINI_KEYS_FILE, "w") as f:
             json.dump(current_map, f, indent=4)
     except Exception as e:
-        logger.error(f"Failed to save keys to {GEMINI_KEYS_FILE}: {e}")
+        logger.error("Failed to save keys to %s: %s", GEMINI_KEYS_FILE, e, exc_info=True)
 
 
 def load_stats() -> dict:
@@ -65,7 +65,7 @@ def save_stats(stats: dict) -> None:
         with open(STATS_FILE, "w") as f:
             json.dump(stats, f, indent=4)
     except Exception as e:
-        logger.error(f"Failed to save stats to {STATS_FILE}: {e}")
+        logger.error("Failed to save stats to %s: %s", STATS_FILE, e, exc_info=True)
 
 
 def update_key_status(key_name, status, model=None, error_msg=None):
@@ -100,7 +100,7 @@ async def check_single_key_status(key_name, api_key, model):
             contents="a",
             config=genai.types.GenerateContentConfig(max_output_tokens=1),
         )
-        logger.info(f"Key status check [{model}]: {key_name} is ACTIVE")
+        logger.debug("Key status check [%s]: %s is ACTIVE", model, key_name)
         return {"key": key_name, "model": model, "status": "active", "error": None}
     except Exception as e:
         error_msg = str(e)

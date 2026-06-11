@@ -27,7 +27,7 @@ async def main():
         logger.info("📥 Fetching messages from style group...")
         ctn = 1
         async for msg in app.get_chat_history(STYLE_GROUP_ID, limit=100000):
-            logger.info(f"Processing message {ctn}")
+            logger.debug("Indexing style message %d...", ctn)
             ctn += 1
             if not msg.text:
                 continue

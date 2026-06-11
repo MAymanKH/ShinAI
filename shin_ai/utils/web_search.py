@@ -25,7 +25,7 @@ async def _fetch_url_content(client: httpx.AsyncClient, url: str) -> str:
         # Limit the text to avoid context window explosion
         return text[:2500] + ("..." if len(text) > 2500 else "")
     except Exception as e:
-        logger.warning(f"Failed to fetch or parse {url}: {e}")
+        logger.warning("Failed to fetch or parse %s: %s", url, e)
         return ""
 
 async def search_web_tool(query: str) -> str:
@@ -66,7 +66,7 @@ async def search_web_tool(query: str) -> str:
                 
         return json.dumps({"query": query, "results": final_results}, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Web search tool failed: {e}")
+        logger.error("Web search tool failed: %s", e, exc_info=True)
         return json.dumps({"error": f"Search failed: {str(e)}"})
 
 # Definition schema to be used for LLM Tool bindings (OpenAI format)

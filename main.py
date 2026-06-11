@@ -1,11 +1,15 @@
 import asyncio
 from pyrogram import idle
 import shin_ai.bot
-from shin_ai.utils.logger_config import logger
+from shin_ai.utils.logger_config import logger, reconfigure_logger
+from shin_ai.config import DEBUG
 from shin_ai.services.social import index_social_context
 from shin_ai.handlers.telegram_chat import telegram_platform
 from shin_ai.handlers.discord_chat import discord_platform
 from shin_ai.handlers.whatsapp_chat import whatsapp_platform
+
+# Apply debug: true/false from config.yaml to the logger level
+reconfigure_logger(DEBUG)
 
 async def main():
     # Initialize the social context database

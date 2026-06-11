@@ -88,18 +88,17 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
                     )
                     continue
 
-                # Log cache hit stats for monitoring
+                # Log cache hit stats — only when there is an actual cache hit
                 usage = getattr(response, "usage_metadata", None)
                 if usage:
                     cached = getattr(usage, "cached_content_token_count", 0) or 0
                     total_in = getattr(usage, "prompt_token_count", 0) or 0
-                    if total_in:
+                    if cached > 0 and total_in:
                         pct = cached / total_in * 100
                         logger.info(
-                            f"Gemini cache stats: {cached}/{total_in} input tokens cached ({pct:.0f}%)"
+                            "Gemini cache hit: %d/%d input tokens cached (%.0f%%) — model=%s",
+                            cached, total_in, pct, model,
                         )
-                    else:
-                        logger.info("Gemini cache stats: no token counts in usage metadata")
 
                 logger.info(f"Gemini API call successful (model: {model}, Key: {key_name})")
                 update_key_status(key_name, "active", model)
@@ -128,7 +127,7 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
                     update_key_status(key_name, "unavailable", model, e)
                     break
                 else:
-                    logger.error(f"Error with Gemini API (model: {model}, Key: {key_name}): {e}")
+                    logger.error("Error with Gemini API (model: %s, Key: %s): %s", model, key_name, e, exc_info=True)
                     update_key_status(key_name, "error", model, e)
                 continue
 
@@ -164,7 +163,7 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
             genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         )
 
-    logger.info(f"Added {len(media_list)} media items to Gemini request")
+    logger.debug("Added %d media item(s) to Gemini request", len(media_list))
     return contents
 
 
@@ -281,19 +280,19 @@ async def _dispatch_gemini_tool(fn_call) -> tuple[str, dict | None]:
 
     if fn_call.name == "search_web_tool":
         query = args.get("query", "")
-        logger.info(f"Gemini requested web search for: '{query}'")
+        logger.info("Gemini → web search: %r", query)
         return await search_web_tool(query), None
 
     if fn_call.name == "memory_lookup_tool":
-        logger.info(f"Gemini requested memory lookup with args: {args}")
+        logger.info("Gemini → memory lookup: %s", args)
         return await memory_lookup_tool(**args), None
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:
-        logger.info(f"Gemini requested action tool '{fn_call.name}' with args: {args}")
+        logger.info("Gemini → action tool %r: %s", fn_call.name, args)
         return await handler(args)
 
-    logger.warning(f"Gemini requested unknown tool: {fn_call.name}")
+    logger.warning("Gemini → unknown tool requested: %r", fn_call.name)
     return f"Unknown tool: {fn_call.name}", None
 
 

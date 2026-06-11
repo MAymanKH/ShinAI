@@ -35,10 +35,10 @@ async def memory_lookup_tool(
     At least one filter parameter must be provided.
     Returns a JSON string with the matching memories or an error object.
     """
-    logger.info(
-        f"Memory lookup called — keywords={keywords!r}, usernames={usernames!r}, "
-        f"chat_titles={chat_titles!r}, platform={platform!r}, "
-        f"time_start={time_start!r}, time_end={time_end!r}, limit={limit}"
+    logger.debug(
+        "Memory lookup — keywords=%r, usernames=%r, chat_titles=%r, platform=%r, "
+        "time_start=%r, time_end=%r, limit=%d",
+        keywords, usernames, chat_titles, platform, time_start, time_end, limit,
     )
 
     # Validation
@@ -145,7 +145,7 @@ async def _lookup_with_keywords(
                 include=["documents", "embeddings", "metadatas"],
             )
         except Exception as e:
-            logger.error(f"ChromaDB get() failed: {e}")
+            logger.error("ChromaDB get() failed: %s", e, exc_info=True)
             return []
 
         docs = candidates.get("documents") or []
@@ -231,7 +231,7 @@ async def _lookup_metadata_only(
         pairs = [(doc, meta or {}) for doc, meta in zip(docs, metas)]
         return sort_memory_results_by_timestamp(pairs)
     except Exception as e:
-        logger.error(f"ChromaDB metadata-only get() failed: {e}")
+        logger.error("ChromaDB metadata-only get() failed: %s", e, exc_info=True)
         return []
 # Tool schema (OpenAI function-calling format)
 # Used by Groq, Cerebras, OpenRouter, and Local LLM providers.

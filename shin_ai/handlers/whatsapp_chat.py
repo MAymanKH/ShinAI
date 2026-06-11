@@ -48,7 +48,7 @@ if WHATSAPP_ENABLED:
                 try:
                     done_future.result()
                 except Exception as e:
-                    logger.error(f"Error processing WhatsApp message: {e}")
+                    logger.error("Error processing WhatsApp message: %s", e, exc_info=True)
 
             future.add_done_callback(_log_failure)
 

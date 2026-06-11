@@ -40,8 +40,9 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
                 chat_id = getattr(msg.chat, "id", "unknown")
                 user_id = getattr(msg.from_user, "id", "unknown") if msg.from_user else "unknown"
                 text_preview = (text or "<no text>").replace("\n", " ")[:80]
-                logger.info(
-                    f"[TelegramFilter] chat={chat_id} user={user_id} reason={reason} text='{text_preview}'"
+                logger.debug(
+                    "[TelegramFilter] chat=%s user=%s reason=%s text='%s'",
+                    chat_id, user_id, reason, text_preview,
                 )
 
         _debug(reason)
@@ -58,8 +59,9 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
             if DEBUG:
                 chat_id = getattr(msg.chat, "id", "unknown")
                 user_id = getattr(msg.from_user, "id", "unknown") if msg.from_user else "unknown"
-                logger.info(
-                    f"[TelegramRecv] chat={chat_id} type={str(unified_msg.chat.type).lower()} user={user_id}"
+                logger.debug(
+                    "[TelegramRecv] chat=%s type=%s user=%s",
+                    chat_id, str(unified_msg.chat.type).lower(), user_id,
                 )
 
             should_respond = await should_respond_to_message(
@@ -67,15 +69,14 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
                 debug_hook=lambda reason, text: _telegram_debug(reason, text, msg),
             )
         except Exception as e:
-            logger.error(f"Telegram filter evaluation failed: {e}")
+            logger.error("Telegram filter evaluation failed: %s", e, exc_info=True)
             return
 
         if not should_respond:
             return
 
         if state.IS_CHECKING_KEYS:
-            if DEBUG:
-                logger.info("[TelegramHandler] skip because IS_CHECKING_KEYS is true")
+            logger.debug("[TelegramHandler] Skipping message — IS_CHECKING_KEYS is active")
             return
 
         try:

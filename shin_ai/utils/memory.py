@@ -76,9 +76,9 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
             embeddings=[embedding],
             metadatas=[meta]
         )
-        logger.info(f"Memory saved for user {username}")
+        logger.debug("Memory saved for user %s (chat=%s platform=%s)", username, chat_id, platform)
     except Exception as e:
-        logger.error(f"Failed to save memory: {e}")
+        logger.error("Failed to save memory for user %s: %s", username, e, exc_info=True)
 
 
 # Memory Retrieval
@@ -154,7 +154,7 @@ async def retrieve_memories(query: str, limit: int = 15):
                     {"timestamp": {"$lte": end_epoch}},
                 ]
             }
-            logger.info(f"Time-filtered memory search: {start_epoch} → {end_epoch}")
+            logger.debug("Time-filtered memory search: %s → %s", start_epoch, end_epoch)
 
         # Fetch a large pool for MMR deduplication
         results = memory_collection.query(
@@ -185,12 +185,12 @@ async def retrieve_memories(query: str, limit: int = 15):
 
         # If time filter was applied but returned nothing, fall back to unfiltered
         if where_filter and not final_memories:
-            logger.info("Time-filtered search returned no results, falling back to unfiltered")
+            logger.debug("Time-filtered search returned no results — falling back to unfiltered")
             return await _retrieve_memories_unfiltered(query_emb, limit)
 
         return final_memories
     except Exception as e:
-        logger.error(f"Failed to retrieve memories: {e}")
+        logger.error("Failed to retrieve memories: %s", e, exc_info=True)
         return []
 
 
@@ -216,5 +216,5 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
                     
         return _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
     except Exception as e:
-        logger.error(f"Failed to retrieve memories (unfiltered fallback): {e}")
+        logger.error("Failed to retrieve memories (unfiltered fallback): %s", e, exc_info=True)
         return []

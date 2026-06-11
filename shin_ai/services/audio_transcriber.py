@@ -100,14 +100,13 @@ def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
 
         detected_lang = getattr(info, "language", "unknown")
         lang_prob = getattr(info, "language_probability", 0.0)
-        logger.info(
-            f"faster-whisper transcription complete: "
-            f"lang={detected_lang} (prob={lang_prob:.2f}), "
-            f"length={len(text)} chars"
+        logger.debug(
+            "faster-whisper done: lang=%s (prob=%.2f), %d chars",
+            detected_lang, lang_prob, len(text),
         )
         return text
     except Exception as e:
-        logger.error(f"faster-whisper transcription failed: {e}")
+        logger.error("faster-whisper transcription failed: %s", e, exc_info=True)
         return ""
     finally:
         # Clean up the temp file

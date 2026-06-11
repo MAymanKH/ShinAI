@@ -25,15 +25,18 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
         def _discord_debug(reason: str, text: str) -> None:
             if not DEBUG:
                 return
-            logger.info(
-                f"[DiscordFilter] chat={unified_msg.chat.id} user={unified_msg.from_user.id if unified_msg.from_user else 'unknown'} "
-                f"reason={reason} text='{(text or '<no text>').replace(chr(10), ' ')[:80]}'"
+            logger.debug(
+                "[DiscordFilter] chat=%s user=%s reason=%s text='%s'",
+                unified_msg.chat.id,
+                unified_msg.from_user.id if unified_msg.from_user else "unknown",
+                reason,
+                (text or "<no text>").replace(chr(10), " ")[:80],
             )
 
         try:
             should_respond = await should_respond_to_message(unified_msg, debug_hook=_discord_debug)
         except Exception as e:
-            logger.error(f"Discord filter evaluation failed: {e}")
+            logger.error("Discord filter evaluation failed: %s", e, exc_info=True)
             return
 
         if not should_respond or state.IS_CHECKING_KEYS:
@@ -42,7 +45,7 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
         try:
             await process_message(discord_platform, unified_msg)
         except Exception as e:
-            logger.error(f"Error processing Discord message: {e}")
+            logger.error("Error processing Discord message: %s", e, exc_info=True)
 elif DISCORD_ENABLED and not DISCORD_CONFIGURED:
     logger.warning("Discord is enabled but DISCORD_BOT_TOKEN is missing; Discord handler is disabled.")
 else:
