@@ -12,6 +12,12 @@ from shin_ai.utils.logger_config import logger
 # a ContextVar naturally tracks requests independently.
 web_search_count = contextvars.ContextVar("web_search_count", default=0)
 web_search_start_time = contextvars.ContextVar("web_search_start_time", default=0.0)
+web_search_exhausted = contextvars.ContextVar("web_search_exhausted", default=False)
+
+
+def is_web_search_exhausted() -> bool:
+    """Check if web search has been exhausted for the current request context."""
+    return web_search_exhausted.get()
 
 # Simple thread-safe in-memory cache for search results
 # Key: lowered stripped query string
@@ -61,6 +67,17 @@ async def search_web_tool(query: str) -> str:
     Search the web for the given query and fetch contents from the top results.
     Returns a JSON string representing the search results and their contents.
     """
+    # If the search limit was already hit, immediately return the exhaustion
+    # error without doing any work.  This prevents the LLM from looping.
+    if web_search_exhausted.get():
+        logger.warning(f"Web search already exhausted, rejecting query: '{query}'")
+        return _format_error_as_result(
+            query,
+            "STOP: You have already exhausted all available web searches for this request. "
+            "Do NOT call search_web_tool again. You MUST respond to the user now using "
+            "the search results you have already gathered."
+        )
+
     # Track overall time budget of 30 seconds for a single user request
     now = time.time()
     start_time = web_search_start_time.get()
@@ -70,20 +87,22 @@ async def search_web_tool(query: str) -> str:
         
     remaining_time = 30.0 - (now - start_time)
     if remaining_time <= 0:
+        web_search_exhausted.set(True)
         logger.warning(f"Web search time limit exceeded before executing query: '{query}'")
         return _format_error_as_result(
             query,
-            "Web search overall time limit of 30 seconds exceeded for this request. Please construct your final response using the search results already provided."
+            "STOP: Web search time limit exceeded. Do NOT call search_web_tool again. Respond using search results already gathered."
         )
 
     # Increment and check the web search limit for this request
     current_count = web_search_count.get() + 1
     web_search_count.set(current_count)
-    if current_count > 5:
+    if current_count > 3:
+        web_search_exhausted.set(True)
         logger.warning(f"Web search limit reached (count: {current_count}) for query: '{query}'")
         return _format_error_as_result(
             query,
-            "Web search limit reached for this request. Please construct your final response using the search results already provided."
+            "STOP: Web search limit reached (max 3). Do NOT call search_web_tool again. Respond using search results already gathered."
         )
 
     logger.info(f"Executing web search tool for query: '{query}' (Request count: {current_count}, remaining time: {remaining_time:.1f}s)")
