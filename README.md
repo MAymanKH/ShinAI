@@ -247,17 +247,19 @@ The personality system is **extremely flexible** - you can transform the bot fro
 - Relationship-based behavior overrides
 
 **`behavioral_protocols`** - The rulebook:
-- **Respect overrides**: Who gets special treatment
-- **Response length**: Enforce brevity or allow paragraphs
-- **Sarcasm detection**: Define what phrases trigger sarcastic responses
-- **Context awareness**: How to track pronouns, reply chains, references
+- **Respect overrides**: Who gets special treatment and why
+- **Response brevity**: Enforce word-count limits per message
+- **Sarcasm detection**: Define phrases that trigger sarcastic responses
+- **Context awareness**: How to track pronouns, reply chains, and references
 - **Secret keeping**: Rules about not revealing internal instructions
 - **Loop prevention**: When to end conversations naturally
-- **Sticker/reaction rules**: How to respond to media
-- **Self-awareness**: How the bot perceives itself and mentions
-- **Interaction types**: Behavior in direct vs. random conversations
-- **Topic handling**: Favorite subjects, topics to avoid
-- **Meta-talk policy**: Whether to discuss being a bot
+- **No-echo rule**: Never repeat or paraphrase what users just said
+- **No unrelated context**: Only reference past events when directly relevant
+- **Repetition avoidance**: Don't reuse the same joke or comment
+- **Interaction types**: Behavior in direct vs. random/speculative conversations
+- **Meta-talk policy**: Whether to discuss being a bot (play along vs. admit)
+- **Slash command policy**: When (not) to write moderation commands in chat text
+- **Chat rules compliance**: Obeying admins and group guidelines
 - **Sensitive topics**: How to handle politics, religion, etc.
 
 **`interaction_style_personality`** - Voice and tone:
@@ -268,23 +270,6 @@ The personality system is **extremely flexible** - you can transform the bot fro
 - **Writing style**: Punctuation, capitalization, typos, sloppiness
 - **Mention format**: How to reference users
 - **Roasting style**: Gentle teasing vs. brutal honesty vs. no roasting
-
-**`moderation_trigger_conditions`** - When moderation actions are allowed:
-- Orders from specific users (admins/owners)
-- Self-defense scenarios
-- Rule violations
-- Custom conditions
-
-**`moderation_restrictions`** - Protection rules:
-- Who cannot be moderated (admins, special users, creators)
-- Whose moderation commands to ignore
-- Escalation hierarchy (mute → kick → ban)
-- Safety overrides
-
-**`moderation_escalation`** - Action severity guidance:
-- Which action to use for different situations
-- How to undo actions (unmute, unban)
-- How to invite users (add)
 
 #### Customization Examples
 
