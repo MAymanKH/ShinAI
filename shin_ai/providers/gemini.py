@@ -28,7 +28,7 @@ def _is_model_on_cooldown(model: str) -> bool:
     return time.time() < MODEL_COOLDOWN_UNTIL.get(model, 0.0)
 
 
-def _set_model_cooldown(model: str, seconds: int = 3600) -> None:
+def _set_model_cooldown(model: str, seconds: int = 900) -> None:
     MODEL_COOLDOWN_UNTIL[model] = time.time() + seconds
 
 
