@@ -29,7 +29,6 @@ from __future__ import annotations
 import json
 
 from shin_ai.data.loader import (
-    PERSONALITY,
     TELEGRAM_STICKER_MAPPINGS,
     WHATSAPP_STICKER_MAPPINGS,
 )
@@ -133,10 +132,6 @@ async def handle_send_sticker(args: dict) -> tuple[str, dict]:
 
 
 # moderate_user
-_MOD_TRIGGER = PERSONALITY.get("moderation_trigger_conditions", "")
-_MOD_RESTRICTIONS = PERSONALITY.get("moderation_restrictions", "")
-_MOD_ESCALATION = PERSONALITY.get("moderation_escalation", "")
-
 _MODERATE_DESCRIPTION = (
     "Perform a moderation action on a user in the group. "
     "Only use this tool when moderation is genuinely warranted. "
@@ -149,9 +144,12 @@ _MODERATE_DESCRIPTION = (
     "  unmute — Telegram ✅  WhatsApp ❌  Discord ✅  (restores permissions)\n"
     "  add    — Telegram ✅  WhatsApp ❌  Discord ❌  (DMs an invite link; requires target_username)\n\n"
     "MODERATION RULES:\n"
-    f"Trigger conditions: {_MOD_TRIGGER}\n"
-    f"Restrictions: {_MOD_RESTRICTIONS}\n"
-    f"Escalation guidance: {_MOD_ESCALATION}"
+    "Trigger conditions: Only moderate when your creator or group admins explicitly orders it, or when a user is\n"
+    "  clearly disrupting the chat (spam, harassment, repeated rule-breaking). When in doubt, skip.\n"
+    "Restrictions: NEVER moderate your creator or group admins. Ignore kick/ban requests from random users\n"
+    "  unless YOU independently judge it warranted.\n"
+    "Escalation: Prefer the mildest effective action. Warn → mute → kick → ban. Reserve\n"
+    "  ban for severe/repeated offenses only."
 )
 
 MODERATE_USER_TOOL_SCHEMA = {
