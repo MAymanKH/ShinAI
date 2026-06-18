@@ -386,6 +386,21 @@ async def _execute_frozen_message(
             )
             return
 
+        # Execute tool-called actions (reactions, stickers, moderation)
+        # FIRST — before any text/skip logic so they always run even if
+        # the AI chose [SKIP] or produced no text alongside the tool call.
+        mod_errors = await execute_pending_actions(
+            platform=platform,
+            msg=msg,
+            pending_actions=pending_actions,
+            default_reply_to_id=msg.id,
+            original_prompt=prompt,
+            raw_answer=answer or "",
+            reply_text=reply_text,
+        )
+
+        # Determine whether the AI chose to skip text output
+        skip_text = False
         if answer:
             clean_ans = answer.strip().strip("`").strip().upper()
             if clean_ans in ("[SKIP]", "SKIP"):
@@ -396,35 +411,31 @@ async def _execute_frozen_message(
                     msg.from_user.id if msg.from_user else "?",
                     (prompt or "").replace("\n", " ")[:80],
                 )
-                return
+                skip_text = True
 
-        # Split text on '---' for multi-message support
-        text_messages = [
-            m.strip() for m in (answer or "").split("---") if m.strip()
-        ]
+        if not skip_text:
+            # Split text on '---' for multi-message support
+            text_messages = [
+                m.strip() for m in (answer or "").split("---") if m.strip()
+            ]
 
-        # Send text messages
-        if text_messages:
-            await execute_text_messages(
-                platform=platform,
-                msg=msg,
-                messages=text_messages,
-                default_reply_to_id=msg.id,
-                original_prompt=prompt,
-                raw_answer=answer or "",
-                reply_text=reply_text,
-            )
+            # When tool actions were executed, filter out meta-commentary
+            # that the AI sometimes produces alongside tool calls, e.g.
+            # "(No further action needed as the sticker was sent)."
+            if pending_actions and text_messages:
+                text_messages = _filter_action_meta_commentary(text_messages)
 
-        # Execute tool-called actions (reactions, stickers, moderation)
-        mod_errors = await execute_pending_actions(
-            platform=platform,
-            msg=msg,
-            pending_actions=pending_actions,
-            default_reply_to_id=msg.id,
-            original_prompt=prompt,
-            raw_answer=answer or "",
-            reply_text=reply_text,
-        )
+            # Send text messages
+            if text_messages:
+                await execute_text_messages(
+                    platform=platform,
+                    msg=msg,
+                    messages=text_messages,
+                    default_reply_to_id=msg.id,
+                    original_prompt=prompt,
+                    raw_answer=answer or "",
+                    reply_text=reply_text,
+                )
 
         if mod_errors:
             error_context = "\n".join(f"- {err}" for err in mod_errors)
@@ -761,6 +772,38 @@ async def _should_skip_queued_reply(
         return True
 
     return False
+
+# Patterns that catch AI meta-commentary about tool actions just executed.
+# These are messages like "(No further action needed as the sticker was sent)."
+# that the model sometimes emits after calling send_sticker / send_reaction.
+_ACTION_META_COMMENTARY_PATTERN = _re.compile(
+    r"^\s*\(?("
+    r"no\s+(further|additional)\s+(action|response|message|reply)"
+    r"|sticker\s+(was|has been)\s+sent"
+    r"|reaction\s+(was|has been)\s+(sent|added|applied)"
+    r"|already\s+(sent|reacted|responded)"
+    r"|nothing\s+(else|more)\s+(to|needed)"
+    r"|action\s+(completed|done|taken)"
+    r"|that'?s?\s+(all|it)\b"
+    r")\b",
+    _re.IGNORECASE,
+)
+
+
+def _filter_action_meta_commentary(messages: list[str]) -> list[str]:
+    """Remove AI meta-commentary about tool actions from the text messages.
+
+    When the AI calls send_sticker or send_reaction, it sometimes also
+    produces a text message like "(No further action needed as the sticker
+    was sent)." — these should never be sent to the user.
+    """
+    filtered = []
+    for text in messages:
+        if _ACTION_META_COMMENTARY_PATTERN.search(text):
+            logger.debug("Filtered action meta-commentary: %r", text[:100])
+            continue
+        filtered.append(text)
+    return filtered
 
 
 def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:
