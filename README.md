@@ -111,12 +111,9 @@ cp shin_ai/data/personality_template.py shin_ai/data/personality.py
 
 # Sticker mappings (optional)
 cp shin_ai/data/stickers_template.py shin_ai/data/stickers.py
-
-# Group members (optional)
-cp shin_ai/data/members_template.py shin_ai/data/members.py
 ```
 
-### 6. (Optional) Index Style Examples
+### 6. Index Style Examples (Optional)
 
 If you want the bot to learn from a specific group's communication style:
 
@@ -328,16 +325,16 @@ You're not just configuring a bot - you're **creating a character** with depth, 
 
 Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map sticker file IDs to descriptions. Get sticker file IDs by forwarding stickers to @RawDataBot.
 
-### Member Configuration (Optional)
+### Member Configuration & Social Context (Optional)
  
- Copy `shin_ai/data/members_template.py` to `shin_ai/data/members.py` and add your favourite group members for social context. The bot will recognize them across Telegram, Discord and WhatsApp and adapt its responses accordingly.
+ Customize your group members directly inside `shin_ai/data/personality.py` under the `core_relationships` section. Add your favourite group members for social context, and the bot will recognize them across Telegram, Discord, and WhatsApp and adapt its responses accordingly.
  
  #### Platform Mapping
- You can define platform-specific handles for each member:
+ You can define platform-specific handles for each member inside their `core_relationships` entry:
  - `telegram_username`: The user's Telegram handle (without @).
  - `discord_username`: The user's Discord username (not display name).
  
- This allows the bot to remember someone on Telegram even if they are using a different username on Discord.
+ This allows the bot to resolve someone on Telegram even if they are using a different username on Discord.
 
 ## Project Structure
 
@@ -356,7 +353,6 @@ ShinAI/
 │   ├── data/              # Data templates
 │   │   ├── personality_template.py
 │   │   ├── stickers_template.py
-│   │   ├── members_template.py
 │   │   └── loader.py
 │   ├── handlers/          # Message handlers
 │   │   ├── chat.py
