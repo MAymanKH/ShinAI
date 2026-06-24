@@ -79,6 +79,7 @@ def sort_memory_results_by_timestamp(pairs: list[tuple[str, dict]]) -> list[dict
     for doc, meta in sorted_pairs:
         entry = {
             "timestamp": meta.get("date_string", meta.get("timestamp", "Unknown")),
+            "timestamp_epoch": meta.get("timestamp", 0),
             "platform": meta.get("platform", "Unknown"),
             "username": meta.get("username", "Unknown"),
             "user_id": meta.get("user_id", "Unknown"),
