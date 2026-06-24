@@ -76,7 +76,7 @@ async def _do_firecrawl_search(query: str, api_key: str, timeout: float) -> str:
     payload = {
         "query": query,
         "limit": 3,
-        "scrape_options": {
+        "scrapeOptions": {
             "formats": ["markdown"]
         }
     }
@@ -87,7 +87,13 @@ async def _do_firecrawl_search(query: str, api_key: str, timeout: float) -> str:
         if not data.get("success"):
             raise ValueError(f"Firecrawl returned success=False: {data}")
         
-        results = data.get("data", [])
+        data_content = data.get("data") or {}
+        if isinstance(data_content, dict):
+            results = data_content.get("web", [])
+        elif isinstance(data_content, list):
+            results = data_content
+        else:
+            results = []
         final_results = []
         for item in results:
             metadata = item.get("metadata") or {}
