@@ -62,6 +62,50 @@ def _format_error_as_result(query: str, err_msg: str) -> str:
         ]
     }, ensure_ascii=False)
 
+async def _do_firecrawl_search(query: str, api_key: str, timeout: float) -> str:
+    """
+    Perform the search using Firecrawl /v2/search endpoint.
+    Returns the JSON-formatted string on success.
+    Raises an exception on any failure.
+    """
+    url = "https://api.firecrawl.dev/v2/search"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "query": query,
+        "limit": 3,
+        "scrape_options": {
+            "formats": ["markdown"]
+        }
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("success"):
+            raise ValueError(f"Firecrawl returned success=False: {data}")
+        
+        results = data.get("data", [])
+        final_results = []
+        for item in results:
+            metadata = item.get("metadata") or {}
+            title = metadata.get("title") or item.get("title") or ""
+            snippet = metadata.get("description") or item.get("description") or ""
+            content = item.get("markdown") or ""
+            if len(content) > 2500:
+                content = content[:2500] + "..."
+            final_results.append({
+                "title": title,
+                "url": item.get("url") or "",
+                "snippet": snippet,
+                "content": content
+            })
+            
+        return json.dumps({"query": query, "results": final_results}, ensure_ascii=False)
+
+
 async def search_web_tool(query: str) -> str:
     """
     Search the web for the given query and fetch contents from the top results.
@@ -116,6 +160,37 @@ async def search_web_tool(query: str) -> str:
             logger.info(f"Returning cached web search results for query: '{query}'")
             return cached_res
             
+    # Try Firecrawl search if configured
+    firecrawl_key = None
+    try:
+        from shin_ai.providers.registry import get_config
+        cfg = get_config()
+        if cfg.firecrawl and cfg.firecrawl.api_key:
+            firecrawl_key = cfg.firecrawl.api_key
+    except Exception as e:
+        logger.warning(f"Could not load Firecrawl configuration: {e}")
+
+    if firecrawl_key:
+        now_time = time.time()
+        rem_time = 30.0 - (now_time - start_time)
+        if rem_time > 0:
+            try:
+                logger.info(f"Attempting Firecrawl search for query: '{query}' (remaining time: {rem_time:.1f}s)")
+                output_json = await asyncio.wait_for(
+                    _do_firecrawl_search(query, firecrawl_key, rem_time),
+                    timeout=rem_time
+                )
+                # Cache successful search results
+                if clean_query:
+                    if len(_search_cache) >= _MAX_CACHE_SIZE:
+                        oldest_key = min(_search_cache.keys(), key=lambda k: _search_cache[k][0])
+                        _search_cache.pop(oldest_key, None)
+                    _search_cache[clean_query] = (time.time(), output_json)
+                logger.info(f"Web search for query '{query}' completed successfully using Firecrawl.")
+                return output_json
+            except Exception as e:
+                logger.warning(f"Firecrawl search failed, falling back to DuckDuckGo: {e}")
+
     async def _do_search():
         results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
         
@@ -158,8 +233,21 @@ async def search_web_tool(query: str) -> str:
             
         return output_json
 
+    now = time.time()
+    remaining_time = 30.0 - (now - start_time)
+    if remaining_time <= 0:
+        web_search_exhausted.set(True)
+        logger.warning(f"Web search time limit exceeded before executing DuckDuckGo query: '{query}'")
+        return _format_error_as_result(
+            query,
+            "STOP: Web search time limit exceeded. Do NOT call search_web_tool again. Respond using search results already gathered."
+        )
+
     try:
-        return await asyncio.wait_for(_do_search(), timeout=remaining_time)
+        logger.info(f"Executing web search query '{query}' using DuckDuckGo (remaining time: {remaining_time:.1f}s).")
+        res = await asyncio.wait_for(_do_search(), timeout=remaining_time)
+        logger.info(f"Web search for query '{query}' completed successfully using DuckDuckGo.")
+        return res
     except asyncio.TimeoutError:
         logger.warning(f"Web search timed out (overall limit: 30s) for query: '{query}'")
         return _format_error_as_result(
@@ -179,7 +267,7 @@ WEB_SEARCH_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "search_web_tool",
-        "description": "Searches the web using DuckDuckGo to find real-time information, news, or factual data and fetches the text content of the top 3 results. Returns a JSON string containing titles, snippets, and scraped page text.",
+        "description": "Searches the web to find real-time information, news, or factual data and fetches the text content of the top 3 results. Returns a JSON string containing titles, snippets, and scraped page text.",
         "parameters": {
             "type": "object",
             "properties": {

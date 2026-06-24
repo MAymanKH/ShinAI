@@ -57,6 +57,11 @@ class PlatformConfig:
 
 
 @dataclass
+class FirecrawlConfig:
+    api_key: str | None = None
+
+
+@dataclass
 class ShinAIConfig:
     platform: PlatformConfig
     admin_user_id: int
@@ -68,6 +73,7 @@ class ShinAIConfig:
     embedding_model: str
     style_group_id: str | None
     ai: AIConfig
+    firecrawl: FirecrawlConfig
 
 
 # Internal loader
@@ -189,6 +195,11 @@ def _parse_config(raw: dict) -> ShinAIConfig:
         rotation=rotation,
     )
 
+    fc_raw = raw.get("firecrawl", {})
+    firecrawl_cfg = FirecrawlConfig(
+        api_key=str(fc_raw["api_key"]) if fc_raw.get("api_key") is not None else None
+    )
+
     return ShinAIConfig(
         platform=platform,
         admin_user_id=int(raw.get("admin_user_id", 0)),
@@ -206,6 +217,7 @@ def _parse_config(raw: dict) -> ShinAIConfig:
         embedding_model=str(raw.get("embedding_model", "intfloat/multilingual-e5-large")),
         style_group_id=str(raw["style_group_id"]) if raw.get("style_group_id") else None,
         ai=ai_cfg,
+        firecrawl=firecrawl_cfg,
     )
 
 

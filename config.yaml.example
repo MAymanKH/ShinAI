@@ -46,14 +46,18 @@ whisper:
   # Max CPU threads for Whisper inference (keep low on shared/weak servers)
   cpu_threads: 2
 
-# --- Embeddings ---
-# Used for RAG memory indexing, retrieval, and style learning
-embedding_model: intfloat/multilingual-e5-large
+# --- Web Search (optional - fallback to duckduckgo if not configured) ---
+# firecrawl:
+#   api_key: "fc-your-key-here"
 
 # --- Style Learning (optional) ---
 # Telegram group ID to learn communication style from
 # Get it by forwarding a message from the group to @RawDataBot
 # style_group_id: "-1001234567890"
+
+# --- Embeddings ---
+# Used for RAG memory indexing, retrieval, and style learning
+embedding_model: intfloat/multilingual-e5-large
 
 # --- AI ---
 ai:
