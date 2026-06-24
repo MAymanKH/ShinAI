@@ -19,6 +19,43 @@ from dateutil.tz import tzlocal
 from shin_ai.data.loader import PERSONALITY
 
 
+def format_core_relationships(core_rels) -> str:
+    if isinstance(core_rels, str):
+        return core_rels
+    if not isinstance(core_rels, dict):
+        return ""
+    lines = []
+    for key, info in core_rels.items():
+        role = info.get("role", "Member")
+        preferred_name = info.get("preferred_name", key)
+        desc = info.get("backstory", info.get("description", ""))
+        loc = info.get("location", "")
+        
+        # Build platform username tags
+        tg = info.get("telegram_username")
+        dc = info.get("discord_username")
+        usernames = []
+        if tg and dc and tg == dc:
+            usernames.append(f"@{tg} on Telegram & Discord")
+        else:
+            if tg:
+                usernames.append(f"@{tg} on Telegram")
+            if dc:
+                usernames.append(f"@{dc} on Discord")
+        
+        uname_str = f" ({' & '.join(usernames)})" if usernames else ""
+        
+        line = f"- {role}: **{preferred_name}**{uname_str}."
+        if preferred_name:
+            line += f' Preferred name: "{preferred_name}".'
+        if desc:
+            line += f" {desc}"
+        if loc:
+            line += f" Location: {loc}."
+        lines.append(line)
+    return "\n".join(lines)
+
+
 # ── Static system prompt (computed once at import time) ──────────────────
 # This is the ENTIRE system_instruction / system message.  It NEVER changes
 # at runtime, so every API call shares the exact same bytes → guaranteed
@@ -78,7 +115,7 @@ You have access to the following tools. Only invoke a tool when it genuinely add
 - **moderate_user**: Perform a moderation action (kick/ban/unban/mute/unmute/add). The tool description details which actions are supported on each platform and the full moderation rules. Only use when moderation is genuinely warranted.
 
 7. **CORE RELATIONSHIPS**
-{PERSONALITY.get("core_relationships", "")}
+{format_core_relationships(PERSONALITY.get("core_relationships", ""))}
 
 ### CONTEXT DATA FORMAT
 The user message will begin with XML-tagged context data, followed by the actual user input in an <input_message> tag.

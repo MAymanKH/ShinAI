@@ -70,7 +70,6 @@ WHATSAPP_STICKER_TO_DESCRIPTION: dict[str, str] = getattr(_stickers_module, "WHA
 # ===========================================
 # Load Members Configuration
 # ===========================================
-_members_module = _load_module_with_fallback("members")
-MEMBERS: dict[str, dict] = _members_module.MEMBERS
+MEMBERS: dict[str, dict] = PERSONALITY.get("core_relationships", {})
 
 logger.info("Data loader initialized successfully")
