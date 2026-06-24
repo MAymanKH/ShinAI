@@ -184,6 +184,10 @@ whisper:
   language: auto            # Language code (e.g., 'ar', 'en') or 'auto' to auto-detect
   cpu_threads: 2            # Number of CPU threads dedicated to Whisper inference
 
+# Web Search Settings
+# firecrawl:
+#   api_key: "fc-your-key-here"                   # (Optional - fallback to duckduckgo if not configured)
+
 # Semantic Retrieval & Style Settings
 embedding_model: intfloat/multilingual-e5-large # Transformer model used for memories and style indexing
 style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
@@ -533,8 +537,8 @@ The bot maintains a rich, multi-layered context window to understand the chat st
 ### Real-Time Web Search
 
 When the bot identifies a query requiring live data (e.g., current news, weather, or real-time lookup), the AI calls the web search tool:
-- **DuckDuckGo Integration**: Uses the `duckduckgo-search` library to pull top search results.
-- **Deep Web Scraping**: Rather than relying on search snippets, the bot concurrently fetches the raw page content using `httpx` and `beautifulsoup4`, stripping HTML, and providing the full relevant text to the AI for grounding.
+- **Optional Firecrawl Integration**: If configured in `config.yaml`, the bot first attempts to query the Firecrawl Search API. This automatically fetches clean markdown-formatted pages for the top search results in a single, efficient API call.
+- **DuckDuckGo & Custom Scraping Fallback**: If Firecrawl is not configured, or if the API call fails (e.g., quota limits exhausted, invalid API key, network issues, or timeouts), the bot gracefully falls back to using the `duckduckgo-search` library to pull top search results and concurrently scrapes the page contents using `httpx` and `beautifulsoup4`.
 
 ### Conversational Dynamics
 
