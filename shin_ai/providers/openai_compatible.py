@@ -7,7 +7,7 @@ Handles any provider that exposes an OpenAI-compatible chat completions API
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
 
@@ -58,6 +58,7 @@ async def openai_provider(
     system_prompt: str,
     prompt: str,
     media_list: list[dict] | None = None,
+    tool_context: Any = None,
 ) -> tuple[str, list[dict]]:
     """
     Call any OpenAI-compatible provider defined in config.yaml.
@@ -67,6 +68,9 @@ async def openai_provider(
         system_prompt: The static system prompt.
         prompt:        The user prompt (may include dynamic context).
         media_list:    Optional list of media dicts for vision-capable providers.
+        tool_context:  Optional (platform, triggering_msg) tuple that gives
+                       context-bound tools (e.g. transcribe_audio) access to
+                       the current chat.
 
     Returns:
         (response_text, pending_actions) where pending_actions is a list of
@@ -99,6 +103,7 @@ async def openai_provider(
             prompt=prompt,
             model=cfg.model,
             media_list=media_list,
+            tool_context=tool_context,
         )
 
     if semaphore is not None:

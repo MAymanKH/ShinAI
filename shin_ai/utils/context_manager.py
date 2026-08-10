@@ -60,6 +60,12 @@ def add_message_to_context(msg: UnifiedMessage):
     elif msg.animation:
         media_type = "animation"
         text_content = msg.caption or "[GIF/Animation]"
+    elif msg.voice:
+        media_type = "voice"
+        text_content = "[Voice Message]"
+    elif msg.audio:
+        media_type = "audio"
+        text_content = "[Audio]"
     else:
         text_content = msg.text or msg.caption or "[Other Media]"
 
@@ -191,5 +197,33 @@ def get_recent_media_messages(platform: str, chat_id: int | str, max_count: int 
             
             if len(media_messages) >= max_count:
                 break
-    
+
     return media_messages
+
+
+def get_recent_audio_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
+    """
+    Returns a list of recent messages that contain voice messages or audio files.
+    Limited to max_count most recent audio messages.
+
+    Returns list of dicts with: msg_id, user_name, media_type, timestamp
+    """
+    chat_key = _get_chat_key(platform, chat_id)
+    if chat_key not in _context_buffer:
+        return []
+
+    audio_messages = []
+    # Iterate in reverse to get most recent first
+    for m in reversed(list(_context_buffer[chat_key])):
+        if m.get("media_type") in ("voice", "audio"):
+            audio_messages.append({
+                "msg_id": m["msg_id"],
+                "user_name": m["user_name"],
+                "media_type": m["media_type"],
+                "timestamp": m["timestamp"]
+            })
+
+            if len(audio_messages) >= max_count:
+                break
+
+    return audio_messages

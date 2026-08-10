@@ -400,6 +400,7 @@ async def _execute_frozen_message(
             prompt=enriched_prompt,
             media_list=media_list,
             original_prompt=prompt,
+            platform=platform,
         )
 
         if not answer and not pending_actions:
@@ -493,6 +494,7 @@ async def _execute_frozen_message(
                 system_prompt=system_prompt,
                 prompt=error_prompt,
                 media_list=[],
+                platform=platform,
             )
 
             if error_answer and error_answer.strip():
@@ -940,6 +942,7 @@ async def _call_ai_provider(
     prompt: str,
     media_list: list[dict],
     original_prompt: str | None = None,
+    platform: PlatformAdapter | None = None,
 ) -> tuple[str | None, list[dict]]:
     base_prompt = prompt
     provider_chain = get_provider_chain()
@@ -979,7 +982,7 @@ async def _call_ai_provider(
 
             try:
                 answer, pending_actions = await asyncio.wait_for(
-                    _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media),
+                    _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media, platform),
                     timeout=min(AI_PROVIDER_TIMEOUT_SECONDS, remaining),
                 )
                 if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
@@ -1058,12 +1061,18 @@ async def _execute_ai_provider_once(
     system_prompt: str,
     prompt: str,
     media_list: list[dict],
+    platform: PlatformAdapter | None = None,
 ) -> tuple[str, list[dict]]:
+    # Context-bound tools (e.g. transcribe_audio) get access to the current
+    # platform adapter + triggering message so they can resolve/download
+    # chat media on demand.
+    tool_context = (platform, msg) if platform is not None else None
+
     if provider_cfg.type == "gemini":
-        return await gemini_api(system_prompt, prompt, media_list=media_list)
+        return await gemini_api(system_prompt, prompt, media_list=media_list, tool_context=tool_context)
 
     if provider_cfg.type == "openai":
-        return await openai_provider(provider_cfg, system_prompt, prompt, media_list=media_list)
+        return await openai_provider(provider_cfg, system_prompt, prompt, media_list=media_list, tool_context=tool_context)
 
     if provider_cfg.name == "manual":
         from shin_ai.providers.manual import manual_response

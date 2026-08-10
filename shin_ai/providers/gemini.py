@@ -75,8 +75,16 @@ def _extract_gemini_text(response) -> str:
     return "\n".join(collected_parts).strip()
 
 
-async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[dict]]:
+async def gemini_api(system_prompt, prompt, media_list=None, tool_context=None) -> tuple[str, list[dict]]:
     """Call the Gemini API with tool support.
+
+    Args:
+        system_prompt: The static system prompt.
+        prompt:        The user prompt (may include dynamic context).
+        media_list:    Optional list of media dicts (images) to attach.
+        tool_context:  Optional (platform, triggering_msg) tuple that gives
+                       context-bound tools (e.g. transcribe_audio) access to
+                       the current chat.
 
     Returns:
         (response_text, pending_actions) where pending_actions is a list of
@@ -105,7 +113,7 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
                 genai_client = _get_genai_client(api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model)
-                response, pending_actions = await _run_gemini_generation_loop(genai_client, model, contents, config)
+                response, pending_actions = await _run_gemini_generation_loop(genai_client, model, contents, config, tool_context)
 
                 response_text = _extract_gemini_text(response)
                 if not response_text:
@@ -195,11 +203,13 @@ def _build_gemini_config(system_prompt: str, model: str):
         SEND_STICKER_TOOL_SCHEMA,
         MODERATE_USER_TOOL_SCHEMA,
     )
+    from shin_ai.providers.tool_loop import TRANSCRIBE_AUDIO_TOOL_SCHEMA
 
     # Build Gemini-native tool declarations from the OpenAI schemas
     gemini_tools = [
         search_web_tool,
         memory_lookup_tool,
+        _openai_schema_to_gemini_function(TRANSCRIBE_AUDIO_TOOL_SCHEMA),
         _openai_schema_to_gemini_function(SEND_REACTION_TOOL_SCHEMA),
         _openai_schema_to_gemini_function(SEND_STICKER_TOOL_SCHEMA),
         _openai_schema_to_gemini_function(MODERATE_USER_TOOL_SCHEMA),
@@ -259,7 +269,7 @@ def _param_to_gemini_schema(param: dict):
 
 
 async def _run_gemini_generation_loop(
-    genai_client, model: str, contents: list, config
+    genai_client, model: str, contents: list, config, tool_context=None
 ) -> tuple[object, list[dict]]:
     max_turns = 3
     current_turn = 0
@@ -278,7 +288,7 @@ async def _run_gemini_generation_loop(
 
         contents.append(response.candidates[0].content)
         for fn_call in response.function_calls:
-            tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call)
+            tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call, tool_context)
             if pending_action is not None:
                 pending_actions.append(pending_action)
                 tool_result_str += _POST_ACTION_TOOL_REMINDER
@@ -293,7 +303,7 @@ async def _run_gemini_generation_loop(
     return response, pending_actions
 
 
-async def _dispatch_gemini_tool(fn_call) -> tuple[str, dict | None]:
+async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict | None]:
     """Dispatch a Gemini function call to the appropriate handler.
 
     Returns:
@@ -309,6 +319,20 @@ async def _dispatch_gemini_tool(fn_call) -> tuple[str, dict | None]:
     if fn_call.name == "memory_lookup_tool":
         logger.info("Gemini → memory lookup: %s", args)
         return await memory_lookup_tool(**args), None
+
+    if fn_call.name == "transcribe_audio":
+        message_id = args.get("message_id")
+        suffix = f" for message_id='{message_id}'" if message_id is not None else " (latest audio in chat)"
+        logger.info("Gemini → audio transcription%s", suffix)
+        if tool_context is None:
+            return "Audio transcription is unavailable in this context (no chat/platform bound).", None
+        platform, msg = tool_context
+        from shin_ai.providers.tool_loop import _transcribe_chat_audio
+        try:
+            return await _transcribe_chat_audio(platform, msg, "Gemini", message_id), None
+        except Exception as e:
+            logger.error("Tool transcribe_audio failed: %s", e, exc_info=True)
+            return f"Error transcribing audio: {str(e)}", None
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:

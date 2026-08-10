@@ -12,7 +12,43 @@ from shin_ai.utils.memory_lookup import MEMORY_LOOKUP_TOOL_SCHEMA, memory_lookup
 from shin_ai.utils.web_search import WEB_SEARCH_TOOL_SCHEMA, search_web_tool
 
 
-TOOLS = [WEB_SEARCH_TOOL_SCHEMA, MEMORY_LOOKUP_TOOL_SCHEMA, *ACTION_TOOL_SCHEMAS]
+TRANSCRIBE_AUDIO_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "transcribe_audio",
+        "description": (
+            "Transcribe a voice message or audio file from the chat using the configured local "
+            "Whisper model (model, language='auto'-detect, and CPU thread limits come from the "
+            "bot configuration).\n"
+            "Voice messages and audio files are NOT automatically heard — they only appear in the "
+            "conversation as '[Voice Message]' or '[Audio]' placeholders UNTIL you call this tool "
+            "to transcribe them. (Images work exactly the same way via ask_gemini_about_image.)\n"
+            "Call this tool on-demand, at any time — not just when explicitly asked — whenever "
+            "hearing what was said would help you understand or reply to the conversation: "
+            "when people discuss or react to a voice message you cannot hear, when a reply "
+            "references 'what he said', when you want to join a conversation about an audio, etc.\n"
+            "If message_id is omitted, transcribes the most recent voice/audio in this chat "
+            "(including the message the user replied to)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional. The ID of the message containing the voice message or audio "
+                        "file to transcribe. Use the (id:XXXXX) value shown next to messages "
+                        "in the chat history. If omitted, the most recent voice/audio message "
+                        "in this chat is transcribed."
+                    ),
+                }
+            },
+            "required": [],
+        },
+    },
+}
+
+TOOLS = [WEB_SEARCH_TOOL_SCHEMA, MEMORY_LOOKUP_TOOL_SCHEMA, TRANSCRIBE_AUDIO_TOOL_SCHEMA, *ACTION_TOOL_SCHEMAS]
 
 # Injected into tool results for side-effect actions (reaction / sticker /
 # moderation) so the model never forgets it may answer with text OR [SKIP].
@@ -35,6 +71,7 @@ async def run_tool_calling_chat(
     model: str | None,
     media_list: list[dict] | None = None,
     include_raw_images: bool = False,
+    tool_context: Any = None,
     max_turns: int = 3,
     turn_timeout: float = 60.0,
     **completion_kwargs: Any,
@@ -80,10 +117,11 @@ async def run_tool_calling_chat(
             "function": {
                 "name": "ask_gemini_about_image",
                 "description": (
-                    "Ask the Gemini vision model a specific question about the attached image(s) "
-                    "to get detailed visual information, read text, identify objects, or verify specific details. "
-                    "Use this tool when the user's message/question asks about something specific in the image "
-                    "and the initial media description is not detailed enough."
+                    "Ask the Gemini vision model a specific question about the attached image(s): "
+                    "this is how you actually SEE/inspect the image content on-demand (the same way "
+                    "transcribe_audio lets you hear voice/audio messages). "
+                    "Use it to get detailed visual information, read text, identify objects/people, "
+                    "or verify specific details whenever the initial media description is insufficient."
                 ),
                 "parameters": {
                     "type": "object",
@@ -136,7 +174,9 @@ async def run_tool_calling_chat(
 
         messages.append(response_message.model_dump(exclude_unset=True))
         for tool_call in tool_calls:
-            tool_result, pending_action = await _execute_tool_call(provider_name, tool_call, media_list)
+            tool_result, pending_action = await _execute_tool_call(
+                provider_name, tool_call, media_list, tool_context
+            )
             if pending_action is not None:
                 pending_actions.append(pending_action)
                 tool_result += _POST_ACTION_TOOL_REMINDER
@@ -154,10 +194,123 @@ async def run_tool_calling_chat(
     return response.choices[0].message.content or "", pending_actions
 
 
+def _coerce_message_id(raw_id: Any) -> int | str:
+    """Convert a tool-provided message id to the platform-native type when possible."""
+    raw_str = str(raw_id).strip()
+    try:
+        return int(raw_str)
+    except (TypeError, ValueError):
+        return raw_str
+
+
+def _has_audio(msg: Any) -> bool:
+    return bool(getattr(msg, "voice", None) or getattr(msg, "audio", None))
+
+
+def _find_audio_on_reply_chain(msg: Any) -> Any | None:
+    """Walk up the reply chain looking for a voice/audio message."""
+    curr = msg
+    for _ in range(10):
+        if curr is None:
+            break
+        if _has_audio(curr):
+            return curr
+        curr = getattr(curr, "reply_to_message", None)
+    return None
+
+
+async def _transcribe_audio_target(
+    platform: Any,
+    requested_msg: Any,
+    target_msg: Any,
+    request_desc: str,
+) -> str:
+    """Download + transcribe the voice/audio on target_msg via the Whisper service."""
+    media_handle = target_msg.voice or target_msg.audio
+    audio_bytes = await platform.download_media(media_handle)
+    if not audio_bytes:
+        return "Failed to download the audio (empty data received)."
+
+    from shin_ai.services.audio_transcriber import transcribe_audio
+
+    transcription = await transcribe_audio(audio_bytes, media_handle.mime_type or "audio/ogg")
+    if not transcription:
+        return "Transcription produced no text (inaudible or transcription failed)."
+
+    media_type = "Voice message" if target_msg.voice else "Audio file"
+    sender_name = "Unknown"
+    if getattr(target_msg, "from_user", None):
+        sender_name = target_msg.from_user.username or target_msg.from_user.first_name or "Unknown"
+
+    source_note = ""
+    if target_msg is not requested_msg:
+        source_note = (
+            f" (audio source: message id '{getattr(target_msg, 'id', '?')}',"
+            " found via the reply chain)"
+        )
+
+    logger.info(
+        "[Audio Tool] Transcribed %s from %s (%s) → %d chars",
+        media_type.lower(), sender_name, request_desc, len(transcription),
+    )
+    return (
+        f"[{media_type} from {sender_name}{source_note} — Whisper transcription]:\n"
+        f"\"{transcription}\"\n\n"
+        "[TRANSCRIPTION NOTE: Transcribed with the configured local Whisper model. "
+        "It may contain phonetic spelling errors, hallucinated artifacts, or illogical "
+        "words due to dialect variations (especially Egyptian Arabic). Intelligently "
+        "interpret any illogical words based on the surrounding context to find the "
+        "nearest logical meaning.]"
+    )
+
+
+async def _transcribe_chat_audio(
+    platform: Any,
+    msg: Any,
+    provider_name: str,
+    message_id: Any = None,
+) -> str:
+    """Resolve which message to transcribe and run Whisper on it.
+
+    Priority:
+      1. The message identified by message_id (or audio found in its reply chain).
+      2. The triggering message / its reply chain.
+      3. The most recent voice/audio message in the chat's short-term context.
+    """
+    fallback_msg = _find_audio_on_reply_chain(msg)
+
+    if message_id is not None:
+        fetched = await platform.get_message(msg.chat.id, _coerce_message_id(message_id))
+        if fetched is None:
+            return f"No message found with ID '{message_id}'."
+        target = fetched if _has_audio(fetched) else _find_audio_on_reply_chain(fetched)
+        if target is None:
+            return f"Message '{message_id}' (and its reply chain) contains no voice message or audio file."
+        return await _transcribe_audio_target(platform, fetched, target, f"message_id={message_id}")
+
+    if fallback_msg is not None:
+        return await _transcribe_audio_target(platform, msg, fallback_msg, "reply chain / current message")
+
+    from shin_ai.utils.context_manager import get_recent_audio_messages
+
+    recent_audio = get_recent_audio_messages(platform.platform_name, msg.chat.id, max_count=5)
+    for entry in recent_audio:
+        if str(entry["msg_id"]) == str(getattr(msg, "id", "")):
+            continue
+        fetched = await platform.get_message(msg.chat.id, entry["msg_id"])
+        if fetched is not None and _has_audio(fetched):
+            return await _transcribe_audio_target(
+                platform, fetched, fetched, f"recent context msg {entry['msg_id']}"
+            )
+
+    return "No voice message or audio file found in this conversation or recent chat history."
+
+
 async def _execute_tool_call(
     provider_name: str,
     tool_call: Any,
     media_list: list[dict] | None = None,
+    tool_context: Any = None,
 ) -> tuple[str, dict | None]:
     """Execute a tool call and return (result_str, pending_action_or_None)."""
     tool_name = tool_call.function.name
@@ -177,6 +330,20 @@ async def _execute_tool_call(
         logger.info(f"{provider_name} requested memory lookup with args: {args}")
         result = await memory_lookup_tool(**args)
         return result, None
+
+    if tool_name == "transcribe_audio":
+        message_id = args.get("message_id")
+        suffix = f" for message_id='{message_id}'" if message_id is not None else " (latest audio in chat)"
+        logger.info("%s requested audio transcription%s", provider_name, suffix)
+        if tool_context is None:
+            return "Audio transcription is unavailable in this context (no chat/platform bound).", None
+        platform, msg = tool_context
+        try:
+            result = await _transcribe_chat_audio(platform, msg, provider_name, message_id)
+            return result, None
+        except Exception as e:
+            logger.error("Tool transcribe_audio failed: %s", e, exc_info=True)
+            return f"Error transcribing audio: {str(e)}", None
 
     if tool_name == "ask_gemini_about_image":
         question = args.get("question", "")
