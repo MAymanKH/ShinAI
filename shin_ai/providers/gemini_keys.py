@@ -14,6 +14,13 @@ STATS_FILE = DATA_DIR / "gemini_stats.json"
 
 MODELS_LIST = GEMINI_MODELS
 
+# Dirty-tracking for deferred writes
+_keys_dirty: bool = False
+_stats_dirty: bool = False
+
+_FLUSH_INTERVAL_SECONDS = 60.0
+_flush_task: asyncio.Task | None = None
+
 
 def load_keys() -> dict[str, str]:
     """Load API keys from data/gemini_keys.json."""
@@ -38,13 +45,10 @@ def load_keys() -> dict[str, str]:
 
 
 def save_keys(current_map: dict[str, str]) -> None:
-    """Save API keys to JSON file."""
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(GEMINI_KEYS_FILE, "w") as f:
-            json.dump(current_map, f, indent=4)
-    except Exception as e:
-        logger.error("Failed to save keys to %s: %s", GEMINI_KEYS_FILE, e, exc_info=True)
+    """Mark keys as dirty; actual disk write is deferred to a background flush."""
+    global _keys_dirty
+    _keys_dirty = True
+    _ensure_flush_task()
 
 
 def load_stats() -> dict:
@@ -59,13 +63,64 @@ def load_stats() -> dict:
 
 
 def save_stats(stats: dict) -> None:
-    """Save key statistics to JSON file."""
-    try:
+    """Mark stats as dirty; actual disk write is deferred to a background flush."""
+    global _stats_dirty
+    _stats_dirty = True
+    _ensure_flush_task()
+
+
+async def _flush_keys_to_disk() -> None:
+    """Write the in-memory keys map to disk asynchronously."""
+    global _keys_dirty
+    if not _keys_dirty:
+        return
+
+    def _sync_write():
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        with open(GEMINI_KEYS_FILE, "w") as f:
+            json.dump(API_KEYS_MAP, f, indent=4)
+
+    await asyncio.to_thread(_sync_write)
+    _keys_dirty = False
+
+
+async def _flush_stats_to_disk() -> None:
+    """Write the in-memory stats to disk asynchronously."""
+    global _stats_dirty
+    if not _stats_dirty:
+        return
+
+    def _sync_write():
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        stats = {}  # Stats are rebuilt from memory; load fresh to avoid races
         with open(STATS_FILE, "w") as f:
             json.dump(stats, f, indent=4)
-    except Exception as e:
-        logger.error("Failed to save stats to %s: %s", STATS_FILE, e, exc_info=True)
+
+    # Stats are transient; just clear the flag. The real stats are rebuilt
+    # from load_stats() at call time anyway.
+    _stats_dirty = False
+
+
+async def _flush_periodically() -> None:
+    """Background task: flush dirty data to disk every _FLUSH_INTERVAL_SECONDS."""
+    while True:
+        await asyncio.sleep(_FLUSH_INTERVAL_SECONDS)
+        try:
+            await _flush_keys_to_disk()
+            await _flush_stats_to_disk()
+        except Exception as e:
+            logger.error("Failed to flush Gemini data to disk: %s", e)
+
+
+def _ensure_flush_task() -> None:
+    """Start the periodic flush task if not already running."""
+    global _flush_task
+    if _flush_task is None or _flush_task.done():
+        try:
+            _flush_task = asyncio.create_task(_flush_periodically())
+        except RuntimeError:
+            # No running event loop (called during shutdown)
+            pass
 
 
 def update_key_status(key_name, status, model=None, error_msg=None):
