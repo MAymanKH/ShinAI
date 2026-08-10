@@ -9,8 +9,16 @@ from shin_ai.stylers.style_retriever import embedder
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
 
-# Create the collection for chat memories
-memory_collection = client.get_or_create_collection("chat_memories")
+# Lazy-initialized to avoid import-time side effects
+_memory_collection = None
+
+
+def _get_memory_collection():
+    """Return the chat memories collection, creating it on first use."""
+    global _memory_collection
+    if _memory_collection is None:
+        _memory_collection = client.get_or_create_collection("chat_memories")
+    return _memory_collection
 
 
 # Memory Storage
@@ -70,7 +78,7 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
         embedding_tensor = await asyncio.to_thread(embedder.encode, searchable_text)
         embedding = embedding_tensor.tolist()
         
-        memory_collection.add(
+        _get_memory_collection().add(
             ids=[mem_id],
             documents=[memory_text],
             embeddings=[embedding],
@@ -157,7 +165,7 @@ async def retrieve_memories(query: str, limit: int = 15):
             logger.debug("Time-filtered memory search: %s → %s", start_epoch, end_epoch)
 
         # Fetch a large pool for MMR deduplication
-        results = memory_collection.query(
+        results = _get_memory_collection().query(
             query_embeddings=[query_emb],
             n_results=40,
             where=where_filter,
@@ -200,7 +208,7 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
     Accepts a pre-computed embedding to avoid re-encoding.
     """
     try:
-        results = memory_collection.query(
+        results = _get_memory_collection().query(
             query_embeddings=[query_emb],
             n_results=40,
             include=["documents", "distances", "embeddings"]

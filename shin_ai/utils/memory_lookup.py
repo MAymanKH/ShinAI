@@ -11,7 +11,7 @@ from typing import Optional
 
 from shin_ai.stylers.style_retriever import embedder
 from shin_ai.utils.logger_config import logger
-from shin_ai.utils.memory import memory_collection
+from shin_ai.utils.memory import _get_memory_collection
 from shin_ai.utils.memory_lookup_filters import (
     build_filter_summary,
     build_memory_where_filter,
@@ -57,7 +57,7 @@ async def _fetch_surrounding_interactions(
     try:
         # ChromaDB .get() is synchronous, run in thread to avoid blocking event loop
         results = await asyncio.to_thread(
-            memory_collection.get,
+            _get_memory_collection().get,
             where=where_filter,
             limit=150,
             include=["documents", "metadatas"],
@@ -186,7 +186,7 @@ async def _fetch_context_chunk(
     """Fetch surrounding context for a group of results sharing a chat."""
     try:
         chunk_results = await asyncio.to_thread(
-            memory_collection.get,
+            _get_memory_collection().get,
             where=where_filter,
             limit=500,
             include=["documents", "metadatas"],
@@ -371,7 +371,7 @@ async def _lookup_with_keywords(
         pool_size = min(limit * 5, 500)
         try:
             candidates = await asyncio.to_thread(
-                memory_collection.get,
+                _get_memory_collection().get,
                 where=where_filter,
                 limit=pool_size,
                 include=["documents", "embeddings", "metadatas"],
@@ -420,7 +420,7 @@ async def _lookup_with_keywords(
         query_emb_list = query_emb.tolist()
 
         results = await asyncio.to_thread(
-            memory_collection.query,
+            _get_memory_collection().query,
             query_embeddings=[query_emb_list],
             n_results=min(limit * 3, 300),
             include=["documents", "distances", "embeddings", "metadatas"],
@@ -455,7 +455,7 @@ async def _lookup_metadata_only(
 
     try:
         results = await asyncio.to_thread(
-            memory_collection.get,
+            _get_memory_collection().get,
             where=where_filter,
             limit=limit,
             include=["documents", "metadatas"],

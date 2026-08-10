@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from shin_ai.stylers.style_retriever import embedder
+from shin_ai.stylers.style_retriever import embedder  # Lazy proxy
 from shin_ai.utils.logger_config import logger
 
 
@@ -120,27 +120,10 @@ TIME_BUCKETS = [
     },
 ]
 
-_all_examples = []
-_example_bucket_indices = []
-for idx, bucket in enumerate(TIME_BUCKETS):
-    for example in bucket["examples"]:
-        _all_examples.append(f"query: {example}")
-        _example_bucket_indices.append(idx)
-
-logger.info(f"Pre-computing {len(_all_examples)} time reference embeddings...")
-_time_example_embeddings = embedder.encode(_all_examples)
-_example_bucket_indices = np.array(_example_bucket_indices)
-logger.info("Time reference embeddings ready.")
-
-_NO_TIME_EXAMPLES = [
-    "tell me a joke", "explain this code", "what do you think about AI",
-    "help me with my homework", "translate this text", "who are you",
-    "how are you doing", "write a poem", "analyze this image",
-    "قول نكتة", "ساعدني", "مين انت", "ايش رأيك", "شرح لي الكود",
-    "what did I say", "ايش قلت", "do you remember", "تتذكر",
-    "who said", "مين قال", "what happened", "ايش صار",
-]
-_no_time_embeddings = embedder.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES])
+# Pre-computed embeddings — initialized lazily on first call to detect_time_filter
+_time_example_embeddings = None
+_example_bucket_indices = None
+_no_time_embeddings = None
 
 _TEMPORAL_INDICATOR_WORDS = {
     "ago", "yesterday", "today", "last", "week", "month", "year", "hour", "hours",
@@ -157,6 +140,41 @@ TIME_DETECTION_MIN_SIMILARITY = 0.62
 TIME_DETECTION_MIN_GAP = 0.08
 
 
+async def _init_embeddings() -> None:
+    """Pre-compute time reference embeddings on first use."""
+    global _time_example_embeddings, _example_bucket_indices, _no_time_embeddings
+
+    if _time_example_embeddings is not None:
+        return
+
+    def _compute():
+        all_examples = []
+        bucket_indices = []
+        for idx, bucket in enumerate(TIME_BUCKETS):
+            for example in bucket["examples"]:
+                all_examples.append(f"query: {example}")
+                bucket_indices.append(idx)
+
+        logger.info(f"Pre-computing {len(all_examples)} time reference embeddings...")
+        time_embs = embedder.encode(all_examples)
+        no_time_embs = embedder.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES])
+        return time_embs, bucket_indices, no_time_embs
+
+    _time_example_embeddings, bucket_indices_list, _no_time_embeddings = await asyncio.to_thread(_compute)
+    _example_bucket_indices = np.array(bucket_indices_list)
+    logger.info("Time reference embeddings ready.")
+
+
+_NO_TIME_EXAMPLES = [
+    "tell me a joke", "explain this code", "what do you think about AI",
+    "help me with my homework", "translate this text", "who are you",
+    "how are you doing", "write a poem", "analyze this image",
+    "قول نكتة", "ساعدني", "مين انت", "ايش رأيك", "شرح لي الكود",
+    "what did I say", "ايش قلت", "do you remember", "تتذكر",
+    "who said", "مين قال", "what happened", "ايش صار",
+]
+
+
 async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     """
     Semantically detect time references in the query using the local E5 model.
@@ -166,6 +184,8 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     if not query_words & _TEMPORAL_INDICATOR_WORDS:
         logger.debug("No temporal keywords in query, skipping time detection")
         return None, None
+
+    await _init_embeddings()
 
     now = datetime.now().astimezone()
 
@@ -201,7 +221,7 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     start_epoch = int((now - delta).timestamp())
     end_epoch = int(now.timestamp())
 
-    matched_example = _all_examples[best_example_idx].replace("query: ", "")
+    matched_example = _all_examples_cache[best_example_idx].replace("query: ", "")
     matched_bucket_hours = TIME_BUCKETS[best_bucket_idx]["delta_hours"]
     logger.debug(
         "Time reference detected: '%s' (sim=%.3f) → matched %sh, using safe window %sh → %d–%d",
@@ -209,3 +229,9 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     )
 
     return start_epoch, end_epoch
+
+
+_all_examples_cache = []
+for idx, bucket in enumerate(TIME_BUCKETS):
+    for example in bucket["examples"]:
+        _all_examples_cache.append(f"query: {example}")

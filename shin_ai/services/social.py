@@ -4,6 +4,7 @@ Social Context Service
 Manages semantic retrieval of member information for contextual responses.
 """
 import re
+import asyncio
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
@@ -11,12 +12,16 @@ from shin_ai.stylers.style_retriever import embedder
 from shin_ai.data.loader import MEMBERS
 
 # --- SEMANTIC SOCIAL CONTEXT SETUP ---
-# We delete and recreate the collection to ensure that IDs removed from MEMBERS code are also removed from DB
-try:
-    client.delete_collection("social_context_members")
-except:
-    pass
-social_collection = client.get_or_create_collection("social_context_members")
+# Lazy-initialized to avoid import-time side effects
+_social_collection = None
+
+
+def _get_social_collection():
+    """Return the social context collection, creating it on first use."""
+    global _social_collection
+    if _social_collection is None:
+        _social_collection = client.get_or_create_collection("social_context_members")
+    return _social_collection
 
 
 def _username_field_for_platform(platform: str) -> str:
@@ -78,7 +83,7 @@ def index_social_context():
     ids = []
     documents = []
     metadatas = []
-    
+
     for key, data in MEMBERS.items():
         # Create a rich text representation for semantic matching
         # blending keywords, role, names, usernames, and backstory
@@ -87,10 +92,10 @@ def index_social_context():
         tg_user = data.get("telegram_username", "")
         dc_user = data.get("discord_username", "")
         wa_user = data.get("whatsapp_username", "")
-        
+
         # We index the 'meaning' of the person relative to the bot
         text = f"{names} {tg_user} {dc_user} {wa_user} {data['preferred_name']} {data['role']} {keywords} {data.get('backstory', '')}"
-        
+
         ids.append(key)
         documents.append(text)
         metadatas.append({"preferred_name": data["preferred_name"]})
@@ -100,10 +105,11 @@ def index_social_context():
         # E5 requires "passage: " prefix for stored documents
         prefixed_documents = [f"passage: {doc}" for doc in documents]
         keywords_embeddings = embedder.encode(prefixed_documents).tolist()
-        social_collection.upsert(ids=ids, embeddings=keywords_embeddings, documents=documents, metadatas=metadatas)
+        collection = _get_social_collection()
+        collection.upsert(ids=ids, embeddings=keywords_embeddings, documents=documents, metadatas=metadatas)
         logger.info(f"Indexed {len(ids)} members for social context.")
 
-def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
+async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
     """
     Analyzes the message and reply chain to decide which members' lore to inject.
     Returns a string containing the relevant social context.
@@ -159,23 +165,24 @@ def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
         # We query using the message content to find conceptually related members
         # e.g. "Who is your creator?" -> matches "creator" in MaymanKH's doc
         # E5 requires "query: " prefix
-        query_emb = embedder.encode(f"query: {combined_text}").tolist()
-        
+        query_emb = await asyncio.to_thread(embedder.encode, f"query: {combined_text}")
+
         # We fetch up to 2 most relevant members
-        results = social_collection.query(
+        results = await asyncio.to_thread(
+            _get_social_collection().query,
             query_embeddings=[query_emb],
-            n_results=2, 
-            include=["distances"]
+            n_results=2,
+            include=["distances"],
         )
-        
+
         if results['ids']:
             ids = results['ids'][0]
             dists = results['distances'][0]
-            
+
             for i, member_id in enumerate(ids):
-                if dists[i] < 1.1: 
+                if dists[i] < 1.1:
                     active_keys.add(member_id)
-                    
+
     except Exception as e:
         logger.error(f"Semantic context search failed: {e}")
 
