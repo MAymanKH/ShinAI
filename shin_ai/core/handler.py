@@ -22,6 +22,7 @@ from shin_ai.core.action_executor import execute_text_messages, execute_pending_
 from shin_ai.config import (
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
+    GLOBAL_AI_TIMEOUT_SECONDS,
     MAX_REPLY_DELAY_SECONDS,
     MIN_REPLY_DELAY_SECONDS,
 )
@@ -889,7 +890,7 @@ async def _call_ai_provider(
     last_error = None
     media_context = None
     chain_start = time.monotonic()
-    GLOBAL_TIMEOUT = 180.0  # Hard 3-minute budget across all providers
+    GLOBAL_TIMEOUT = GLOBAL_AI_TIMEOUT_SECONDS
 
     for provider_cfg in provider_chain:
         if time.monotonic() - chain_start > GLOBAL_TIMEOUT:

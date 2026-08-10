@@ -8,6 +8,7 @@ from collections import OrderedDict
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
+from shin_ai.config import WEB_SEARCH_TIMEOUT_SECONDS
 from shin_ai.utils.logger_config import logger
 
 # Request-scoped search counter. Since each user request runs in its own asyncio Task,
@@ -133,14 +134,14 @@ async def search_web_tool(query: str) -> str:
             "the search results you have already gathered."
         )
 
-    # Track overall time budget of 30 seconds for a single user request
+    # Track overall time budget for a single user request
     now = time.time()
     start_time = web_search_start_time.get()
     if start_time == 0.0:
         web_search_start_time.set(now)
         start_time = now
         
-    remaining_time = 30.0 - (now - start_time)
+    remaining_time = WEB_SEARCH_TIMEOUT_SECONDS - (now - start_time)
     if remaining_time <= 0:
         web_search_exhausted.set(True)
         logger.warning(f"Web search time limit exceeded before executing query: '{query}'")
@@ -186,7 +187,7 @@ async def search_web_tool(query: str) -> str:
 
     if firecrawl_key:
         now_time = time.time()
-        rem_time = 30.0 - (now_time - start_time)
+        rem_time = WEB_SEARCH_TIMEOUT_SECONDS - (now_time - start_time)
         if rem_time > 0:
             try:
                 logger.info(f"Attempting Firecrawl search for query: '{query}' (remaining time: {rem_time:.1f}s)")
@@ -252,7 +253,7 @@ async def search_web_tool(query: str) -> str:
         return output_json
 
     now = time.time()
-    remaining_time = 30.0 - (now - start_time)
+    remaining_time = WEB_SEARCH_TIMEOUT_SECONDS - (now - start_time)
     if remaining_time <= 0:
         web_search_exhausted.set(True)
         logger.warning(f"Web search time limit exceeded before executing DuckDuckGo query: '{query}'")
@@ -272,7 +273,7 @@ async def search_web_tool(query: str) -> str:
         logger.warning(f"Web search timed out (overall limit: 30s) for query: '{query}'")
         return _format_error_as_result(
             query,
-            "Web search overall time limit of 30 seconds exceeded for this request. Please construct your final response using the search results already provided."
+            f"Web search overall time limit of {WEB_SEARCH_TIMEOUT_SECONDS:.0f} seconds exceeded for this request. Please construct your final response using the search results already provided."
         )
     except Exception as e:
         err_msg = str(e)

@@ -2,7 +2,11 @@
 Rate limiting utilities for ShinAI.
 """
 import time
-from shin_ai.config import ADMIN_USER_ID
+from shin_ai.config import (
+    ADMIN_USER_ID,
+    GROUP_MAX_RESPONSES_PER_WINDOW,
+    GROUP_RATE_LIMIT_WINDOW_SECONDS,
+)
 
 # user_id -> last_request_time
 _last_used: dict[int | str, float] = {}
@@ -10,10 +14,10 @@ _last_used: dict[int | str, float] = {}
 COOLDOWN_SECONDS = 4
 _MAX_ENTRIES = 1000
 
-# Group-level rate limit: max 3 AI responses per chat per 10-second window
+# Group-level rate limit: max N AI responses per chat per sliding window
 _group_timestamps: dict[tuple, list[float]] = {}
-GROUP_WINDOW_SECONDS = 10.0
-GROUP_MAX_RESPONSES = 3
+GROUP_WINDOW_SECONDS = GROUP_RATE_LIMIT_WINDOW_SECONDS
+GROUP_MAX_RESPONSES = GROUP_MAX_RESPONSES_PER_WINDOW
 
 # Periodic cleanup tracking
 _last_cleanup: float = time.time()

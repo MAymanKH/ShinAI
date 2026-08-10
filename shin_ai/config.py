@@ -40,10 +40,14 @@ MIN_REPLY_DELAY_SECONDS = _cfg.min_delay_seconds
 MAX_REPLY_DELAY_SECONDS = _cfg.max_delay_seconds
 RANDOM_TRIGGER_PROBABILITY = _cfg.random_trigger_probability
 STYLE_GROUP_ID = _cfg.style_group_id
+GROUP_MAX_RESPONSES_PER_WINDOW = _cfg.group_rate_limit_max_responses
+GROUP_RATE_LIMIT_WINDOW_SECONDS = _cfg.group_rate_limit_window_seconds
+WEB_SEARCH_TIMEOUT_SECONDS = _cfg.web_search_timeout_seconds
 
 # AI Provider Operational Settings
 AI_PROVIDER_TIMEOUT_SECONDS = _cfg.ai.timeout_seconds
 AI_PROVIDER_MAX_RETRIES = _cfg.ai.max_retries
+GLOBAL_AI_TIMEOUT_SECONDS = _cfg.ai.global_timeout_seconds
 
 # Embeddings
 EMBEDDING_MODEL = _cfg.embedding_model
@@ -52,6 +56,7 @@ EMBEDDING_MODEL = _cfg.embedding_model
 WHISPER_MODEL = _cfg.whisper.model
 WHISPER_LANGUAGE = _cfg.whisper.language
 WHISPER_CPU_THREADS = _cfg.whisper.cpu_threads
+WHISPER_MAX_CONCURRENT = _cfg.whisper.max_concurrent_transcriptions
 
 # Gemini Models (sourced from config.yaml ai.providers[type=gemini].models)
 # Used by gemini_keys.py to populate the model list.

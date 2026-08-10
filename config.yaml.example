@@ -35,6 +35,10 @@ response:
   max_delay_seconds: 300.0
   # Random chance to respond to messages in group chats (0.05 = 5%)
   random_trigger_probability: 0.05
+  # Max AI-generated responses per group chat within the window below
+  # Prevents a single busy group from consuming all your API quota
+  group_max_responses: 3
+  group_rate_limit_window_seconds: 10.0
 
 # --- Audio Transcription (Whisper) ---
 whisper:
@@ -45,10 +49,17 @@ whisper:
   language: auto
   # Max CPU threads for Whisper inference (keep low on shared/weak servers)
   cpu_threads: 2
+  # Max simultaneous voice message transcriptions (higher = faster but more CPU)
+  max_concurrent_transcriptions: 3
 
 # --- Web Search (optional - fallback to duckduckgo if not configured) ---
 # firecrawl:
 #   api_key: "fc-your-key-here"
+
+# Web Search Settings
+web_search:
+  # Total time budget (seconds) for a web search operation per user request
+  timeout_seconds: 30.0
 
 # --- Style Learning (optional) ---
 # Telegram group ID to learn communication style from
@@ -61,10 +72,13 @@ embedding_model: intfloat/multilingual-e5-large
 
 # --- AI ---
 ai:
-  # Per-attempt timeout for AI provider calls
+  # Per-attempt timeout (seconds) for a single AI provider call
   timeout_seconds: 60
-  # Maximum retry attempts per provider per request
+  # Maximum retry attempts per provider before falling back to the next
   max_retries: 3
+  # Hard total time budget (seconds) across ALL providers and retries for one request
+  # After this limit the bot gives up on the request entirely
+  global_timeout_seconds: 180.0
 
   # -------------------------------------------------------
   # Define as many providers as you like.

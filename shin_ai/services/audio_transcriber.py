@@ -10,7 +10,12 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from shin_ai.config import WHISPER_MODEL, WHISPER_CPU_THREADS, WHISPER_LANGUAGE
+from shin_ai.config import (
+    WHISPER_MODEL,
+    WHISPER_CPU_THREADS,
+    WHISPER_LANGUAGE,
+    WHISPER_MAX_CONCURRENT,
+)
 from shin_ai.utils.logger_config import logger
 
 # ── Lazy-loaded singleton ────────────────────────────────────────────
@@ -18,8 +23,7 @@ _model = None
 _model_lock = threading.Lock()
 
 # Maximum concurrent transcriptions to avoid CPU thrashing
-_MAX_CONCURRENT_TRANSCRIPTIONS = 3
-_transcription_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TRANSCRIPTIONS)
+_transcription_semaphore = asyncio.Semaphore(WHISPER_MAX_CONCURRENT)
 
 
 def _get_model():
@@ -125,8 +129,8 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
     """
     Transcribe audio bytes to text using faster-whisper.
 
-    Runs the (blocking) inference in a thread pool so it doesn't block
-    the async event loop.
+    Runs the (blocking) inference in a thread pool with a configurable
+    concurrency limit so it doesn't block the async event loop.
 
     Args:
         audio_bytes: Raw audio data (any format ffmpeg can decode).

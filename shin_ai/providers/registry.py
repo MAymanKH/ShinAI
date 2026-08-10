@@ -32,6 +32,7 @@ class ProviderConfig:
 class AIConfig:
     timeout_seconds: float
     max_retries: int
+    global_timeout_seconds: float
     providers: dict[str, ProviderConfig]  # keyed by name
     primary: str
     fallbacks: list[str]
@@ -43,6 +44,7 @@ class WhisperConfig:
     model: str
     language: str
     cpu_threads: int
+    max_concurrent_transcriptions: int
 
 
 @dataclass
@@ -69,6 +71,9 @@ class ShinAIConfig:
     min_delay_seconds: float
     max_delay_seconds: float
     random_trigger_probability: float
+    group_rate_limit_max_responses: int
+    group_rate_limit_window_seconds: float
+    web_search_timeout_seconds: float
     whisper: WhisperConfig
     embedding_model: str
     style_group_id: str | None
@@ -146,6 +151,7 @@ def _parse_config(raw: dict) -> ShinAIConfig:
 
     response_raw = raw.get("response", {})
     whisper_raw = raw.get("whisper", {})
+    web_search_raw = raw.get("web_search", {})
 
     ai_raw = raw.get("ai", {})
     providers_raw = ai_raw.get("providers", [])
@@ -189,6 +195,7 @@ def _parse_config(raw: dict) -> ShinAIConfig:
     ai_cfg = AIConfig(
         timeout_seconds=float(ai_raw.get("timeout_seconds", 60)),
         max_retries=int(ai_raw.get("max_retries", 3)),
+        global_timeout_seconds=float(ai_raw.get("global_timeout_seconds", 180.0)),
         providers=providers,
         primary=primary,
         fallbacks=fallbacks,
@@ -209,10 +216,22 @@ def _parse_config(raw: dict) -> ShinAIConfig:
         random_trigger_probability=float(
             response_raw.get("random_trigger_probability", 0.05)
         ),
+        group_rate_limit_max_responses=int(
+            response_raw.get("group_max_responses", 3)
+        ),
+        group_rate_limit_window_seconds=float(
+            response_raw.get("group_rate_limit_window_seconds", 10.0)
+        ),
+        web_search_timeout_seconds=float(
+            web_search_raw.get("timeout_seconds", 30.0)
+        ),
         whisper=WhisperConfig(
             model=str(whisper_raw.get("model", "large-v3-turbo")),
             language=str(whisper_raw.get("language", "auto")),
             cpu_threads=int(whisper_raw.get("cpu_threads", 2)),
+            max_concurrent_transcriptions=int(
+                whisper_raw.get("max_concurrent_transcriptions", 3)
+            ),
         ),
         embedding_model=str(raw.get("embedding_model", "intfloat/multilingual-e5-large")),
         style_group_id=str(raw["style_group_id"]) if raw.get("style_group_id") else None,
