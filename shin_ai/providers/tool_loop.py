@@ -2,6 +2,7 @@ import asyncio
 import base64
 import inspect
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -24,6 +25,7 @@ async def run_tool_calling_chat(
     media_list: list[dict] | None = None,
     include_raw_images: bool = False,
     max_turns: int = 3,
+    turn_timeout: float = 60.0,
     **completion_kwargs: Any,
 ) -> tuple[str, list[dict]]:
     """Run an OpenAI-compatible chat completion loop with supported tools.
@@ -90,21 +92,27 @@ async def run_tool_calling_chat(
 
     for _ in range(max_turns):
         if inspect.iscoroutinefunction(create_completion):
-            response = await create_completion(
-                messages=messages,
-                model=model,
-                tools=active_tools,
-                tool_choice="auto",
-                **completion_kwargs,
+            response = await asyncio.wait_for(
+                create_completion(
+                    messages=messages,
+                    model=model,
+                    tools=active_tools,
+                    tool_choice="auto",
+                    **completion_kwargs,
+                ),
+                timeout=turn_timeout,
             )
         else:
-            response = await asyncio.to_thread(
-                create_completion,
-                messages=messages,
-                model=model,
-                tools=active_tools,
-                tool_choice="auto",
-                **completion_kwargs,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    create_completion,
+                    messages=messages,
+                    model=model,
+                    tools=active_tools,
+                    tool_choice="auto",
+                    **completion_kwargs,
+                ),
+                timeout=turn_timeout,
             )
 
         if inspect.isawaitable(response):

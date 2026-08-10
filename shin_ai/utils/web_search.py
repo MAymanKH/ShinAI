@@ -27,9 +27,12 @@ _CACHE_TTL = 300.0  # 5 minutes
 _MAX_CACHE_SIZE = 100
 
 async def _fetch_url_content(client: httpx.AsyncClient, url: str) -> str:
-    """Fetch and extract text from a single URL."""
+    """Fetch and extract text from a single URL with a hard total deadline."""
     try:
-        response = await client.get(url, timeout=3.0, follow_redirects=True)
+        response = await asyncio.wait_for(
+            client.get(url, follow_redirects=True),
+            timeout=8.0,  # Total wall-clock timeout: connect + read
+        )
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -197,12 +200,12 @@ async def search_web_tool(query: str) -> str:
             except Exception as e:
                 logger.warning(f"Firecrawl search failed, falling back to DuckDuckGo: {e}")
 
-    async def _do_search():
+    async def _do_search(deadline: float):
         results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
-        
+
         if not results_list:
             return _format_error_as_result(query, f"No results found for the query: '{query}'.")
-            
+
         final_results = []
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -214,10 +217,17 @@ async def search_web_tool(query: str) -> str:
             for res in results_list:
                 url = res.get('href')
                 if url:
+                    remaining = time.time() - deadline
+                    if remaining < 2.0:
+                        logger.warning("Search scraping aborted — less than 2s remaining in time budget.")
+                        break
                     tasks.append(_fetch_url_content(client, url))
-                    
-            contents = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
+            if tasks:
+                contents = await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                contents = []
+
             for index, res in enumerate(results_list):
                 content = contents[index] if index < len(contents) and not isinstance(contents[index], Exception) else ""
                 final_results.append({
@@ -226,9 +236,9 @@ async def search_web_tool(query: str) -> str:
                     "snippet": res.get("body", "") or res.get("snippet", ""),
                     "content": content
                 })
-        
+
         output_json = json.dumps({"query": query, "results": final_results}, ensure_ascii=False)
-        
+
         # Cache successful search results
         if clean_query:
             if len(_search_cache) >= _MAX_CACHE_SIZE:
@@ -236,7 +246,7 @@ async def search_web_tool(query: str) -> str:
                 oldest_key = min(_search_cache.keys(), key=lambda k: _search_cache[k][0])
                 _search_cache.pop(oldest_key, None)
             _search_cache[clean_query] = (time.time(), output_json)
-            
+
         return output_json
 
     now = time.time()
@@ -249,9 +259,11 @@ async def search_web_tool(query: str) -> str:
             "STOP: Web search time limit exceeded. Do NOT call search_web_tool again. Respond using search results already gathered."
         )
 
+    search_deadline = now + remaining_time - 1.0  # 1s safety margin
+
     try:
         logger.info(f"Executing web search query '{query}' using DuckDuckGo (remaining time: {remaining_time:.1f}s).")
-        res = await asyncio.wait_for(_do_search(), timeout=remaining_time)
+        res = await asyncio.wait_for(_do_search(search_deadline), timeout=remaining_time)
         logger.info(f"Web search for query '{query}' completed successfully using DuckDuckGo.")
         return res
     except asyncio.TimeoutError:

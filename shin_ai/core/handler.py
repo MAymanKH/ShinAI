@@ -6,6 +6,7 @@ Universal message handler logic for ShinAI, agnostic of platform.
 import asyncio
 import random
 import re as _re
+import time
 import unicodedata as _ud
 
 from shin_ai.platforms.models import UnifiedMessage
@@ -842,8 +843,14 @@ async def _call_ai_provider(
     provider_chain = get_provider_chain()
     last_error = None
     media_context = None
+    chain_start = time.monotonic()
+    GLOBAL_TIMEOUT = 180.0  # Hard 3-minute budget across all providers
 
     for provider_cfg in provider_chain:
+        if time.monotonic() - chain_start > GLOBAL_TIMEOUT:
+            logger.error("Global AI timeout budget exhausted (%.0fs) — aborting provider chain.", GLOBAL_TIMEOUT)
+            break
+
         provider_prompt = base_prompt
         provider_media = media_list if media_list else []
 
@@ -863,10 +870,15 @@ async def _call_ai_provider(
         max_attempts = max(1, AI_PROVIDER_MAX_RETRIES)
 
         for attempt in range(1, max_attempts + 1):
+            remaining = GLOBAL_TIMEOUT - (time.monotonic() - chain_start)
+            if remaining <= 0:
+                logger.error("Global AI timeout budget exhausted mid-retry — aborting.")
+                break
+
             try:
                 answer, pending_actions = await asyncio.wait_for(
                     _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media),
-                    timeout=AI_PROVIDER_TIMEOUT_SECONDS,
+                    timeout=min(AI_PROVIDER_TIMEOUT_SECONDS, remaining),
                 )
                 if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
                     raise RuntimeError("AI provider returned empty response")

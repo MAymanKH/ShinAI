@@ -23,6 +23,16 @@ import asyncio
 
 MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
 
+# Cache genai.Client instances per API key to avoid recreating connections
+_genai_client_cache: dict[str, genai.Client] = {}
+
+
+def _get_genai_client(api_key: str) -> genai.Client:
+    """Return a cached genai.Client for the given API key."""
+    if api_key not in _genai_client_cache:
+        _genai_client_cache[api_key] = genai.Client(api_key=api_key)
+    return _genai_client_cache[api_key]
+
 
 def _is_model_on_cooldown(model: str) -> bool:
     return time.time() < MODEL_COOLDOWN_UNTIL.get(model, 0.0)
@@ -64,19 +74,24 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
     """
     models_to_try = list(MODELS_LIST)
     last_exception = None
+    total_attempts = 0
+    max_total_attempts = 8
 
     for model in models_to_try:
-        failed_keys_count = 0
         if _is_model_on_cooldown(model):
             logger.warning(f"Model {model} is on cooldown. Skipping.")
             continue
         # Create a list of items to iterate over, preserving the current order
         for key_name, api_key in list(API_KEYS_MAP.items()):
+            if total_attempts >= max_total_attempts:
+                logger.warning("Gemini total attempt budget exhausted (%d attempts).", total_attempts)
+                break
             if not api_key:
                 continue
 
+            total_attempts += 1
             try:
-                genai_client = genai.Client(api_key=api_key)
+                genai_client = _get_genai_client(api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model)
                 response, pending_actions = await _run_gemini_generation_loop(genai_client, model, contents, config)
@@ -111,29 +126,26 @@ async def gemini_api(system_prompt, prompt, media_list=None) -> tuple[str, list[
                 raise
             except Exception as e:
                 last_exception = e
-                failed_keys_count += 1
                 _rotate_key_to_back(key_name)
 
                 logger.warning(
-                    f"Gemini API key failed (model: {model}, Key: {key_name}, Failed Count: {failed_keys_count})"
+                    f"Gemini API key failed (model: {model}, Key: {key_name})"
                 )
 
                 if "you exceeded your current quota" in str(e).lower() or "429" in str(e):
-                    logger.warning(f"Gemini API key quota exceeded for model {model} (Key: {key_name}, Failed Count: {failed_keys_count})")
+                    logger.warning(f"Gemini API key quota exceeded for model {model} (Key: {key_name}). Skipping model.")
                     update_key_status(key_name, "exhausted", model, e)
+                    break
                 elif "503" in str(e):
                     logger.warning(f"Gemini API model {model} is temporarily unavailable (503). Switching model.")
                     update_key_status(key_name, "unavailable", model, e)
+                    _set_model_cooldown(model)
                     break
                 else:
                     logger.error("Error with Gemini API (model: %s, Key: %s): %s", model, key_name, e, exc_info=True)
                     update_key_status(key_name, "error", model, e)
                 continue
 
-        logger.warning(
-            f"Model {model} failed for all keys. Failed keys: {failed_keys_count}. "
-            "Trying next available model."
-        )
         available_models = [m for m in models_to_try if not _is_model_on_cooldown(m)]
         if len(available_models) > 1:
             _set_model_cooldown(model)
