@@ -5,7 +5,7 @@ from pyrogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineK
 
 from shin_ai.core.client import app
 from shin_ai.config import ADMIN_USER_ID
-from shin_ai.utils.memory import memory_collection
+from shin_ai.utils.memory import _get_memory_collection
 from shin_ai.utils.logger_config import logger
 
 PAGE_SIZE = 20
@@ -88,7 +88,7 @@ def _load_analytics_data():
     offset = 0
     while True:
         try:
-            batch = memory_collection.get(
+            batch = _get_memory_collection().get(
                 limit=batch_size,
                 offset=offset,
                 include=["metadatas"]
