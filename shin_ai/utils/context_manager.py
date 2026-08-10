@@ -138,6 +138,9 @@ def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id:
         return ""
 
     lines = []
+    # Snapshot to list for stable iteration order (deque order can shift
+    # if messages arrive between snapshot and iteration — this snapshot
+    # ensures the final string is deterministic for a given chat state).
     msgs = list(_context_buffer[chat_key])
     
     for m in msgs:

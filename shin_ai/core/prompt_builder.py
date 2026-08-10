@@ -152,9 +152,9 @@ def build_user_prompt(
     """
     Build the enriched user prompt with all dynamic context.
 
-    This is sent as the user message (contents / user role), NOT as part
-    of the system prompt.  Keeping all dynamic data here means the system
-    prompt is 100% static and always cache-hits.
+    Sections are ordered from most-stable to least-stable (prefix-caching
+    optimization): semantically retrieved context stays in the same order
+    for similar queries, while timestamps and per-message metadata go last.
 
     Args:
         user_message: The raw text the user sent
@@ -174,26 +174,17 @@ def build_user_prompt(
     timestamp = f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC+{tz_offset}"
 
     return f"""\
-<runtime_metadata>
-Current Date/Time: {timestamp}
-{runtime_context}
-</runtime_metadata>
-
-<target_options>
-{target_instructions}
-</target_options>
-
 <style_examples>
 {style_examples}
 </style_examples>
 
-<social_context>
-{social_context_section}
-</social_context>
-
 <long_term_memory>
 {memory_section}
 </long_term_memory>
+
+<social_context>
+{social_context_section}
+</social_context>
 
 <chat_history>
 {recent_context_section}
@@ -202,6 +193,15 @@ Current Date/Time: {timestamp}
 <reply_chain>
 {reply_text}
 </reply_chain>
+
+<target_options>
+{target_instructions}
+</target_options>
+
+<runtime_metadata>
+Current Date/Time: {timestamp}
+{runtime_context}
+</runtime_metadata>
 
 <input_message>
 {user_message}
