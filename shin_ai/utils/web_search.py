@@ -3,6 +3,8 @@ import contextvars
 import json
 import re
 import time
+from collections import OrderedDict
+
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
@@ -19,10 +21,10 @@ def is_web_search_exhausted() -> bool:
     """Check if web search has been exhausted for the current request context."""
     return web_search_exhausted.get()
 
-# Simple thread-safe in-memory cache for search results
+# Thread-safe in-memory LRU cache for search results
 # Key: lowered stripped query string
 # Value: (timestamp: float, results_json: str)
-_search_cache: dict[str, tuple[float, str]] = {}
+_search_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
 _CACHE_TTL = 300.0  # 5 minutes
 _MAX_CACHE_SIZE = 100
 
@@ -168,6 +170,9 @@ async def search_web_tool(query: str) -> str:
         if now - cached_time < _CACHE_TTL:
             logger.info(f"Returning cached web search results for query: '{query}'")
             return cached_res
+        else:
+            # Expired — remove stale entry to keep cache clean
+            _search_cache.pop(clean_query, None)
             
     # Try Firecrawl search if configured
     firecrawl_key = None
@@ -192,8 +197,7 @@ async def search_web_tool(query: str) -> str:
                 # Cache successful search results
                 if clean_query:
                     if len(_search_cache) >= _MAX_CACHE_SIZE:
-                        oldest_key = min(_search_cache.keys(), key=lambda k: _search_cache[k][0])
-                        _search_cache.pop(oldest_key, None)
+                        _search_cache.popitem(last=False)
                     _search_cache[clean_query] = (time.time(), output_json)
                 logger.info(f"Web search for query '{query}' completed successfully using Firecrawl.")
                 return output_json
@@ -242,9 +246,7 @@ async def search_web_tool(query: str) -> str:
         # Cache successful search results
         if clean_query:
             if len(_search_cache) >= _MAX_CACHE_SIZE:
-                # Evict oldest entry
-                oldest_key = min(_search_cache.keys(), key=lambda k: _search_cache[k][0])
-                _search_cache.pop(oldest_key, None)
+                _search_cache.popitem(last=False)
             _search_cache[clean_query] = (time.time(), output_json)
 
         return output_json

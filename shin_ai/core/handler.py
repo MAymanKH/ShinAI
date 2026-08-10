@@ -26,7 +26,7 @@ from shin_ai.config import (
     MIN_REPLY_DELAY_SECONDS,
 )
 from shin_ai.utils.logger_config import logger
-from shin_ai.utils.rate_limit import check_rate_limit
+from shin_ai.utils.rate_limit import check_rate_limit, check_group_rate_limit
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
 from shin_ai.providers.gemini import gemini_api
@@ -39,16 +39,26 @@ from shin_ai.services.audio_transcriber import transcribe_audio
 from shin_ai.data.loader import PERSONALITY
 
 
-_chat_queues = {}
-_chat_tasks = {}
+_chat_queues: dict = {}
+_chat_tasks: dict = {}
+_CHAT_QUEUE_MAX_SIZE = 20
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Main message handler for AI-powered responses across any platform."""
     if state.IS_CHECKING_KEYS:
         return
 
-    # Rate limit check
+    # Per-user rate limit check
     if msg.from_user and not check_rate_limit(msg.from_user.id):
+        return
+
+    # Group rate limit check: prevent a single busy chat from burning API quota
+    if msg.chat.type != "PRIVATE" and not check_group_rate_limit(platform.platform_name, msg.chat.id):
+        logger.debug(
+            "[%s] Group rate limit hit — chat=%s (allowed %d/%ds)",
+            platform.platform_name, msg.chat.id,
+            3, 10,
+        )
         return
 
     prompt, media_list = await _prepare_prompt_and_media(platform, msg)
@@ -61,7 +71,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     reply_text = await _get_reply_chain_text(platform, msg)
     runtime_context = await _build_runtime_context(platform, msg)
     memory_section = await _get_memory_section(prompt, msg)
-    social_context_section = get_social_context(msg, reply_text)
+    social_context_section = await get_social_context(msg, reply_text)
 
     # Trigger log always visible in production
     user_name = (
@@ -284,7 +294,16 @@ def _enqueue_frozen_message(
     if key not in _chat_queues:
         _chat_queues[key] = []
 
-    _chat_queues[key].append({
+    queue = _chat_queues[key]
+    if len(queue) >= _CHAT_QUEUE_MAX_SIZE:
+        dropped = queue.pop(0)
+        logger.warning(
+            "[%s] Chat queue overflow (max %d) — dropping oldest message (chat=%s msg=%s)",
+            platform.platform_name, _CHAT_QUEUE_MAX_SIZE,
+            msg.chat.id, dropped["msg"].id,
+        )
+
+    queue.append({
         "platform": platform,
         "msg": msg,
         "prompt": prompt,
