@@ -69,7 +69,7 @@ async def execute_text_messages(
         try:
             sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
-                save_reply(msg.chat.id, sent_id, platform.platform_name)
+                await save_reply(msg.chat.id, sent_id, platform.platform_name)
                 await _record_outgoing_context(
                     platform=platform,
                     msg=msg,
@@ -189,7 +189,7 @@ async def _execute_sticker(
     try:
         sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
         if sent_id:
-            save_reply(msg.chat.id, sent_id, platform.platform_name)
+            await save_reply(msg.chat.id, sent_id, platform.platform_name)
             await _record_outgoing_context(
                 platform=platform,
                 msg=msg,
