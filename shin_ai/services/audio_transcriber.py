@@ -17,6 +17,10 @@ from shin_ai.utils.logger_config import logger
 _model = None
 _model_lock = threading.Lock()
 
+# Maximum concurrent transcriptions to avoid CPU thrashing
+_MAX_CONCURRENT_TRANSCRIPTIONS = 3
+_transcription_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TRANSCRIPTIONS)
+
 
 def _get_model():
     """Load the faster-whisper model on first use (thread-safe singleton)."""
@@ -135,4 +139,5 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
     if not audio_bytes:
         return ""
 
-    return await asyncio.to_thread(_transcribe_sync, audio_bytes, mime_type)
+    async with _transcription_semaphore:
+        return await asyncio.to_thread(_transcribe_sync, audio_bytes, mime_type)

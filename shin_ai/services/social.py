@@ -79,7 +79,20 @@ def get_platform_username_for_member(member_key: str, platform: str) -> str | No
 
 
 def index_social_context():
-    """Indexes members into ChromaDB for semantic retrieval."""
+    """Indexes members into ChromaDB for semantic retrieval.
+
+    Deletes the existing collection first to ensure stale entries are removed,
+    then re-creates and upserts all current members.
+    """
+    global _social_collection
+
+    # Delete and recreate to ensure removed members are purged from the DB
+    try:
+        client.delete_collection("social_context_members")
+    except Exception:
+        pass
+    _social_collection = None  # Force recreation
+
     ids = []
     documents = []
     metadatas = []

@@ -43,6 +43,10 @@ _chat_queues: dict = {}
 _chat_tasks: dict = {}
 _CHAT_QUEUE_MAX_SIZE = 20
 
+# Typing indicator management
+_active_typing: dict = {}
+_MAX_TYPING_SECONDS = 120.0
+
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Main message handler for AI-powered responses across any platform."""
     if state.IS_CHECKING_KEYS:
@@ -827,24 +831,46 @@ def _filter_action_meta_commentary(messages: list[str]) -> list[str]:
 
 
 def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:
+    key = (platform.platform_name, str(chat_id))
+
+    # Cancel any existing typing task for this chat before starting a new one
+    existing = _active_typing.pop(key, None)
+    if existing and not existing.done():
+        existing.cancel()
+
+    start_time = time.monotonic()
+
     async def _loop():
         try:
             while True:
+                if time.monotonic() - start_time > _MAX_TYPING_SECONDS:
+                    logger.debug("Typing indicator timed out for chat=%s after %.0fs", chat_id, _MAX_TYPING_SECONDS)
+                    break
                 await platform.send_chat_action(chat_id, "typing")
                 await asyncio.sleep(4.0)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.debug(f"Typing loop ended due to error: {e}")
-    return asyncio.create_task(_loop())
+
+    task = asyncio.create_task(_loop())
+    _active_typing[key] = task
+    return task
 
 
 async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyncio.Task):
+    key = (platform.platform_name, str(chat_id))
+
     task.cancel()
     try:
         await task
     except (asyncio.CancelledError, Exception):
         pass
+
+    # Remove from active tracking
+    if key in _active_typing and _active_typing[key] is task:
+        del _active_typing[key]
+
     try:
         await platform.send_chat_action(chat_id, "cancel")
     except Exception:

@@ -78,11 +78,12 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
         embedding_tensor = await asyncio.to_thread(embedder.encode, searchable_text)
         embedding = embedding_tensor.tolist()
         
-        _get_memory_collection().add(
+        await asyncio.to_thread(
+            _get_memory_collection().add,
             ids=[mem_id],
             documents=[memory_text],
             embeddings=[embedding],
-            metadatas=[meta]
+            metadatas=[meta],
         )
         logger.debug("Memory saved for user %s (chat=%s platform=%s)", username, chat_id, platform)
     except Exception as e:
