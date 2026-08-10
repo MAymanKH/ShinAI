@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 _semaphores: dict[str, asyncio.Semaphore] = {}
 _semaphore_lock = asyncio.Lock()
 
+# Per-provider AsyncOpenAI client cache (keyed by base_url + api_key hash)
+_client_cache: dict[str, AsyncOpenAI] = {}
+_client_lock = asyncio.Lock()
+
 
 async def _get_semaphore(cfg: "ProviderConfig") -> asyncio.Semaphore | None:
     """Return a per-provider semaphore if concurrency is configured, else None."""
@@ -32,6 +36,21 @@ async def _get_semaphore(cfg: "ProviderConfig") -> asyncio.Semaphore | None:
             if cfg.name not in _semaphores:
                 _semaphores[cfg.name] = asyncio.Semaphore(cfg.concurrency)
     return _semaphores[cfg.name]
+
+
+async def _get_client(cfg: "ProviderConfig") -> AsyncOpenAI:
+    """Return a cached AsyncOpenAI client for the provider, or create one."""
+    cache_key = f"{cfg.base_url}:{cfg.api_key}"
+    if cache_key not in _client_cache:
+        async with _client_lock:
+            if cache_key not in _client_cache:
+                client = AsyncOpenAI(
+                    api_key=cfg.api_key,
+                    base_url=cfg.base_url,
+                )
+                _client_cache[cache_key] = client
+                logger.debug("Created new AsyncOpenAI client for provider '%s'", cfg.name)
+    return _client_cache[cache_key]
 
 
 async def openai_provider(
@@ -69,11 +88,7 @@ async def openai_provider(
         logger.error("Provider '%s': model is not set in config.yaml", cfg.name)
         raise ValueError(f"Provider '{cfg.name}' has no model configured.")
 
-    client = AsyncOpenAI(
-        api_key=cfg.api_key,
-        base_url=cfg.base_url,
-    )
-
+    client = await _get_client(cfg)
     semaphore = await _get_semaphore(cfg)
 
     async def _call() -> tuple[str, list[dict]]:
