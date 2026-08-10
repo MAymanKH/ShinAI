@@ -16,7 +16,11 @@ from typing import Optional
 
 from dateutil.tz import tzlocal
 
-from shin_ai.data.loader import PERSONALITY
+from shin_ai.data.loader import (
+    PERSONALITY,
+    TELEGRAM_STICKER_MAPPINGS,
+    WHATSAPP_STICKER_MAPPINGS,
+)
 
 
 def format_core_relationships(core_rels) -> str:
@@ -108,13 +112,19 @@ If the user's message does not need a response, you MUST output exactly `[SKIP]`
 You have access to the following tools. Only invoke a tool when it genuinely adds value — do not use tools gratuitously.
 
 - **search_web_tool**: Search the live web via DuckDuckGo. Use whenever the user asks about current events, news, prices, release dates, or any fact you are not 100% certain about. **Never hallucinate URLs or facts** — search instead.
-- **memory_lookup_tool**: Search your long-term conversation memory with fine-grained filters (keywords, usernames, chat titles, platform, time range). Use for any recall/remember request. Do NOT assume the `<long_term_memory>` context section alone is sufficient — always call this tool for recall questions.
+- **memory_lookup_tool**: Search your long-term conversation memory with fine-grained filters (keywords, usernames, chat titles, platform, time range). The `<long_term_memory>` section already contains relevant memories. Only call this tool if you need *additional* memories beyond the injected context, specific filters, or surrounding context.
 - **ask_gemini_about_image**: Ask Gemini a specific question about the attached image(s) to get detailed visual information, read text, or identify objects/people. Use this if the initial image description/context is insufficient.
 - **send_reaction**: React to a message with an emoji. Use when a reaction genuinely adds value. Supported on Telegram, WhatsApp, Discord.
-- **send_sticker**: Send a sticker to the chat. The tool description contains the full sticker library for all platforms. Supported on Telegram and WhatsApp only.
-- **moderate_user**: Perform a moderation action (kick/ban/unban/mute/unmute/add). The tool description details which actions are supported on each platform and the full moderation rules. Only use when moderation is genuinely warranted.
+- **send_sticker**: Send a sticker to the chat. The available sticker IDs are listed below. Supported on Telegram and WhatsApp only.
+- **moderate_user**: Perform a moderation action (kick/ban/unban/mute/unmute/add). Only use when moderation is genuinely warranted.
 
-7. **CORE RELATIONSHIPS**
+7. **AVAILABLE STICKERS**
+=== TELEGRAM STICKER LIBRARY (use sticker_id = the file_id) ===
+{TELEGRAM_STICKER_MAPPINGS}
+=== WHATSAPP STICKER LIBRARY (use sticker_id = the filename) ===
+{WHATSAPP_STICKER_MAPPINGS}
+
+8. **CORE RELATIONSHIPS**
 {format_core_relationships(PERSONALITY.get("core_relationships", ""))}
 
 ### CONTEXT DATA FORMAT

@@ -7,7 +7,6 @@ with fine-grained filters
 
 import asyncio
 import json
-import numpy as np
 from typing import Optional
 
 from shin_ai.stylers.style_retriever import embedder
@@ -32,11 +31,11 @@ async def _fetch_surrounding_interactions(
     Fetch a few interactions that happened around target_timestamp in the same chat/platform context.
     """
     clauses = []
-    
+
     # 1. Platform is required
     if platform and platform != "Unknown":
         clauses.append({"platform": {"$eq": platform}})
-        
+
     # 2. Chat scoping (try chat_id, then chat_title, then user_id for DMs)
     if chat_id and chat_id != "Unknown":
         clauses.append({"chat_id": {"$eq": chat_id}})
@@ -44,17 +43,17 @@ async def _fetch_surrounding_interactions(
         clauses.append({"chat_title": {"$eq": chat_title}})
     elif user_id and user_id != "Unknown":
         clauses.append({"user_id": {"$eq": user_id}})
-        
+
     # 3. Time window constraints
     if target_timestamp:
         clauses.append({"timestamp": {"$gte": target_timestamp - window_seconds}})
         clauses.append({"timestamp": {"$lte": target_timestamp + window_seconds}})
-        
+
     if not clauses:
         return []
-        
+
     where_filter = clauses[0] if len(clauses) == 1 else {"$and": clauses}
-    
+
     try:
         # ChromaDB .get() is synchronous, run in thread to avoid blocking event loop
         results = await asyncio.to_thread(
@@ -63,10 +62,10 @@ async def _fetch_surrounding_interactions(
             limit=150,
             include=["documents", "metadatas"],
         )
-        
+
         docs = results.get("documents") or []
         metas = results.get("metadatas") or []
-        
+
         candidates = []
         for doc, meta in zip(docs, metas):
             if not meta:
@@ -77,13 +76,13 @@ async def _fetch_surrounding_interactions(
                 "username": meta.get("username", "Unknown"),
                 "text": doc,
             })
-            
+
         if not candidates:
             return []
-            
+
         # Sort by timestamp ascending
         candidates.sort(key=lambda x: x["timestamp"])
-        
+
         # Find index closest to the target_timestamp
         closest_idx = 0
         min_diff = float("inf")
@@ -92,11 +91,11 @@ async def _fetch_surrounding_interactions(
             if diff < min_diff:
                 min_diff = diff
                 closest_idx = i
-                
+
         # Get surrounding items
         start_idx = max(0, closest_idx - num_surrounding)
         end_idx = min(len(candidates), closest_idx + num_surrounding + 1)
-        
+
         surrounding = []
         for i in range(start_idx, end_idx):
             cand = candidates[i]
@@ -110,6 +109,136 @@ async def _fetch_surrounding_interactions(
     except Exception as e:
         logger.error(f"Failed to fetch surrounding interactions: {e}", exc_info=True)
         return []
+
+
+def _build_batch_key(r: dict) -> tuple:
+    """Build a grouping key for batching surrounding-context queries."""
+    return (
+        r.get("platform") or "",
+        r.get("chat_id") or r.get("chat_title") or "",
+        # Round timestamp to the nearest hour to group nearby results
+        (r.get("timestamp_epoch") or 0) // 3600,
+    )
+
+
+async def _batch_fetch_surrounding(
+    results: list[dict],
+    num_surrounding: int = 3,
+) -> None:
+    """Batch-fetch surrounding interactions by grouping same-chat results."""
+    if not results:
+        return
+
+    # Group results by (platform, chat) so we can do one query per group
+    groups: dict[tuple, list[dict]] = {}
+    for r in results:
+        key = (r.get("platform") or "", r.get("chat_id") or r.get("chat_title") or "")
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(r)
+
+    tasks = []
+    max_queries = 5
+
+    for key, group_results in groups.items():
+        if len(tasks) >= max_queries:
+            break
+
+        platform = group_results[0].get("platform")
+        chat_id = group_results[0].get("chat_id")
+        chat_title = group_results[0].get("chat_title")
+        user_id = group_results[0].get("user_id")
+
+        # Compute covering time range
+        epochs = [r.get("timestamp_epoch", 0) for r in group_results]
+        min_epoch = min(epochs)
+        max_epoch = max(epochs)
+
+        clauses = []
+        if platform and platform != "Unknown":
+            clauses.append({"platform": {"$eq": platform}})
+        if chat_id and chat_id != "Unknown":
+            clauses.append({"chat_id": {"$eq": chat_id}})
+        elif chat_title and chat_title != "Unknown":
+            clauses.append({"chat_title": {"$eq": chat_title}})
+        elif user_id and user_id != "Unknown":
+            clauses.append({"user_id": {"$eq": user_id}})
+
+        window = 86400
+        if min_epoch:
+            clauses.append({"timestamp": {"$gte": min_epoch - window}})
+        if max_epoch:
+            clauses.append({"timestamp": {"$lte": max_epoch + window}})
+
+        if clauses:
+            where_filter = clauses[0] if len(clauses) == 1 else {"$and": clauses}
+            tasks.append(_fetch_context_chunk(where_filter, group_results, num_surrounding))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def _fetch_context_chunk(
+    where_filter: dict,
+    results: list[dict],
+    num_surrounding: int,
+) -> None:
+    """Fetch surrounding context for a group of results sharing a chat."""
+    try:
+        chunk_results = await asyncio.to_thread(
+            memory_collection.get,
+            where=where_filter,
+            limit=500,
+            include=["documents", "metadatas"],
+        )
+
+        docs = chunk_results.get("documents") or []
+        metas = chunk_results.get("metadatas") or []
+
+        candidates = []
+        for doc, meta in zip(docs, metas):
+            if not meta:
+                continue
+            candidates.append({
+                "timestamp": meta.get("timestamp", 0),
+                "date_string": meta.get("date_string", "Unknown"),
+                "username": meta.get("username", "Unknown"),
+                "text": doc,
+            })
+
+        candidates.sort(key=lambda x: x["timestamp"])
+
+        for result in results:
+            target_ts = result.get("timestamp_epoch", 0)
+            if not target_ts or not candidates:
+                result["surrounding_interactions"] = []
+                continue
+
+            closest_idx = 0
+            min_diff = float("inf")
+            for i, cand in enumerate(candidates):
+                diff = abs(cand["timestamp"] - target_ts)
+                if diff < min_diff:
+                    min_diff = diff
+                    closest_idx = i
+
+            start_idx = max(0, closest_idx - num_surrounding)
+            end_idx = min(len(candidates), closest_idx + num_surrounding + 1)
+
+            surrounding = []
+            for i in range(start_idx, end_idx):
+                cand = candidates[i]
+                surrounding.append({
+                    "timestamp": cand["date_string"],
+                    "username": cand["username"],
+                    "text": cand["text"],
+                    "is_result_interaction": (i == closest_idx)
+                })
+            result["surrounding_interactions"] = surrounding
+    except Exception as e:
+        logger.error(f"Failed to fetch batch surrounding context: {e}", exc_info=True)
+        for result in results:
+            result.setdefault("surrounding_interactions", [])
 
 
 # Core lookup function
@@ -169,23 +298,10 @@ async def memory_lookup_tool(
                 ensure_ascii=False,
             )
 
-        # Concurrently fetch surrounding interactions for all results
-        tasks = []
+        # Batch-fetch surrounding interactions by chat grouping
+        await _batch_fetch_surrounding(results, num_surrounding=3)
         for r in results:
-            tasks.append(
-                _fetch_surrounding_interactions(
-                    platform=r.get("platform"),
-                    chat_id=r.get("chat_id"),
-                    chat_title=r.get("chat_title"),
-                    user_id=r.get("user_id"),
-                    target_timestamp=r.get("timestamp_epoch", 0),
-                )
-            )
-        
-        surrounding_contexts = await asyncio.gather(*tasks)
-        for r, ctx in zip(results, surrounding_contexts):
-            r["surrounding_interactions"] = ctx
-            # Clean up the epoch helper field
+            r.setdefault("surrounding_interactions", [])
             if "timestamp_epoch" in r:
                 del r["timestamp_epoch"]
 
@@ -203,7 +319,7 @@ async def memory_lookup_tool(
 
 def _mmr_indices(
     query_emb: list,
-    embs_arr: np.ndarray,
+    embs_arr,
     limit: int,
     lambda_param: float = 0.65,
 ) -> list[int]:
@@ -211,7 +327,9 @@ def _mmr_indices(
     MMR selection returning selected indices (not docs), so callers can
     zip docs and metadatas together after selection.
     """
+    import numpy as np
     from sklearn.metrics.pairwise import cosine_similarity
+
     query_tensor = np.array(query_emb).reshape(1, -1)
     sim_to_query = cosine_similarity(query_tensor, embs_arr)[0]
     cand_sim_matrix = cosine_similarity(embs_arr)
@@ -252,7 +370,8 @@ async def _lookup_with_keywords(
         # Step 1: Get candidates matching metadata filters
         pool_size = min(limit * 5, 500)
         try:
-            candidates = memory_collection.get(
+            candidates = await asyncio.to_thread(
+                memory_collection.get,
                 where=where_filter,
                 limit=pool_size,
                 include=["documents", "embeddings", "metadatas"],
@@ -300,7 +419,8 @@ async def _lookup_with_keywords(
         query_emb = await asyncio.to_thread(embedder.encode, f"query: {keywords}")
         query_emb_list = query_emb.tolist()
 
-        results = memory_collection.query(
+        results = await asyncio.to_thread(
+            memory_collection.query,
             query_embeddings=[query_emb_list],
             n_results=min(limit * 3, 300),
             include=["documents", "distances", "embeddings", "metadatas"],
@@ -334,7 +454,8 @@ async def _lookup_metadata_only(
         return []
 
     try:
-        results = memory_collection.get(
+        results = await asyncio.to_thread(
+            memory_collection.get,
             where=where_filter,
             limit=limit,
             include=["documents", "metadatas"],
@@ -355,12 +476,10 @@ MEMORY_LOOKUP_TOOL_SCHEMA = {
         "name": "memory_lookup_tool",
         "description": (
             "Search the bot's long-term conversation memory with flexible filters. "
-            "Each matching memory result also includes surrounding context (a few "
-            "interactions that happened before/after in the same chat) to help understand the flow. "
-            "Use this tool whenever you need to recall past conversations, look up what "
-            "someone said, find discussions from a specific chat or platform, or search "
-            "by time range. You can combine any filters together. "
-            "At least one parameter must be provided."
+            "The bot already receives relevant long-term memory in the <long_term_memory> "
+            "context section. Use this tool ONLY when the injected memories are insufficient "
+            "and you need additional results, specific filters (username, chat title, platform, "
+            "time range), or surrounding context that the injected section does not provide."
         ),
         "parameters": {
             "type": "object",

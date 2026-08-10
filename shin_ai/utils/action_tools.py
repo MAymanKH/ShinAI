@@ -28,10 +28,6 @@ from __future__ import annotations
 
 import json
 
-from shin_ai.data.loader import (
-    TELEGRAM_STICKER_MAPPINGS,
-    WHATSAPP_STICKER_MAPPINGS,
-)
 from shin_ai.utils.logger_config import logger
 
 
@@ -80,15 +76,12 @@ async def handle_send_reaction(args: dict) -> tuple[str, dict]:
 # send_sticker
 _STICKER_DESCRIPTION = (
     "Send a sticker to the chat. "
-    "Only use when it genuinely fits the moment — do not spam stickers.\n\n"
+    "Only use when it genuinely fits the moment — do not spam stickers.\n"
     "PLATFORM RULES:\n"
-    "- Telegram: use a file_id from the Telegram Sticker Library below.\n"
-    "- WhatsApp: use a filename from the WhatsApp Sticker Library below (pass the filename only, e.g. 'clown.webp').\n"
+    "- Telegram: use a file_id from the Telegram Sticker Library.\n"
+    "- WhatsApp: use a filename from the WhatsApp Sticker Library (pass the filename only, e.g. 'clown.webp').\n"
     "- Discord: NOT SUPPORTED — do not call this tool on Discord.\n\n"
-    "=== TELEGRAM STICKER LIBRARY (use sticker_id = the file_id) ===\n"
-    f"{TELEGRAM_STICKER_MAPPINGS}\n"
-    "=== WHATSAPP STICKER LIBRARY (use sticker_id = the filename) ===\n"
-    f"{WHATSAPP_STICKER_MAPPINGS}"
+    "The available sticker IDs are listed in the system prompt under 'AVAILABLE STICKERS'."
 )
 
 SEND_STICKER_TOOL_SCHEMA = {
