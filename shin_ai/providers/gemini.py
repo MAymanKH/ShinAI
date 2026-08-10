@@ -23,6 +23,17 @@ import asyncio
 
 MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
 
+# Injected into tool results for side-effect actions (reaction / sticker /
+# moderation) so the model never forgets it may answer with text OR [SKIP].
+_POST_ACTION_TOOL_REMINDER = (
+    "\n\n[ACTION EXECUTED]: The requested side-effect has been performed. "
+    "Now decide the text channel:\n"
+    "  • Output [SKIP] if the action itself (reaction / sticker / moderation) IS the complete response.\n"
+    "  • Write your normal text reply if words are also needed.\n"
+    "  • Output [SKIP] and then write text if you want both.\n"
+    "  • (For stickers) You may also call send_sticker again to send another sticker."
+)
+
 # Cache genai.Client instances per API key to avoid recreating connections
 _genai_client_cache: dict[str, genai.Client] = {}
 
@@ -270,6 +281,7 @@ async def _run_gemini_generation_loop(
             tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call)
             if pending_action is not None:
                 pending_actions.append(pending_action)
+                tool_result_str += _POST_ACTION_TOOL_REMINDER
             tool_part = genai.types.Part.from_function_response(
                 name=fn_call.name,
                 response={"result": tool_result_str},

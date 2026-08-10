@@ -14,6 +14,17 @@ from shin_ai.utils.web_search import WEB_SEARCH_TOOL_SCHEMA, search_web_tool
 
 TOOLS = [WEB_SEARCH_TOOL_SCHEMA, MEMORY_LOOKUP_TOOL_SCHEMA, *ACTION_TOOL_SCHEMAS]
 
+# Injected into tool results for side-effect actions (reaction / sticker /
+# moderation) so the model never forgets it may answer with text OR [SKIP].
+_POST_ACTION_TOOL_REMINDER = (
+    "\n\n[ACTION EXECUTED]: The requested side-effect has been performed. "
+    "Now decide the text channel:\n"
+    "  • Output [SKIP] if the action itself (reaction / sticker / moderation) IS the complete response.\n"
+    "  • Write your normal text reply if words are also needed.\n"
+    "  • Output [SKIP] and then write text if you want both.\n"
+    "  • (For stickers) You may also call send_sticker again to send another sticker."
+)
+
 
 async def run_tool_calling_chat(
     *,
@@ -128,6 +139,7 @@ async def run_tool_calling_chat(
             tool_result, pending_action = await _execute_tool_call(provider_name, tool_call, media_list)
             if pending_action is not None:
                 pending_actions.append(pending_action)
+                tool_result += _POST_ACTION_TOOL_REMINDER
             messages.append(
                 {
                     "role": "tool",

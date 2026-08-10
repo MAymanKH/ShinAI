@@ -75,8 +75,13 @@ async def handle_send_reaction(args: dict) -> tuple[str, dict]:
 
 # send_sticker
 _STICKER_DESCRIPTION = (
-    "Send a sticker to the chat. "
-    "Only use when it genuinely fits the moment — do not spam stickers.\n"
+    "Send a sticker to the chat. Stickers are a first-class response: use them PROACTIVELY "
+    "whenever a sticker genuinely fits the moment — humor, a punchline, celebration, sarcasm, "
+    "a greeting, or a reaction that would be better as a sticker than as text.\n"
+    "You may call this tool MULTIPLE times in a row to send several stickers.\n"
+    "After the sticker is sent you decide the text channel: output [SKIP] (sticker only = the "
+    "complete response), write normal text (sticker + comment), or both.\n"
+    "Only skip the sticker when none of the available ones match the moment.\n\n"
     "PLATFORM RULES:\n"
     "- Telegram: use a file_id from the Telegram Sticker Library.\n"
     "- WhatsApp: use a filename from the WhatsApp Sticker Library (pass the filename only, e.g. 'clown.webp').\n"
