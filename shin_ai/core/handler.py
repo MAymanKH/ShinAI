@@ -424,19 +424,34 @@ async def _execute_frozen_message(
             reply_text=reply_text,
         )
 
-        # Determine whether the AI chose to skip text output
+        # Determine whether the AI chose to skip text output.
+        # Robust detection: match a standalone [SKIP] token at the very start
+        # or very end of the answer, ignoring stray backticks, brackets,
+        # whitespace and trailing punctuation. This catches variants like
+        # "[SKIP]", "[SKIP].", "`[SKIP]`", "[skip]", "SKIP", etc. that the
+        # old exact-match check silently let through and sent to the user.
         skip_text = False
         if answer:
-            clean_ans = answer.strip().strip("`").strip().upper()
-            if clean_ans in ("[SKIP]", "SKIP"):
-                logger.info(
-                    "[%s] AI chose to skip — chat=%s user=%s | trigger=\"%s\"",
-                    platform.platform_name,
-                    msg.chat.id,
-                    msg.from_user.id if msg.from_user else "?",
-                    (prompt or "").replace("\n", " ")[:80],
-                )
+            detected, remaining = _extract_skip_token(answer)
+            if detected:
+                if pending_actions:
+                    logger.info(
+                        "[%s] AI chose to skip text after tool action(s) — chat=%s user=%s | trigger=\"%s\"",
+                        platform.platform_name,
+                        msg.chat.id,
+                        msg.from_user.id if msg.from_user else "?",
+                        (prompt or "").replace("\n", " ")[:80],
+                    )
+                else:
+                    logger.info(
+                        "[%s] AI chose to skip — chat=%s user=%s | trigger=\"%s\"",
+                        platform.platform_name,
+                        msg.chat.id,
+                        msg.from_user.id if msg.from_user else "?",
+                        (prompt or "").replace("\n", " ")[:80],
+                    )
                 skip_text = True
+                answer = remaining
 
         if not skip_text:
             # Split text on '---' for multi-message support
@@ -744,6 +759,47 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     except Exception:
         pass
     return "RECENT CHAT ACTIVITY: None recorded yet."
+
+
+# Matches a standalone [SKIP] token at the very start or end of the response,
+# tolerating backticks, optional brackets and surrounding punctuation
+# (e.g. "[SKIP]", "[SKIP].", "`[SKIP]`", "[skip]", "SKIP").
+# A trailing word boundary / leading lookbehind prevent matching embedded
+# words like "skipping" or "don't skip" in the middle of a sentence.
+_SKIP_TOKEN_AFTER = _re.compile(
+    r"(?<![A-Za-z])`?\[?SKIP\]?,?`?[.,!?\s]*$", _re.IGNORECASE
+)
+_SKIP_TOKEN_BEFORE = _re.compile(
+    r"^[.,!?\s]*`?\[?SKIP\b\]?,?`?", _re.IGNORECASE
+)
+
+
+def _extract_skip_token(answer: str) -> tuple[bool, str]:
+    """Detect a [SKIP] decision in the model output.
+
+    Returns (skip_detected, remaining_text). The token is matched at the
+    very start or very end of the trimmed answer; any surrounding text is
+    returned as the remainder so a combined `[SKIP] + comment` response
+    still sends its real message.
+    """
+    text = (answer or "").strip()
+    if not text:
+        return False, ""
+
+    match = _SKIP_TOKEN_AFTER.search(text)
+    if match:
+        remainder = text[: match.start()].strip()
+    else:
+        match = _SKIP_TOKEN_BEFORE.match(text)
+        if not match:
+            return False, text
+        remainder = text[match.end():].strip()
+
+    # If stripping the token leaves only separators/punctuation, treat the
+    # whole answer as a skip decision.
+    if not remainder or all(ch in "-–—`[].,!? \n" for ch in remainder):
+        return True, ""
+    return True, remainder
 
 
 _TRIVIAL_LAUGH_PATTERN = _re.compile(
