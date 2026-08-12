@@ -59,7 +59,6 @@ I wanted an AI that didn't just stand on the sidelines waiting for a command, bu
 - ⏱️ **Human-like Delays**: Randomizes response times to simulate human reading and typing
 - 🛡️ **Moderation Suite**: Kick, ban, unban, mute, unmute, and invite users with platform-native actions
 - 🔁 **Reliability Layer**: Per-attempt timeout, retries mechanism, and error-aware retry context injection
-- ⚡ **Rate Limiting**: Built-in cooldowns to prevent spam
 
 ## Quick Start
 
@@ -67,7 +66,7 @@ You can either chat with the bot on [Telegram](https://t.me/shinobi7kbot) or [Di
 
 ### 0. Install Prerequisites
 
-- [Python](https://www.python.org/downloads/) 3.10 or higher
+- [Python](https://www.python.org/downloads/) 3.11 or higher
 - [Git](https://git-scm.com/install/)
 - Make sure they are added to your path.
 
@@ -177,14 +176,19 @@ response:
   min_delay_seconds: 5.0    # Lower boundary for randomized response delay (simulate typing/reading)
   max_delay_seconds: 300.0  # Upper boundary for randomized response delay
   random_trigger_probability: 0.05 # Random chance (0.0 to 1.0) to respond to normal group messages without mention
+  group_max_responses: 3    # Max responses per chat within the window below
+  group_rate_limit_window_seconds: 10.0 # Window for the per-group response limit above
 
 # Voice Transcription Service (Whisper)
 whisper:
   model: large-v3-turbo     # Model size to load: tiny, base, small, medium, large-v2, large-v3-turbo
   language: auto            # Language code (e.g., 'ar', 'en') or 'auto' to auto-detect
   cpu_threads: 2            # Number of CPU threads dedicated to Whisper inference
+  max_concurrent_transcriptions: 3 # Max simultaneous voice message transcriptions
 
 # Web Search Settings
+web_search:
+  timeout_seconds: 30.0     # Total time budget for a web search operation per user request
 # firecrawl:
 #   api_key: "fc-your-key-here"                   # (Optional - fallback to duckduckgo if not configured)
 
@@ -196,6 +200,7 @@ style_group_id: -1001234567890                  # (Optional) Telegram group ID f
 ai:
   timeout_seconds: 60       # Timeout limit per attempt on provider calls
   max_retries: 3            # Max retries per provider before switching/failing
+  global_timeout_seconds: 180.0 # Hard total time budget across ALL providers and retries for one interaction
   
   # List of defined providers (support OpenRouter, Groq, Cerebras, DeepSeek, Ollama, Gemini, etc.)
   providers:
@@ -440,7 +445,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
 │  └───────────────┘  └───────────────┘  └───────────────────┘ │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐ │
 │  │ Reply Chain   │  │ Style Example │  │ Runtime Metadata  │ │
-│  │ Context       │  │   (Optional)  │  │ (User/Chat Info)  │ │
+│  │ Context       │  │ (Optional)    │  │ (User/Chat Info)  │ │
 │  └───────────────┘  └───────────────┘  └───────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
                                 │
@@ -453,9 +458,7 @@ ShinAI uses a **Retrieval-Augmented Generation (RAG)** architecture to create co
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                          AI Provider                            │
-│        Runs tool-calling generation loop with tools:            │
-│           web_search, memory_lookup, send_reaction              │
-│                send_sticker, moderate_user                      │
+│               Runs tool-calling generation loop                 │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -484,10 +487,20 @@ The AI interacts with chat platforms natively using formal function-calling tool
 | `send_reaction` | `emoji`, `message_id` | Reacts to a message with an emoji | Telegram ✅ WhatsApp ✅ Discord ✅ |
 | `send_sticker` | `sticker_id`, `reply_to_message_id` | Sends a sticker from the custom library | Telegram ✅ WhatsApp ✅ Discord ❌ |
 | `moderate_user` | `action`, `target_username`, `target_message_id` | Restricts or manages group members | kick (all ✅), ban/unban/mute/unmute (Telegram & Discord ✅), add (Telegram ✅) |
+| `transcribe_audio` | `message_id` | Transcribes a voice/audio message on demand via the configured Whisper model | All platforms ✅ |
+| `ask_gemini_about_image` | `query` | Asks the Gemini vision model a specific question about the attached image(s) | All platforms ✅ |
+| `web_search` | `query` | Live web search with Firecrawl or DuckDuckGo + scraping fallback | All platforms ✅ |
+| `memory_lookup_tool` | `keywords`, `usernames`, `chat_titles`, `platform`, `time_start`, `time_end`, `limit` | Searches long-term memory with fine-grained filters when the injected memories are insufficient | All platforms ✅ |
 
 #### Stickers & Reactions
 - **Reactions**: Preferred for closing conversation loops, acknowledging messages, or ending a laugh chain.
 - **Stickers**: Chosen based on emotional context.
+
+#### Multi-Message Responses
+A single AI answer is split on `---` into multiple sequential messages instead of one long wall of text. Each part is sent independently with a [natural typing delay](#conversational-dynamics) in between, so one turn can naturally answer several points and feel more casual. Each part is also independent for [inline reply targeting](#inline-reply-targeting) one response can reply to multiple people at once.
+
+#### Inline Reply Targeting
+Each `---` separated part of a response can start with a `[REPLY_TO:message_id]` tag to reply to **any** message in the chat by its real platform ID, not just the one that triggered the bot. The AI sees `(id:XXXXX)` markers in the chat history, so one response can address several different people or threads at once, answering an older buried question, replying to someone other than who pinged it, or adding text where it already reacted. Tags are stripped before sending and the bot only uses IDs visible in its history.
 
 #### Native Moderation System
 The bot features native moderation capabilities mapped across platforms:
@@ -547,7 +560,7 @@ To avoid invading group chats inappropriately, any message that might be a conti
 
 #### Queuing & Dynamic Delays
 - **Response Delay**: To simulate typing and reading, replies are held for a randomized delay configured via `config.yaml` (`min_delay_seconds` and `max_delay_seconds` under `response`). Set these to `0.0` to disable the delay entirely. Messages received during this window are queued and processed in order.
-- **Inter-Message Typing Delay**: When sending multiple messages split by `---`, the bot calculates typing speeds based on text length (~8-9 characters per second) with Gaussian jitter, triggering the platform's native "typing" indicators.
+- **Inter-Message Typing Delay**: When sending multiple messages split by `---`, the bot calculates typing speeds based on text length with Gaussian jitter, triggering the platform's native "typing" indicators.
 
 ### Audio Processing Pipeline
 
@@ -575,8 +588,7 @@ ShinAI supports two main types of AI providers under the hood: Google Gemini (na
 Any provider offering an OpenAI-compliant completions endpoint is supported under the `openai` provider type. This unifies external API services and local inference engines:
 - **Commercial API Hubs**: OpenRouter (Claude, GPT, Llama), DeepSeek, Together AI, Fireworks, Groq, Cerebras.
 - **Local Inference**: Ollama, vLLM, LM Studio, `text-generation-webui`.
-- **Multimodal Visual Fallback**: For providers that do not natively support vision (like Groq/Cerebras), the bot automatically calls the configured Gemini provider to generate a detailed text description of any attached images.
-- **Multimodal Image Tool**: Text-only models can dynamically call the `ask_gemini_about_image` tool during conversation to ask specific questions about the visual context.
+- **Multimodal Visual Fallback**: For providers that do not natively support vision (like Groq/Cerebras), the bot can call the configured Gemini provider to generate a detailed text description of any attached images.
 
 ---
 
