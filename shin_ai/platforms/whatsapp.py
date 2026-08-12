@@ -474,11 +474,20 @@ class WhatsAppPlatform(PlatformAdapter):
 
     async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
-        raw_quoted = self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id)) if reply_to_message_id else None
+        raw_quoted = self.get_cached_raw_message(chat_id, str(reply_to_message_id)) if reply_to_message_id else None
 
         if raw_quoted:
-            response = await self._run_sync(self.client.reply_message, text, raw_quoted, chat_jid)
+            # Neonize derives the exact destination from the original message.
+            # Rebuilding it from a normalized ID can lose LID/device identity,
+            # causing WhatsApp to discard the quote context.
+            response = await self._run_sync(self.client.reply_message, text, raw_quoted)
         else:
+            if reply_to_message_id:
+                logger.warning(
+                    "Cannot reply on WhatsApp: unresolved target message %s in chat %s; sending without quote context.",
+                    reply_to_message_id,
+                    chat_id,
+                )
             response = await self._run_sync(self.client.send_message, chat_jid, text)
 
         await self._cache_outgoing_message(chat_jid, response)
