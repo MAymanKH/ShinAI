@@ -492,13 +492,6 @@ class WhatsAppPlatform(PlatformAdapter):
         # Preserve the exact event addressing. In particular, do not replace
         # an incoming LID sender with SenderAlt: WhatsApp validates the quote
         # against the routing identity used by the original stanza.
-        logger.info(
-            "Sending native WhatsApp quote: stanza=%s chat_server=%s participant_server=%s addressing_mode=%s",
-            raw_quoted.Info.ID,
-            source.Chat.Server,
-            sender_jid.Server,
-            source.AddressingMode,
-        )
         response = await self._run_sync(self.client.send_message, source.Chat, outgoing)
         await self._cache_outgoing_message(source.Chat, response)
         return response.ID
@@ -516,12 +509,6 @@ class WhatsAppPlatform(PlatformAdapter):
         if raw_quoted:
             return await self._send_quoted_message(raw_quoted, text)
 
-        if reply_to_message_id:
-            logger.warning(
-                "Cannot reply on WhatsApp: target message %s is not cached in chat %s; sending without quote context.",
-                reply_to_message_id,
-                chat_id,
-            )
         response = await self._run_sync(self.client.send_message, chat_jid, text)
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
