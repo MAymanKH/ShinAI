@@ -9,6 +9,7 @@ Actions arrive as:
 """
 import asyncio
 import random
+import re
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
@@ -30,7 +31,7 @@ from shin_ai.utils.context_manager import add_bot_message_to_context
 async def execute_text_messages(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
-    messages: list[str],
+    messages: list,
     default_reply_to_id: int | str,
     original_prompt: str,
     raw_answer: str,
@@ -38,20 +39,39 @@ async def execute_text_messages(
 ) -> None:
     """Send the plain-text messages produced by the AI (split from '---').
 
-    The first message replies to default_reply_to_id; subsequent messages
-    are sent without an explicit reply target (natural follow-on messages).
+    `messages` is a list of (text, tag_target) pairs as returned by
+    `split_reply_messages` (older callers may still pass bare strings — those
+    are treated as having no tag).
+
+    Per-message reply targeting: any message may have been decorated by the
+    model with a leading `[REPLY_TO:message_id]` tag to reply to ANY message
+    from the chat history — including the very first message of the response.
+
+    Resolution precedence per message:
+      1. An explicit tag on that message (if the ID is valid for the
+         platform; invalid IDs are dropped silently so a malformed tag never
+         breaks sending).
+      2. Index 0 with no tag -> the triggering message (default_reply_to_id).
+      3. Index > 0 with no tag -> no explicit reply target (natural
+         follow-on message).
     """
+    # Normalize to (text, tag_target) pairs; bare strings from older call
+    # sites are treated as (text, None).
+    pairs: list[tuple[str, str | None]] = [
+        (m, None) if isinstance(m, str) else m for m in messages
+    ]
+
     await _save_interaction_memory(
         platform=platform.platform_name,
         msg=msg,
-        messages=messages,
+        messages=[text for text, _ in pairs],
         pending_actions=[],
         original_prompt=original_prompt,
         raw_answer=raw_answer,
         reply_text=reply_text,
     )
 
-    for idx, text in enumerate(messages):
+    for idx, (text, tag_target) in enumerate(pairs):
         if not text:
             continue
 
@@ -64,11 +84,30 @@ async def execute_text_messages(
                 pass
             await asyncio.sleep(delay)
 
-        reply_to_id = _normalize_reply_target(platform, default_reply_to_id if idx == 0 else None)
+        reply_to_id = None
+        if tag_target is not None:
+            candidate = tag_target
+            # Coerce numeric tags for Telegram/Discord (their IDs are ints);
+            # leave non-numeric (WhatsApp hex) IDs as strings.
+            if isinstance(candidate, str) and candidate.isdigit():
+                candidate = int(candidate)
+            reply_to_id = _normalize_reply_target(platform, candidate)
+            if reply_to_id is None:
+                logger.warning(
+                    "[%s] Ignoring invalid [REPLY_TO] target %r for chat=%s",
+                    platform.platform_name, tag_target, msg.chat.id,
+                )
+        elif idx == 0:
+            reply_to_id = _normalize_reply_target(platform, default_reply_to_id)
 
         try:
             sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
+                if tag_target is not None and reply_to_id is not None:
+                    logger.info(
+                        "[%s] Reply-overrode target — chat=%s sent=%s -> reply_to=%s (model-chosen)",
+                        platform.platform_name, msg.chat.id, sent_id, reply_to_id,
+                    )
                 await save_reply(msg.chat.id, sent_id, platform.platform_name)
                 await _record_outgoing_context(
                     platform=platform,
@@ -414,6 +453,59 @@ async def _save_interaction_memory(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
+# Matches an optional [REPLY_TO:message_id] tag at the very start of a text
+# message, tolerating whitespace / quoting / bracket variants the model may
+# emit, e.g. "[REPLY_TO:1234]", "[REPLY_TO: 1234]", "[reply_to:1234]",
+# "`[REPLY_TO:1234]`". Message IDs on Telegram/Discord are numeric; on
+# WhatsApp they are hex-ish strings (e.g. 3EB0..., ABCD1234).
+_REPLY_TO_TAG_PATTERN = re.compile(
+    r"^\s*`*\[?\s*REPLY_TO\s*[:=]\s*([A-Za-z0-9_\-]+)\s*\]?,?`*\s*[:.\-]*[ \t]*\n?",
+    re.IGNORECASE,
+)
+
+
+def _parse_reply_to_tag(text: str) -> tuple[str | None, str]:
+    """Extract a leading [REPLY_TO:message_id] tag from a message part.
+
+    Returns (target_id_or_None, remaining_text). The remaining text is
+    stripped of the tag so an accidental tag from the model is never leaked
+    to the chat when parsing is enabled. When no tag is present, returns
+    (None, text) unchanged.
+    """
+    match = _REPLY_TO_TAG_PATTERN.match(text or "")
+    if not match:
+        return None, text
+
+    target = match.group(1)
+    remainder = text[match.end():].strip()
+    if not remainder:
+        # A message containing ONLY a reply tag has no content — treat the tag
+        # as absent so the model's (likely accidental) empty message is dropped
+        # and the fallback reply target applies instead.
+        return None, text
+    return target, remainder
+
+
+def split_reply_messages(answer: str) -> list[tuple[str, str | None]]:
+    """Split a raw AI answer on '---' and extract per-part [REPLY_TO] tags.
+
+    Returns a list of (clean_text, tag_target_or_None) tuples, one per
+    non-empty message part. The target is returned in its raw string form
+    (as captured from the tag); platform-specific normalization happens at
+    send time via _normalize_reply_target.
+    """
+    parts: list[tuple[str, str | None]] = []
+
+    for part in (answer or "").split("---"):
+        part = part.strip()
+        if not part:
+            continue
+        target, clean_text = _parse_reply_to_tag(part)
+        parts.append((clean_text, target))
+
+    return parts
+
 
 def _normalize_reply_target(
     platform: PlatformAdapter,

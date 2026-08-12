@@ -92,6 +92,18 @@ Example:
 مو بسيطة
 ```
 
+**Choosing which message each of your messages replies to**:
+Start any message with `[REPLY_TO:message_id]` to reply to any `(id:XXXXX)` from the chat history / <target_options>. By default (no tag) the first message replies to the triggering message and the rest follow on with no reply link — use a tag to override that, on any message. Each `---` part is independent, so one response can address several different people/threads. Use it freely: replying to an older buried question, to someone other than who pinged you, to your own earlier message, parallel threads, or adding text where you reacted. Only tag IDs you can actually see — never invent one. Tags are stripped before sending.
+
+Example:
+```
+[REPLY_TO:4821] @ahmad ده اللي حصل بالظبط
+---
+[REPLY_TO:4830] لا يا سارة الموضوع مش كده
+---
+بعدين اه فكرة حلوة
+```
+
 5. **WHEN TO SKIP RESPONDING**
 `[SKIP]` controls ONLY the text channel. Calling a tool (reaction, sticker, moderation) is a SEPARATE action: after ANY tool call, you may—and often should—still choose `[SKIP]` for the text output. If the user's message does not need a text response, you MUST output exactly `[SKIP]` (and nothing else).
 
@@ -267,7 +279,8 @@ def build_target_instructions(
     reply_msg: Optional[object] = None,
 ) -> str:
     """
-    Build target message ID options for the tools (e.g. send_reaction, moderate_user).
+    Build the available message-ID targets for tools (send_reaction /
+    send_sticker / moderate_user) AND for [REPLY_TO:...] tags on text messages.
     """
     parts = [f"- Message ID '{msg_id}' was sent by {sender_name} (the user who just sent the triggering message)"]
 
@@ -281,6 +294,6 @@ def build_target_instructions(
         if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
             parts.append(f"- Message ID '{reply_msg.reply_to_message_id}' (the parent of the replied message)")
 
-    parts.append("- You can also target any other message ID shown as (id:XXXXX) in the chat history.")
+    parts.append("- Any other message ID shown as (id:XXXXX) in the chat history can also be targeted.")
 
     return "\n".join(parts)

@@ -18,7 +18,11 @@ from shin_ai.core.prompt_builder import (
     build_runtime_context,
     build_target_instructions,
 )
-from shin_ai.core.action_executor import execute_text_messages, execute_pending_actions
+from shin_ai.core.action_executor import (
+    execute_text_messages,
+    execute_pending_actions,
+    split_reply_messages,
+)
 from shin_ai.config import (
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
@@ -455,10 +459,10 @@ async def _execute_frozen_message(
                 answer = remaining
 
         if not skip_text:
-            # Split text on '---' for multi-message support
-            text_messages = [
-                m.strip() for m in (answer or "").split("---") if m.strip()
-            ]
+            # Split text on '---' for multi-message support and extract any
+            # per-message [REPLY_TO:id] tags so each part can reply to a
+            # different message in the chat (including an older message).
+            text_messages = split_reply_messages(answer)
 
             # When tool actions were executed, filter out meta-commentary
             # that the AI sometimes produces alongside tool calls, e.g.
@@ -498,9 +502,7 @@ async def _execute_frozen_message(
             )
 
             if error_answer and error_answer.strip():
-                error_messages = [
-                    m.strip() for m in error_answer.split("---") if m.strip()
-                ]
+                error_messages = split_reply_messages(error_answer)
                 await execute_text_messages(
                     platform=platform,
                     msg=msg,
@@ -881,11 +883,11 @@ def _filter_action_meta_commentary(messages: list[str]) -> list[str]:
     was sent)." — these should never be sent to the user.
     """
     filtered = []
-    for text in messages:
+    for text, tag_target in messages:
         if _ACTION_META_COMMENTARY_PATTERN.search(text):
             logger.debug("Filtered action meta-commentary: %r", text[:100])
             continue
-        filtered.append(text)
+        filtered.append((text, tag_target))
     return filtered
 
 
