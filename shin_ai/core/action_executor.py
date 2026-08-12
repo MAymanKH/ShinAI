@@ -48,12 +48,13 @@ async def execute_text_messages(
     from the chat history — including the very first message of the response.
 
     Resolution precedence per message:
-      1. An explicit tag on that message (if the ID is valid for the
-         platform; invalid IDs are dropped silently so a malformed tag never
-         breaks sending).
+      1. On Telegram/Discord, an explicit tag on that message (if valid).
       2. Index 0 with no tag -> the triggering message (default_reply_to_id).
       3. Index > 0 with no tag -> no explicit reply target (natural
          follow-on message).
+
+    WhatsApp intentionally ignores explicit tags and always replies its first
+    output to the freshly ingested trigger, whose native message is cached.
     """
     # Normalize to (text, tag_target) pairs; bare strings from older call
     # sites are treated as (text, None).
@@ -85,10 +86,15 @@ async def execute_text_messages(
             await asyncio.sleep(delay)
 
         reply_to_id = None
-        if tag_target is not None:
+        if platform.platform_name == "whatsapp":
+            # Keep WhatsApp on its proven reply path. Model-selected IDs can
+            # refer to prompt history that has no native Neonize message in
+            # this process, making the send succeed without quote metadata.
+            # The first part must always quote the freshly ingested trigger.
+            if idx == 0:
+                reply_to_id = _normalize_reply_target(platform, default_reply_to_id)
+        elif tag_target is not None:
             candidate = tag_target
-            # Coerce numeric tags for Telegram/Discord (their IDs are ints);
-            # leave non-numeric (WhatsApp hex) IDs as strings.
             if isinstance(candidate, str) and candidate.isdigit():
                 candidate = int(candidate)
             reply_to_id = _normalize_reply_target(platform, candidate)
@@ -103,7 +109,11 @@ async def execute_text_messages(
         try:
             sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
-                if tag_target is not None and reply_to_id is not None:
+                if (
+                    platform.platform_name != "whatsapp"
+                    and tag_target is not None
+                    and reply_to_id is not None
+                ):
                     logger.info(
                         "[%s] Reply-overrode target — chat=%s sent=%s -> reply_to=%s (model-chosen)",
                         platform.platform_name, msg.chat.id, sent_id, reply_to_id,
