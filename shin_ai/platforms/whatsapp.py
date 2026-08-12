@@ -472,15 +472,57 @@ class WhatsAppPlatform(PlatformAdapter):
         unified = await self.to_unified_message(outgoing)
         self._cache_message(unified, outgoing)
 
+    async def _send_quoted_message(self, raw_quoted: MessageEventType, text: str) -> int | str:
+        source = raw_quoted.Info.MessageSource
+        sender_jid = source.Sender
+        if not sender_jid.ListFields() and source.SenderAlt.ListFields():
+            sender_jid = source.SenderAlt
+
+        participant = self._normalize_jid_identity(Jid2String(sender_jid))
+        if not raw_quoted.Info.ID or not participant or not raw_quoted.Message.ListFields():
+            raise ValueError("WhatsApp quoted message is missing its ID, sender, or payload")
+
+        outgoing = WaMessage()
+        outgoing.extendedTextMessage.text = text
+        context = outgoing.extendedTextMessage.contextInfo
+        context.stanzaID = raw_quoted.Info.ID
+        context.participant = participant
+        context.quotedMessage.CopyFrom(raw_quoted.Message)
+
+        # Preserve the exact event addressing. In particular, do not replace
+        # an incoming LID sender with SenderAlt: WhatsApp validates the quote
+        # against the routing identity used by the original stanza.
+        logger.info(
+            "Sending native WhatsApp quote: stanza=%s chat_server=%s participant_server=%s addressing_mode=%s",
+            raw_quoted.Info.ID,
+            source.Chat.Server,
+            sender_jid.Server,
+            source.AddressingMode,
+        )
+        response = await self._run_sync(self.client.send_message, source.Chat, outgoing)
+        await self._cache_outgoing_message(source.Chat, response)
+        return response.ID
+
+    async def reply_to_message(self, message: UnifiedMessage, text: str) -> int | str:
+        raw_quoted = message.native_msg
+        if raw_quoted and hasattr(raw_quoted, "Info") and hasattr(raw_quoted, "Message"):
+            return await self._send_quoted_message(raw_quoted, text)
+        return await self.send_message(message.chat.id, text, message.id)
+
     async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
-        raw_quoted = self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id)) if reply_to_message_id else None
+        raw_quoted = self.get_cached_raw_message(chat_id, str(reply_to_message_id)) if reply_to_message_id else None
 
         if raw_quoted:
-            response = await self._run_sync(self.client.reply_message, text, raw_quoted, chat_jid)
-        else:
-            response = await self._run_sync(self.client.send_message, chat_jid, text)
+            return await self._send_quoted_message(raw_quoted, text)
 
+        if reply_to_message_id:
+            logger.warning(
+                "Cannot reply on WhatsApp: target message %s is not cached in chat %s; sending without quote context.",
+                reply_to_message_id,
+                chat_id,
+            )
+        response = await self._run_sync(self.client.send_message, chat_jid, text)
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
 

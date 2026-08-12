@@ -42,6 +42,10 @@ class PlatformAdapter(ABC):
         """Sends a text message and returns its ID."""
         pass
 
+    async def reply_to_message(self, message: UnifiedMessage, text: str) -> int | str:
+        """Replies using the platform-native trigger message when available."""
+        return await self.send_message(message.chat.id, text, message.id)
+
     @abstractmethod
     async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
         """Sends a sticker and returns its message ID. If unsupported natively, should handle degradation."""
