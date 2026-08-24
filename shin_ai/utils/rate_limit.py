@@ -3,6 +3,7 @@ Rate limiting utilities for ShinAI.
 """
 
 import time
+from collections import OrderedDict
 
 from shin_ai.config import (
     ADMIN_USER_ID,
@@ -12,8 +13,8 @@ from shin_ai.config import (
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.coordination.store import CoordinationStore
 
-# user_id -> last_request_time
-_last_used: dict[int | str, float] = {}
+# user_id -> last_request_time, ordered least-recently-used first
+_last_used: OrderedDict[int | str, float] = OrderedDict()
 
 COOLDOWN_SECONDS = 4
 _MAX_ENTRIES = 1000
@@ -62,13 +63,15 @@ def check_rate_limit(user_id: int | str) -> bool:
     if now - last < COOLDOWN_SECONDS:
         return False
 
-    # Enforce maximum dict size
-    if len(_last_used) >= _MAX_ENTRIES:
-        # Evict the oldest entry
-        oldest_key = min(_last_used, key=lambda k: _last_used[k])
-        _last_used.pop(oldest_key, None)
+    # Enforce maximum dict size. popitem(last=False) drops the least recently
+    # touched entry in O(1); the previous min() scanned all 1000 entries on
+    # every call once the cache was full.
+    if user_id not in _last_used:
+        while len(_last_used) >= _MAX_ENTRIES:
+            _last_used.popitem(last=False)
 
     _last_used[user_id] = now
+    _last_used.move_to_end(user_id)
     return True
 
 

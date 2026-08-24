@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import uuid
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR, REPLY_STATE_TTL_SECONDS
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from shin_ai.coordination.store import CoordinationStore
 
 REPLIES_FILE = DATA_DIR / "bot_replies.json"
-_next_message_watch: dict[str, bool] = {}
+_next_message_watch: OrderedDict[str, bool] = OrderedDict()
 
 # In-memory cache of the replies file. Loaded lazily on first access.
 _replies_cache: dict[str, list[str]] | None = None
@@ -42,9 +43,11 @@ def set_next_message_watch(
     key = _reply_key(platform, chat_id, coordination_scope)
     if key not in _next_message_watch:
         while len(_next_message_watch) >= CONTEXT_MAX_CHATS:
-            oldest_chat = next(iter(_next_message_watch))
-            _next_message_watch.pop(oldest_chat, None)
+            _next_message_watch.popitem(last=False)
     _next_message_watch[key] = True
+    # Re-arming an existing watch must also refresh its recency, otherwise an
+    # active chat can be evicted ahead of a dormant one.
+    _next_message_watch.move_to_end(key)
 
 
 async def check_and_clear_next_message_watch(

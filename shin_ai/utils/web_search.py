@@ -165,7 +165,9 @@ async def search_web_tool(query: str) -> str:
     if clean_query in _search_cache:
         cached_time, cached_res = _search_cache[clean_query]
         if now - cached_time < _CACHE_TTL:
-            logger.info(f"Returning cached web search results for query: '{query}'")
+            logger.info("Returning cached web search results for query: '%s'", query)
+            # Refresh recency so eviction is genuinely least-recently-used.
+            _search_cache.move_to_end(clean_query)
             return cached_res
         else:
             # Expired — remove stale entry to keep cache clean
