@@ -228,3 +228,45 @@ def test_duplicate_credentials_in_one_file_are_deduplicated() -> None:
     )
 
     assert scheduler.keys == {"first": "same-secret"}
+
+
+def test_partially_overlapping_pools_coordinate_only_the_shared_key(tmp_path) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "coordination.sqlite3"
+        first_store = SQLiteCoordinationStore(path, "shared")
+        second_store = SQLiteCoordinationStore(path, "shared")
+        first = GeminiScheduler(
+            {"shared-a": "shared-secret", "only-first": "first-secret"},
+            ["model"],
+            first_store,
+            owner_id="process-1",
+        )
+        second = GeminiScheduler(
+            {"shared-b": "shared-secret", "only-second": "second-secret"},
+            ["model"],
+            second_store,
+            owner_id="process-2",
+        )
+        try:
+            shared_reservation = await first.reserve(
+                "model",
+                excluded_keys={"only-first"},
+            )
+            assert shared_reservation is not None
+            assert await second.reserve(
+                "model",
+                excluded_keys={"only-second"},
+            ) is None
+
+            independent_reservation = await second.reserve(
+                "model",
+                excluded_keys={"shared-b"},
+            )
+            assert independent_reservation is not None
+            await shared_reservation.release()
+            await independent_reservation.release()
+        finally:
+            await first_store.close()
+            await second_store.close()
+
+    run(scenario())
