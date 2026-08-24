@@ -73,7 +73,11 @@ async def execute_text_messages(
 
         if idx > 0:
             delay = _human_inter_message_delay(text)
-            logger.info("Inter-message delay: %.2fs", delay)
+            logger.debug(
+                "Inter-message delay: %.2fs",
+                delay,
+                extra={"event_name": "response.delay"},
+            )
             try:
                 await platform.send_chat_action(msg.chat.id, "typing")
             except Exception:
@@ -107,14 +111,18 @@ async def execute_text_messages(
                 sent_messages.append(text)
                 preview = text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
                 logger.info(
-                    "Responded — sent_id=%s reply_to=%s part=%d/%d text=\"%s%s\"",
-                    sent_id,
-                    reply_to_id or "none",
+                    "Responded — part=%d/%d text=\"%s%s\"",
                     idx + 1,
                     len(pairs),
                     preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
                     "..." if LOG_CONTENT_PREVIEW_CHARS and len(text) > LOG_CONTENT_PREVIEW_CHARS else "",
                     extra={"event_name": "response.sent"},
+                )
+                logger.debug(
+                    "Delivery details — sent_id=%s reply_to=%s",
+                    sent_id,
+                    reply_to_id or "none",
+                    extra={"event_name": "response.delivery"},
                 )
                 if tag_target is not None and reply_to_id is not None:
                     logger.info(

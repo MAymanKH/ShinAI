@@ -100,6 +100,12 @@ Every admitted interaction carries fields such as:
 rid=7f4ab229d1 platform=telegram chat=-100123 msg=456 user=789
 ```
 
+At INFO level the console shows only the request ID and platform to keep lines
+readable. Rotating file logs retain the full chat, message, and user identifiers.
+DEBUG console output also includes the full context. SDK download progress and
+repeated advisory warnings are suppressed; model loading remains visible as one
+start event and one ready event.
+
 Use that request ID to reconstruct one interaction across modules:
 
 ```bash

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import os
 import threading
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from shin_ai.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MAX_CONCURRENCY, EMBEDDING_MODEL
 from shin_ai.utils.logger_config import logger
+
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 ModelFactory = Callable[[str], Any]
 Offload = Callable[..., Awaitable[Any]]
@@ -54,9 +57,17 @@ class EmbeddingService:
             return self._model
         with self._model_lock:
             if self._model is None:
-                logger.info("Loading embedding model '%s'...", self.model_name)
+                logger.info(
+                    "Loading embedding model '%s'...",
+                    self.model_name,
+                    extra={"event_name": "model.loading"},
+                )
                 self._model = self._model_factory(self.model_name)
-                logger.info("Embedding model '%s' loaded.", self.model_name)
+                logger.info(
+                    "Embedding model '%s' loaded.",
+                    self.model_name,
+                    extra={"event_name": "model.ready"},
+                )
         return self._model
 
     def _encode_sync(self, texts: str | Sequence[str]):

@@ -167,17 +167,18 @@ async def gemini_api(
                     total_in = getattr(usage, "prompt_token_count", 0) or 0
                     if cached > 0 and total_in:
                         pct = cached / total_in * 100
-                        logger.info(
+                        logger.debug(
                             "Gemini cache hit: %d/%d input tokens cached (%.0f%%) — model=%s",
                             cached, total_in, pct, model,
+                            extra={"event_name": "provider.cache"},
                         )
 
                 await reservation.succeeded()
-                logger.info(
+                logger.debug(
                     "Gemini pair succeeded — model=%s key=%s",
                     model,
                     reservation.key_name,
-                    extra={"event_name": "provider.succeeded"},
+                    extra={"event_name": "provider.pair"},
                 )
                 return response_text, pending_actions
             except asyncio.CancelledError:
@@ -194,13 +195,29 @@ async def gemini_api(
                 last_exception = e
                 failure = classify_gemini_error(e)
                 await reservation.failed(failure)
-                logger.warning(
-                    "Gemini pair failed — model=%s key=%s kind=%s status=%s error=%s",
+                log_failure = (
+                    logger.warning
+                    if failure.kind in {
+                        GeminiFailureKind.AUTHENTICATION,
+                        GeminiFailureKind.INVALID_REQUEST,
+                        GeminiFailureKind.UNKNOWN,
+                    }
+                    else logger.info
+                )
+                log_failure(
+                    "Gemini retry — model=%s key=%s reason=%s status=%s",
                     model,
                     reservation.key_name,
                     failure.kind.value,
                     failure.status_code,
+                    extra={"event_name": "provider.retry"},
+                )
+                logger.debug(
+                    "Gemini failure detail — model=%s key=%s error=%s",
+                    model,
+                    reservation.key_name,
                     failure.message,
+                    extra={"event_name": "provider.failure_detail"},
                 )
                 continue
 

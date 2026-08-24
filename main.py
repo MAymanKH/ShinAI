@@ -32,10 +32,18 @@ async def main():
 
     for platform_label, platform in configured_platforms:
         if platform is None:
-            logger.info(f"{platform_label} platform is disabled or unavailable.")
+            logger.info(
+                "%s platform is disabled or unavailable.",
+                platform_label,
+                extra={"event_name": "platform.disabled"},
+            )
             continue
 
-        logger.info(f"Starting {platform_label} Platform...")
+        logger.info(
+            "Starting %s platform...",
+            platform_label,
+            extra={"event_name": "platform.starting"},
+        )
         try:
             await platform.start()
             active_platforms.append((platform_label, platform))

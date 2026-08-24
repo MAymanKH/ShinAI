@@ -21,7 +21,10 @@ def load_handlers() -> None:
         logger.error("Failed to load handlers: %s", e)
         return
 
-    logger.info("Handlers loaded successfully.")
+    logger.info(
+        "Handlers loaded successfully.",
+        extra={"event_name": "lifecycle.handlers"},
+    )
 
 
 __all__ = ["app", "load_handlers"]
