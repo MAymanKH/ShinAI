@@ -18,6 +18,7 @@ An intelligent multi-platform bot that acts like a real group member - not an as
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
+- [Operations and Testing](#operations-and-testing)
 - [Multi-Platform Support](#multi-platform-support)
 - [Triggers](#triggers)
 - [Capabilities & Technical Deep Dive](#capabilities--technical-deep-dive)
@@ -192,6 +193,8 @@ whisper:
   max_concurrent_transcriptions: 1 # Bound native inference workspaces
   process_isolation: true           # Reclaim native memory by stopping the worker
   idle_timeout_seconds: 600
+  timeout_seconds: 180
+  max_file_bytes: 25000000
 
 # Web Search Settings
 web_search:
@@ -204,6 +207,8 @@ embedding:
   model: intfloat/multilingual-e5-large # Transformer used for memories and style indexing
   max_concurrency: 1
   batch_size: 16
+chroma:
+  path: chroma_db # Use a different embedded path for each concurrent process
 style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
 
 # Runtime bounds prevent traffic bursts from creating unlimited tasks or retained media.
@@ -213,6 +218,7 @@ runtime:
   per_chat_queue_size: 20
   interaction_ttl_seconds: 300
   shutdown_grace_seconds: 30
+  platform_message_cache_size: 500
   context:
     max_chats: 2000
     messages_per_chat: 50
@@ -388,16 +394,24 @@ ShinAI/
 │   ├── config.py          # Configuration loading
 │   ├── core/              # Core functionality
 │   │   ├── client.py      # Pyrogram client
+│   │   ├── handler.py     # Admission-to-response orchestration
+│   │   ├── interaction_scheduler.py
+│   │   ├── lifecycle.py
 │   │   ├── prompt_builder.py
+│   │   ├── provider_router.py
+│   │   ├── response_policy.py
 │   │   ├── action_executor.py
 │   │   └── state.py
+│   ├── coordination/      # SQLite/in-memory shared state backends
 │   ├── data/              # Data templates
 │   │   ├── personality_template.py
 │   │   ├── stickers_template.py
 │   │   └── loader.py
 │   ├── handlers/          # Message handlers
-│   │   ├── chat.py
-│   │   ├── fun.py
+│   │   ├── common.py
+│   │   ├── telegram_chat.py
+│   │   ├── discord_chat.py
+│   │   ├── whatsapp_chat.py
 │   │   └── stats.py
 │   ├── providers/         # AI providers
 │   │   ├── gemini.py
@@ -407,6 +421,9 @@ ShinAI/
 │   │   ├── registry.py
 │   │   └── tool_loop.py
 │   ├── services/          # Business logic
+│   │   ├── audio_transcriber.py
+│   │   ├── embeddings.py
+│   │   ├── media.py
 │   │   ├── social.py
 │   │   └── replies.py
 │   ├── stylers/           # Style learning
@@ -426,8 +443,20 @@ ShinAI/
 └── data/                  # Runtime data (gitignored)
     ├── gemini_keys.json
     ├── gemini_stats.json
-    └── bot_replies.json
+    ├── bot_replies.json
+    └── coordination.sqlite3
 ```
+
+For component responsibilities and extension rules, see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Operations and Testing
+
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers two-instance SQLite setup,
+  shared vs. separate credentials, memory expectations, logging, rollout, and
+  the point at which Redis would become useful.
+- [`docs/TESTING.md`](docs/TESTING.md) covers fast verification, targeted suites,
+  CI behavior, and the invariants protected by the tests.
 
 ## Multi-Platform Support
  
@@ -596,7 +625,10 @@ To avoid invading group chats inappropriately, any message that might be a conti
 
 ### Audio Processing Pipeline
 
-When a voice message or audio file is received, the platform adapter routes the raw audio bytes to the built-in transcription service. It runs `faster-whisper` inference on a dedicated thread pool to prevent blocking the async event loop. Once the audio is transcribed into text, it is injected into the standard message processing pipeline as if the user had typed it, maintaining a seamless conversational flow.
+When a voice message or audio file is requested by the model, the transcription
+service admits one bounded download at a time. By default `faster-whisper` runs
+in a spawned child process, keeping native inference off the event loop and
+allowing the OS to reclaim its memory after the configured idle timeout.
 
 ### Reliability & Retries
 
@@ -613,7 +645,9 @@ ShinAI supports two main types of AI providers under the hood: Google Gemini (na
 
 ### Gemini
 - Supports native **multimodal image understanding** (photos, stickers).
-- Supports API key rotation (manage keys in `data/gemini_keys.json` to rotate and track quota/health via `/gstats`).
+- Rotates credential/model pairs with shared SQLite leases and pair-specific
+  cooldowns. A model remains available while at least one configured key works.
+- Manage keys in `data/gemini_keys.json` and inspect current health via `/gstats`.
 - Configured using the `gemini` provider type in `config.yaml`.
 
 ### OpenAI-Compatible APIs
