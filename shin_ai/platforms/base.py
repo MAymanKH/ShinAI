@@ -1,5 +1,7 @@
 import hashlib
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable
+from typing import Any
 
 from shin_ai.platforms.models import UnifiedMedia, UnifiedMessage, UnifiedUser
 
@@ -25,6 +27,29 @@ class PlatformAdapter(ABC):
         return True
 
     @property
+    def uses_integer_message_ids(self) -> bool:
+        """Whether message ids are numeric and must be coerced to int.
+
+        Telegram and Discord number their messages; WhatsApp uses opaque
+        string stanza ids that must be passed through untouched.
+        """
+        return True
+
+    @property
+    def sticker_id_prefix(self) -> str:
+        """Prefix the adapter expects on sticker identifiers, if any."""
+        return ""
+
+    @property
+    def prefers_native_reply(self) -> bool:
+        """Whether an untagged first reply should use reply_to_message().
+
+        WhatsApp quotes correctly only when replying through the native event
+        it just ingested, rather than by looking the id up in a cache.
+        """
+        return False
+
+    @property
     def coordination_scope(self) -> str:
         """Stable, non-secret identity used to coordinate duplicate events.
 
@@ -37,6 +62,15 @@ class PlatformAdapter(ABC):
     @staticmethod
     def credential_fingerprint(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+    @abstractmethod
+    def to_unified_message(self, native_message: Any) -> UnifiedMessage | Awaitable[UnifiedMessage]:
+        """Translate a platform-native message into the unified model.
+
+        WhatsApp must query group metadata to build a chat title, so its
+        implementation is a coroutine; callers await the result when the
+        adapter returns one.
+        """
 
     @abstractmethod
     async def get_bot_user(self) -> UnifiedUser:

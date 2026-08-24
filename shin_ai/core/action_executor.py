@@ -87,7 +87,7 @@ async def execute_text_messages(
         if tag_target is not None:
             candidate = tag_target
             if (
-                platform.platform_name in {"telegram", "discord"}
+                platform.uses_integer_message_ids
                 and isinstance(candidate, str)
                 and candidate.isdigit()
             ):
@@ -104,7 +104,7 @@ async def execute_text_messages(
             reply_to_id = _normalize_reply_target(platform, default_reply_to_id)
 
         try:
-            if platform.platform_name == "whatsapp" and idx == 0 and tag_target is None:
+            if platform.prefers_native_reply and idx == 0 and tag_target is None:
                 sent_id = await platform.reply_to_message(msg, text)
             else:
                 sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
@@ -250,9 +250,10 @@ async def _execute_sticker(
         logger.info(f"Platform {platform.platform_name} doesn't support stickers. Dropping.")
         return False
 
-    # WhatsApp expects 'wa:<filename>' prefix; normalise if the model omitted it.
-    if platform.platform_name == "whatsapp" and not sticker_id.lower().startswith("wa:"):
-        sticker_id = f"wa:{sticker_id}"
+    # Some adapters expect a prefixed identifier; normalise if the model omitted it.
+    prefix = platform.sticker_id_prefix
+    if prefix and not sticker_id.lower().startswith(prefix.lower()):
+        sticker_id = f"{prefix}{sticker_id}"
 
     raw_reply = action.get("reply_to_message_id")
     reply_to_id = _normalize_reply_target(
@@ -346,11 +347,11 @@ async def _execute_mod_action(
         elif mod_action == "ban":
             await platform.ban_chat_member(msg.chat.id, target.id)
         elif mod_action == "mute":
-            if not getattr(platform, "supports_member_restrictions", True):
+            if not platform.supports_member_restrictions:
                 return f"MUTE FAILED: Platform {platform.platform_name} does not support per-user mute."
             await platform.restrict_chat_member(msg.chat.id, target.id, False)
         elif mod_action == "unmute":
-            if not getattr(platform, "supports_member_restrictions", True):
+            if not platform.supports_member_restrictions:
                 return f"UNMUTE FAILED: Platform {platform.platform_name} does not support per-user unmute."
             await platform.restrict_chat_member(msg.chat.id, target.id, True)
 
@@ -543,7 +544,7 @@ def _normalize_reply_target(
     if reply_to_id is None:
         return None
 
-    if platform.platform_name in {"telegram", "discord"}:
+    if platform.uses_integer_message_ids:
         if isinstance(reply_to_id, int):
             return reply_to_id
         if isinstance(reply_to_id, str) and reply_to_id.isdigit():

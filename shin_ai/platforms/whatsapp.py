@@ -77,6 +77,20 @@ class WhatsAppPlatform(PlatformAdapter):
         return False
 
     @property
+    def uses_integer_message_ids(self) -> bool:
+        # Stanza ids are opaque strings such as "3EB0C767D..."; coercing them
+        # to int would silently discard every reply target.
+        return False
+
+    @property
+    def sticker_id_prefix(self) -> str:
+        return "wa:"
+
+    @property
+    def prefers_native_reply(self) -> bool:
+        return True
+
+    @property
     def coordination_scope(self) -> str:
         me = self.client.me
         if me and me.JID.ListFields():
