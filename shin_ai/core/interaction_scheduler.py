@@ -30,8 +30,8 @@ class _Job(Generic[Payload]):
     sequence: int
     chat_key: Hashable
     payload: Payload
-    created_at: float
     ready_at: float
+    expires_at: float
 
 
 @dataclass(slots=True)
@@ -131,14 +131,17 @@ class InteractionScheduler(Generic[Payload]):
 
             now = self._clock()
             apply_delay = not queue.active and not queue.jobs
+            ready_at = now + max(0.0, delay_seconds) if apply_delay else now
             job = _Job(
                 sequence=next(self._sequence),
                 chat_key=chat_key,
                 payload=payload,
-                created_at=now,
                 # Delay the first message in a chat burst, then drain that
                 # chat in order, matching the bot's existing behavior.
-                ready_at=now + max(0.0, delay_seconds) if apply_delay else now,
+                ready_at=ready_at,
+                # Intentional human-like delay is not time spent waiting in
+                # the work queue and must not consume the queue TTL.
+                expires_at=ready_at + self.job_ttl_seconds,
             )
             was_empty = not queue.jobs
             queue.jobs.append(job)
@@ -219,8 +222,7 @@ class InteractionScheduler(Generic[Payload]):
 
     async def _run_job(self, job: _Job[Payload]) -> None:
         try:
-            age = self._clock() - job.created_at
-            if age > self.job_ttl_seconds:
+            if self._clock() > job.expires_at:
                 if self._on_drop:
                     self._on_drop(job.payload, "interaction_expired")
                 return

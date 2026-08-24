@@ -7,6 +7,17 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def test_scheduler_preserves_order_within_each_chat() -> None:
     async def scenario() -> None:
         completed: list[tuple[str, int]] = []
@@ -141,6 +152,59 @@ def test_scheduler_only_applies_delay_to_start_of_chat_burst() -> None:
         assert first.delay_applied == 10
         assert second.delay_applied == 0
         await scheduler.close(grace_seconds=0.01)
+
+    run(scenario())
+
+
+def test_scheduler_ttl_starts_after_intentional_delay() -> None:
+    async def scenario() -> None:
+        clock = FakeClock()
+        handled: list[str] = []
+        dropped: list[tuple[str, str]] = []
+        scheduler = InteractionScheduler(
+            lambda payload: asyncio.sleep(0, result=handled.append(payload)),
+            max_concurrent=1,
+            max_pending=10,
+            per_chat_limit=10,
+            job_ttl_seconds=300,
+            on_drop=lambda payload, reason: dropped.append((payload, reason)),
+            clock=clock,
+        )
+
+        result = await scheduler.submit("chat", "message", delay_seconds=300)
+        clock.advance(300.001)
+        await asyncio.wait_for(scheduler.wait_idle(), timeout=1)
+        await scheduler.close()
+
+        assert result.accepted
+        assert handled == ["message"]
+        assert dropped == []
+
+    run(scenario())
+
+
+def test_scheduler_drops_job_after_delay_plus_queue_ttl() -> None:
+    async def scenario() -> None:
+        clock = FakeClock()
+        handled: list[str] = []
+        dropped: list[tuple[str, str]] = []
+        scheduler = InteractionScheduler(
+            lambda payload: asyncio.sleep(0, result=handled.append(payload)),
+            max_concurrent=1,
+            max_pending=10,
+            per_chat_limit=10,
+            job_ttl_seconds=300,
+            on_drop=lambda payload, reason: dropped.append((payload, reason)),
+            clock=clock,
+        )
+
+        await scheduler.submit("chat", "message", delay_seconds=300)
+        clock.advance(600.001)
+        await asyncio.wait_for(scheduler.wait_idle(), timeout=1)
+        await scheduler.close()
+
+        assert handled == []
+        assert dropped == [("message", "interaction_expired")]
 
     run(scenario())
 
