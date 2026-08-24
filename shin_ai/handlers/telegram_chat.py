@@ -42,7 +42,10 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
                 text_preview = (text or "<no text>").replace("\n", " ")[:80]
                 logger.debug(
                     "[TelegramFilter] chat=%s user=%s reason=%s text='%s'",
-                    chat_id, user_id, reason, text_preview,
+                    chat_id,
+                    user_id,
+                    reason,
+                    text_preview,
                 )
 
         _debug(reason)
@@ -61,7 +64,9 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
                 user_id = getattr(msg.from_user, "id", "unknown") if msg.from_user else "unknown"
                 logger.debug(
                     "[TelegramRecv] chat=%s type=%s user=%s",
-                    chat_id, str(unified_msg.chat.type).lower(), user_id,
+                    chat_id,
+                    str(unified_msg.chat.type).lower(),
+                    user_id,
                 )
 
             should_respond = await should_respond_to_message(
@@ -85,8 +90,6 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
         except Exception as e:
             logger.error(f"Telegram process_message failed: {e}")
 elif TELEGRAM_ENABLED and not TELEGRAM_CONFIGURED:
-    logger.warning(
-        "Telegram handlers were not registered because Telegram credentials are incomplete."
-    )
+    logger.warning("Telegram handlers were not registered because Telegram credentials are incomplete.")
 else:
     logger.info("Telegram handlers are disabled by configuration.")

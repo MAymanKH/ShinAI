@@ -13,8 +13,10 @@ async def stats_command(client: Client, msg: Message):
     # Rate limit check (admin is exempt)
     wait_time = check_gstats_rate_limit(msg.from_user.id)
     if wait_time > 0:
-        return await msg.reply_text(f"⏳ Please wait {wait_time // 60}m {wait_time % 60}s before checking stats again.")
-    
+        return await msg.reply_text(
+            f"⏳ Please wait {wait_time // 60}m {wait_time % 60}s before checking stats again."
+        )
+
     status_msg = await msg.reply_text("Reading shared Gemini health...")
     stats_msg = await get_gemini_stats_message(detailed=False)
     await status_msg.edit_text(stats_msg)
@@ -25,7 +27,7 @@ async def stats_details_command(client: Client, msg: Message):
     """Display detailed Gemini API key statistics (admin only)."""
     if msg.from_user.id != ADMIN_USER_ID:
         return
-    
+
     status_msg = await msg.reply_text("Reading shared Gemini health...")
     stats_msg = await get_gemini_stats_message(detailed=True)
     await status_msg.edit_text(stats_msg)

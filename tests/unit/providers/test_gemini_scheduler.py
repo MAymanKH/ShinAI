@@ -253,10 +253,13 @@ def test_partially_overlapping_pools_coordinate_only_the_shared_key(tmp_path) ->
                 excluded_keys={"only-first"},
             )
             assert shared_reservation is not None
-            assert await second.reserve(
-                "model",
-                excluded_keys={"only-second"},
-            ) is None
+            assert (
+                await second.reserve(
+                    "model",
+                    excluded_keys={"only-second"},
+                )
+                is None
+            )
 
             independent_reservation = await second.reserve(
                 "model",

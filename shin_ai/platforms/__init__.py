@@ -13,5 +13,5 @@ __all__ = [
     "UnifiedMedia",
     "UnifiedMessage",
     "UnifiedMessageEntity",
-    "UnifiedUser"
+    "UnifiedUser",
 ]

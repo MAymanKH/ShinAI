@@ -65,6 +65,7 @@ class NativeWorkLimiter:
 
         async def run_work() -> Result:
             async with self._semaphore:
+
                 def commit() -> None:
                     state.committed = True
 

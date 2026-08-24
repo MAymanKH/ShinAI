@@ -4,6 +4,7 @@ Generic OpenAI-Compatible Provider
 Handles any provider that exposes an OpenAI-compatible chat completions API
 (OpenRouter, Groq, Cerebras, DeepSeek, Together AI, vLLM, Ollama, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio

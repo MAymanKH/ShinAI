@@ -67,9 +67,7 @@ def parse_model_response(answer: str, *, has_actions: bool) -> ResponseDecision:
     filtered_count = 0
     if has_actions and messages:
         visible_messages = tuple(
-            message
-            for message in messages
-            if not _ACTION_META_COMMENTARY_PATTERN.search(message[0])
+            message for message in messages if not _ACTION_META_COMMENTARY_PATTERN.search(message[0])
         )
         filtered_count = len(messages) - len(visible_messages)
         messages = list(visible_messages)
@@ -91,7 +89,7 @@ def extract_skip_token(answer: str) -> tuple[bool, str]:
         if not match:
             bare_skip = _BARE_SKIP.fullmatch(text) is not None
             return bare_skip, "" if bare_skip else text
-        remainder = text[match.end():].strip()
+        remainder = text[match.end() :].strip()
 
     if not remainder or all(character in "-–—`[].,!? \n" for character in remainder):
         return True, ""
@@ -116,7 +114,7 @@ def _parse_reply_to_tag(text: str) -> tuple[str | None, str]:
         return None, text
 
     target = match.group(1)
-    remainder = text[match.end():].strip()
+    remainder = text[match.end() :].strip()
     if not remainder:
         return None, text
     return target, remainder

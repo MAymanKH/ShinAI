@@ -1,4 +1,3 @@
-
 import pytest
 
 from shin_ai.providers.gemini_errors import GeminiFailureKind, classify_gemini_error
@@ -30,4 +29,3 @@ def test_classifier_uses_retry_after() -> None:
     failure = classify_gemini_error(APIError(429, "quota", retry_after=17.5))
 
     assert failure.retry_after_seconds == 17.5
-

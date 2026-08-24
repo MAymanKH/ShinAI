@@ -89,18 +89,14 @@ def _load_analytics_data():
     offset = 0
     while True:
         try:
-            batch = _get_memory_collection().get(
-                limit=batch_size,
-                offset=offset,
-                include=["metadatas"]
-            )
+            batch = _get_memory_collection().get(limit=batch_size, offset=offset, include=["metadatas"])
             batch_ids = batch.get("ids", [])
             if not batch_ids:
                 break
-            
+
             batch_metadatas = batch.get("metadatas", [])
             metadatas.extend(batch_metadatas)
-            
+
             if len(batch_ids) < batch_size:
                 break
             offset += batch_size
@@ -233,8 +229,7 @@ def _main_view_text(analytics):
 
     top_platforms = analytics["platform_counts"].most_common(5)
     platform_text = "\n".join(
-        f"• {_format_platform(platform)}: {count} intrx"
-        for platform, count in top_platforms
+        f"• {_format_platform(platform)}: {count} intrx" for platform, count in top_platforms
     )
     if not platform_text:
         platform_text = "No platform activity yet."
@@ -299,7 +294,12 @@ def _render_chats_view(analytics, requested_page: int):
     chat_label_by_id = analytics["chat_label_by_id"]
     rows = sorted(
         analytics["chat_counts"].items(),
-        key=lambda item: (-item[1], chat_label_by_id.get(item[0], f"Chat {item[0][1]}"), item[0][1], item[0][0]),
+        key=lambda item: (
+            -item[1],
+            chat_label_by_id.get(item[0], f"Chat {item[0][1]}"),
+            item[0][1],
+            item[0][0],
+        ),
     )
     total_items = len(rows)
     max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
@@ -347,7 +347,9 @@ def _render_activity_view(analytics, requested_page: int):
             platform = _format_platform(_safe_str(meta.get("platform"), "Unknown"))
             username = _format_username(_safe_str(meta.get("username"), "Unknown"))
             chat_id = _safe_str(meta.get("chat_id"), "Unknown")
-            chat_label = chat_label_by_id.get((platform, chat_id), _safe_str(meta.get("chat_title"), "Unknown"))
+            chat_label = chat_label_by_id.get(
+                (platform, chat_id), _safe_str(meta.get("chat_title"), "Unknown")
+            )
             date_string = _safe_str(meta.get("date_string"), "Unknown")
             lines.append(f"{start + idx + 1}. {platform} | {username} in {chat_label} at {date_string}")
         body = "\n".join(lines)
@@ -380,6 +382,7 @@ def _render_view(view: str, page: int):
         return _render_activity_view(analytics, page)
 
     return _main_view_text(analytics), _main_keyboard()
+
 
 @app.on_message(filters.command("shinai_analytics"))
 async def show_analytics(client: Client, msg: Message):

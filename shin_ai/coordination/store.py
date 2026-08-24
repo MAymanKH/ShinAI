@@ -234,7 +234,7 @@ class SQLiteCoordinationStore(CoordinationStore):
         with self._lock:
             # Stay below SQLite's variable limit even for unusually large pools.
             for offset in range(0, len(keys), 400):
-                chunk = keys[offset:offset + 400]
+                chunk = keys[offset : offset + 400]
                 placeholders = ",".join("?" for _ in chunk)
                 rows = self._connection.execute(
                     f"""

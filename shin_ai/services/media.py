@@ -99,7 +99,7 @@ async def attach_audio_transcription(
     media_type = "Voice message" if audio_msg.voice else "Audio file"
     source = "from user" if audio_msg is msg else f"from {sender_name} (replied-to message)"
     disclaimer = (
-        f"[{media_type} {source} - Transcription]: \"{transcription}\"\n"
+        f'[{media_type} {source} - Transcription]: "{transcription}"\n'
         "[TRANSCRIPTION NOTE: The above was transcribed from audio. It may contain "
         "phonetic spelling errors, hallucinated artifacts, or illogical words due to "
         "dialect variations (especially Egyptian Arabic). Before responding, intelligently "
@@ -125,11 +125,7 @@ async def download_message_media(
     msg: UnifiedMessage,
 ) -> list[dict]:
     async def download(target: UnifiedMessage):
-        sender = (
-            target.from_user.username or target.from_user.first_name
-            if target.from_user
-            else "Unknown"
-        )
+        sender = target.from_user.username or target.from_user.first_name if target.from_user else "Unknown"
         if target.photo:
             return (
                 await platform.download_media(target.photo),
@@ -187,7 +183,7 @@ async def transcribe_audio_message(
         )
         if transcription:
             logger.info(
-                "Audio transcribed — mime=%s chars=%d preview=\"%s%s\"",
+                'Audio transcribed — mime=%s chars=%d preview="%s%s"',
                 mime_type,
                 len(transcription),
                 transcription[:80],
@@ -233,9 +229,7 @@ async def download_context_media(
         if not message:
             continue
         sender = (
-            message.from_user.username or message.from_user.first_name
-            if message.from_user
-            else "Unknown"
+            message.from_user.username or message.from_user.first_name if message.from_user else "Unknown"
         )
         if message.photo:
             content = await platform.download_media(message.photo)

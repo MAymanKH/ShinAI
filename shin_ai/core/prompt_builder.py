@@ -11,6 +11,7 @@ Architecture:
                    memory, social context, runtime metadata, reply chain)
                    wrapped in XML tags, followed by the actual user message.
 """
+
 from datetime import datetime
 
 from dateutil.tz import tzlocal
@@ -33,7 +34,7 @@ def format_core_relationships(core_rels) -> str:
         preferred_name = info.get("preferred_name", key)
         desc = info.get("backstory", info.get("description", ""))
         loc = info.get("location", "")
-        
+
         # Build platform username tags
         tg = info.get("telegram_username")
         dc = info.get("discord_username")
@@ -45,9 +46,9 @@ def format_core_relationships(core_rels) -> str:
                 usernames.append(f"@{tg} on Telegram")
             if dc:
                 usernames.append(f"@{dc} on Discord")
-        
+
         uname_str = f" ({' & '.join(usernames)})" if usernames else ""
-        
+
         line = f"- {role}: **{preferred_name}**{uname_str}."
         if preferred_name:
             line += f' Preferred name: "{preferred_name}".'
@@ -245,7 +246,7 @@ def build_runtime_context(
 ) -> str:
     """
     Build the runtime context metadata string.
-    
+
     Args:
         username: User's Platform username
         full_name: User's full name
@@ -256,7 +257,7 @@ def build_runtime_context(
         chat_title: Title of the chat/group
         chat_id: Chat's Platform ID
         interaction_type: Type of interaction (DIRECT or RANDOM)
-        
+
     Returns:
         Formatted runtime context string
     """
@@ -281,17 +282,23 @@ def build_target_instructions(
     Build the available message-ID targets for tools (send_reaction /
     send_sticker / moderate_user) AND for [REPLY_TO:...] tags on text messages.
     """
-    parts = [f"- Message ID '{msg_id}' was sent by {sender_name} (the user who just sent the triggering message)"]
+    parts = [
+        f"- Message ID '{msg_id}' was sent by {sender_name} (the user who just sent the triggering message)"
+    ]
 
     if reply_msg:
         parent_name = "Unknown"
-        if hasattr(reply_msg, 'from_user') and reply_msg.from_user:
+        if hasattr(reply_msg, "from_user") and reply_msg.from_user:
             parent_name = reply_msg.from_user.first_name or "Unknown"
 
-        parts.append(f"- Message ID '{reply_msg.id}' was sent by {parent_name} (the message the user replied to)")
+        parts.append(
+            f"- Message ID '{reply_msg.id}' was sent by {parent_name} (the message the user replied to)"
+        )
 
-        if hasattr(reply_msg, 'reply_to_message_id') and reply_msg.reply_to_message_id:
-            parts.append(f"- Message ID '{reply_msg.reply_to_message_id}' (the parent of the replied message)")
+        if hasattr(reply_msg, "reply_to_message_id") and reply_msg.reply_to_message_id:
+            parts.append(
+                f"- Message ID '{reply_msg.reply_to_message_id}' (the parent of the replied message)"
+            )
 
     parts.append("- Any other message ID shown as (id:XXXXX) in the chat history can also be targeted.")
 

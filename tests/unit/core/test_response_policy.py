@@ -68,9 +68,7 @@ def test_meta_commentary_is_not_filtered_without_an_action() -> None:
 
 
 def test_reply_targets_are_parsed_per_message() -> None:
-    assert split_reply_messages(
-        "[REPLY_TO:123] First---[reply_to:ABC_9] Second---Third"
-    ) == [
+    assert split_reply_messages("[REPLY_TO:123] First---[reply_to:ABC_9] Second---Third") == [
         ("First", "123"),
         ("Second", "ABC_9"),
         ("Third", None),

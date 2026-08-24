@@ -33,9 +33,7 @@ class _Platform:
 
 def test_extract_prompt_uses_text_then_media_placeholder() -> None:
     assert extract_prompt(_message(1, text="hello")) == "hello"
-    assert extract_prompt(
-        _message(2, photo=UnifiedMedia(type="PHOTO", id="photo"))
-    ) == "[User sent a photo]"
+    assert extract_prompt(_message(2, photo=UnifiedMedia(type="PHOTO", id="photo"))) == "[User sent a photo]"
 
 
 def test_download_message_media_preserves_reply_positions() -> None:
@@ -65,9 +63,7 @@ def test_prepare_prompt_transcribes_audio_inside_injected_service() -> None:
         assert await loader() == b"content-voice"
         return "heard words"
 
-    prompt, media = run(
-        prepare_prompt_and_media(_Platform(), message, transcriber=transcriber)
-    )
+    prompt, media = run(prepare_prompt_and_media(_Platform(), message, transcriber=transcriber))
 
     assert "heard words" in prompt
     assert prompt.endswith("answer this")

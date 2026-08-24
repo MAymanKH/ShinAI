@@ -33,9 +33,7 @@ def load_keys() -> dict[str, str]:
         logger.error("Gemini key file %s must contain a JSON object.", GEMINI_KEYS_FILE)
         return {}
     return {
-        str(name): str(value)
-        for name, value in decoded.items()
-        if str(name).strip() and str(value).strip()
+        str(name): str(value) for name, value in decoded.items() if str(name).strip() and str(value).strip()
     }
 
 

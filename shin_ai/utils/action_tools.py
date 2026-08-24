@@ -24,6 +24,7 @@ Platform support summary (authoritative — mirrors actual adapter capabilities)
     unmute      : Telegram ✅  WhatsApp ❌  Discord ✅
     add         : Telegram ✅  WhatsApp ❌  Discord ❌
 """
+
 from __future__ import annotations
 
 import json
@@ -200,7 +201,9 @@ async def handle_moderate_user(args: dict) -> tuple[str, dict]:
     target_message_id = args.get("target_message_id")
     logger.info(
         "Queuing moderate_user: action=%r, target_username=%r, target_message_id=%r",
-        action, target_username, target_message_id,
+        action,
+        target_username,
+        target_message_id,
     )
     pending = {
         "type": "moderation",

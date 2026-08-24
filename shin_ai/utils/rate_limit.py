@@ -1,6 +1,7 @@
 """
 Rate limiting utilities for ShinAI.
 """
+
 import time
 
 from shin_ai.config import (
@@ -37,10 +38,7 @@ def _cleanup_expired(now: float) -> None:
     _last_cleanup = now
 
     # Clean up per-user rate limit entries
-    expired_users = [
-        uid for uid, ts in _last_used.items()
-        if now - ts > _ENTRY_TTL
-    ]
+    expired_users = [uid for uid, ts in _last_used.items() if now - ts > _ENTRY_TTL]
     for uid in expired_users:
         _last_used.pop(uid, None)
 
@@ -87,10 +85,7 @@ def check_group_rate_limit(platform_name: str, chat_id: int | str) -> bool:
 
     # Prune timestamps outside the sliding window
     if key in _group_timestamps:
-        _group_timestamps[key] = [
-            ts for ts in _group_timestamps[key]
-            if now - ts < GROUP_WINDOW_SECONDS
-        ]
+        _group_timestamps[key] = [ts for ts in _group_timestamps[key] if now - ts < GROUP_WINDOW_SECONDS]
 
     timestamps = _group_timestamps.setdefault(key, [])
     if len(timestamps) >= GROUP_MAX_RESPONSES:

@@ -24,24 +24,33 @@ def _get_memory_collection():
 
 
 # Memory Storage
-async def save_memory(platform: str, user_id: int | str, username: str, prompt: str, response: str, context: str = "", chat_id: int | str = 0, chat_title: str = ""):
+async def save_memory(
+    platform: str,
+    user_id: int | str,
+    username: str,
+    prompt: str,
+    response: str,
+    context: str = "",
+    chat_id: int | str = 0,
+    chat_title: str = "",
+):
     """
     Saves a user-bot interaction to the vector database.
     """
     try:
         if not response or not prompt:
             return
-        
+
         # Get formatted timestamp
         now_str = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-        # Format the memory text. 
+        # Format the memory text.
         if context:
             # If there is context (previous reply), include it so the memory stands on its own
             memory_text = f"Context: {context}\nUser ({username}) said: {prompt}\nBot replied: {response}"
         else:
             memory_text = f"User ({username}) said: {prompt}\nBot replied: {response}"
-        
+
         # Clean up reaction responses for better reading in future
         if response.startswith("react:"):
             reaction = response.split(":")[1]
@@ -50,7 +59,11 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
             memory_text = f"User ({username}) said: {prompt}\nBot sent a sticker."
 
         # Add timestamp and chat title to the readable memory text
-        chat_prefix = f" [Chat: {chat_title} on {platform.title()}]" if chat_title else f" [Platform: {platform.title()}]"
+        chat_prefix = (
+            f" [Chat: {chat_title} on {platform.title()}]"
+            if chat_title
+            else f" [Platform: {platform.title()}]"
+        )
         memory_text = f"[{now_str}]{chat_prefix}\n{memory_text}"
 
         # Metadata for filtering/context
@@ -60,26 +73,28 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
             "username": username or "Unknown",
             "timestamp": int(time.time()),
             "date_string": now_str,
-            "type": "conversation"
+            "type": "conversation",
         }
         if chat_id:
             meta["chat_id"] = str(chat_id)
         if chat_title:
             meta["chat_title"] = chat_title
-        
+
         # Unique Memory ID
         mem_id = str(uuid.uuid4())
-        
+
         # Create embedding
         # We specifically embed the interaction itself, ignoring the previous context prefix
         # This ensures that searching for "What did I say?" matches the actual content, not the context noise.
         # E5 requires "passage: " prefix for documents to be stored
         # We include the timestamp and chat_title in the passage so it's nominally searchable.
-        searchable_text = f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
+        searchable_text = (
+            f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
+        )
         # Off-thread to avoid blocking event loop
         embedding_tensor = await get_embedding_service().encode(searchable_text)
         embedding = embedding_tensor.tolist()
-        
+
         await asyncio.to_thread(
             _get_memory_collection().add,
             ids=[mem_id],
@@ -94,52 +109,55 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
 
 # Memory Retrieval
 
-def _apply_mmr(query_emb: list, candidate_docs: list, candidate_embs: list, limit: int, lambda_param: float = 0.65) -> list:
+
+def _apply_mmr(
+    query_emb: list, candidate_docs: list, candidate_embs: list, limit: int, lambda_param: float = 0.65
+) -> list:
     """
     Maximal Marginal Relevance (MMR) for diverse retrieval.
     Selects documents that are highly relevant but mutually diverse.
     """
     if not candidate_docs:
         return []
-        
+
     query_tensor = np.array(query_emb).reshape(1, -1)
     cand_tensor = np.array(candidate_embs)
-    
+
     # Calculate similarity between query and all candidates
     sim_to_query = cosine_similarity(query_tensor, cand_tensor)[0]
-    
+
     selected_indices = []
     available_indices = list(range(len(candidate_docs)))
-    
+
     # Pre-calculate similarity between all candidates for speed
     cand_sim_matrix = cosine_similarity(cand_tensor)
-    
+
     while len(selected_indices) < limit and available_indices:
-        best_score = -float('inf')
+        best_score = -float("inf")
         best_idx = -1
-        
+
         for idx in available_indices:
             rel_score = sim_to_query[idx]
-            
+
             # Diversity penalty: max similarity to already selected docs
             if selected_indices:
                 div_score = max([cand_sim_matrix[idx][s_idx] for s_idx in selected_indices])
             else:
                 div_score = 0.0
-                
+
             # MMR formula
             mmr_score = lambda_param * rel_score - (1.0 - lambda_param) * div_score
-            
+
             if mmr_score > best_score:
                 best_score = mmr_score
                 best_idx = idx
-                
+
         if best_idx != -1:
             selected_indices.append(best_idx)
             available_indices.remove(best_idx)
         else:
             break
-            
+
     return [candidate_docs[i] for i in selected_indices]
 
 
@@ -175,14 +193,14 @@ async def retrieve_memories(query: str, limit: int = 15):
             where=where_filter,
             include=["documents", "distances", "embeddings"],
         )
-        
+
         filtered_docs = []
         filtered_embs = []
-        
-        if results['documents']:
-            docs = results['documents'][0]
-            dists = results['distances'][0]
-            embs = results['embeddings'][0]
+
+        if results["documents"]:
+            docs = results["documents"][0]
+            dists = results["distances"][0]
+            embs = results["embeddings"][0]
 
             # Use a more lenient threshold when time-filtering
             threshold = 1.5 if where_filter else 1.3
@@ -220,13 +238,15 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
         )
         filtered_docs = []
         filtered_embs = []
-        
-        if results['documents']:
-            for doc, dist, emb in zip(results['documents'][0], results['distances'][0], results['embeddings'][0], strict=False):
+
+        if results["documents"]:
+            for doc, dist, emb in zip(
+                results["documents"][0], results["distances"][0], results["embeddings"][0], strict=False
+            ):
                 if dist < 1.3:
                     filtered_docs.append(doc)
                     filtered_embs.append(emb)
-                    
+
         return _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
     except Exception as e:
         logger.error("Failed to retrieve memories (unfiltered fallback): %s", e, exc_info=True)

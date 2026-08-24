@@ -22,7 +22,7 @@ class TelegramPlatform(PlatformAdapter):
     @property
     def platform_name(self) -> str:
         return "telegram"
-        
+
     @property
     def supports_stickers(self) -> bool:
         return True
@@ -36,10 +36,7 @@ class TelegramPlatform(PlatformAdapter):
             return self._bot_user
         me = await self.client.get_me()
         self._bot_user = UnifiedUser(
-            id=me.id,
-            username=me.username,
-            first_name=me.first_name or "",
-            is_self=True
+            id=me.id, username=me.username, first_name=me.first_name or "", is_self=True
         )
         return self._bot_user
 
@@ -101,16 +98,24 @@ class TelegramPlatform(PlatformAdapter):
         await self.client.stop()
         logger.info("Telegram Platform stopped.")
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_message(
+        self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         if reply_to_message_id:
-            msg = await self.client.send_message(int(chat_id), text, reply_to_message_id=int(reply_to_message_id))
+            msg = await self.client.send_message(
+                int(chat_id), text, reply_to_message_id=int(reply_to_message_id)
+            )
         else:
             msg = await self.client.send_message(int(chat_id), text)
         return msg.id
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_sticker(
+        self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         if reply_to_message_id:
-            msg = await self.client.send_sticker(int(chat_id), sticker_id, reply_to_message_id=int(reply_to_message_id))
+            msg = await self.client.send_sticker(
+                int(chat_id), sticker_id, reply_to_message_id=int(reply_to_message_id)
+            )
         else:
             msg = await self.client.send_sticker(int(chat_id), sticker_id)
         return msg.id
@@ -153,10 +158,7 @@ class TelegramPlatform(PlatformAdapter):
             user = await self.client.get_users(username)
             if user:
                 return UnifiedUser(
-                    id=user.id,
-                    username=user.username,
-                    first_name=user.first_name or "",
-                    is_self=user.is_self
+                    id=user.id, username=user.username, first_name=user.first_name or "", is_self=user.is_self
                 )
         except Exception:
             return None
@@ -180,7 +182,9 @@ class TelegramPlatform(PlatformAdapter):
     async def unban_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
         await self.client.unban_chat_member(int(chat_id), int(user_id))
 
-    async def restrict_chat_member(self, chat_id: int | str, user_id: int | str, can_send_messages: bool) -> None:
+    async def restrict_chat_member(
+        self, chat_id: int | str, user_id: int | str, can_send_messages: bool
+    ) -> None:
         if can_send_messages:
             permissions = ChatPermissions(
                 can_send_messages=True,
@@ -197,22 +201,18 @@ class TelegramPlatform(PlatformAdapter):
 
     def to_unified_message(self, msg: Message) -> UnifiedMessage:
         chat_type = str(msg.chat.type).replace("ChatType.", "")
-        
-        chat = UnifiedChat(
-            id=msg.chat.id,
-            title=msg.chat.title,
-            type=chat_type
-        )
-        
+
+        chat = UnifiedChat(id=msg.chat.id, title=msg.chat.title, type=chat_type)
+
         from_user = None
         if msg.from_user:
             from_user = UnifiedUser(
                 id=msg.from_user.id,
                 username=msg.from_user.username,
                 first_name=msg.from_user.first_name or "",
-                is_self=msg.from_user.is_self
+                is_self=msg.from_user.is_self,
             )
-            
+
         unified_msg = UnifiedMessage(
             platform=self.platform_name,
             id=msg.id,
@@ -221,51 +221,58 @@ class TelegramPlatform(PlatformAdapter):
             text=msg.text,
             caption=msg.caption,
             date=msg.date.timestamp() if msg.date else 0.0,
-            native_msg=msg
+            native_msg=msg,
         )
-        
+
         if getattr(msg, "mentioned", False):
             unified_msg.mentioned = True
-            
+
         if msg.reply_to_message_id:
             unified_msg.reply_to_message_id = msg.reply_to_message_id
             if msg.reply_to_message:
                 unified_msg.reply_to_message = self.to_unified_message(msg.reply_to_message)
-                
+
         # Handle media
         if msg.photo:
             unified_msg.photo = UnifiedMedia(type="PHOTO", id=msg.photo.file_id, native_obj=msg.photo)
         if msg.sticker:
             unified_msg.sticker = UnifiedMedia(
-                type="STICKER", 
-                id=msg.sticker.file_id, 
-                emoji=msg.sticker.emoji, 
+                type="STICKER",
+                id=msg.sticker.file_id,
+                emoji=msg.sticker.emoji,
                 is_animated=msg.sticker.is_animated,
                 is_video=msg.sticker.is_video,
-                native_obj=msg.sticker
+                native_obj=msg.sticker,
             )
         if msg.video:
             unified_msg.video = UnifiedMedia(type="VIDEO", id=msg.video.file_id, native_obj=msg.video)
         if msg.animation:
-            unified_msg.animation = UnifiedMedia(type="ANIMATION", id=msg.animation.file_id, native_obj=msg.animation)
+            unified_msg.animation = UnifiedMedia(
+                type="ANIMATION", id=msg.animation.file_id, native_obj=msg.animation
+            )
         if msg.voice:
             unified_msg.voice = UnifiedMedia(type="VOICE", id=msg.voice.file_id, native_obj=msg.voice)
         if msg.audio:
             unified_msg.audio = UnifiedMedia(type="AUDIO", id=msg.audio.file_id, native_obj=msg.audio)
         if msg.document:
-            unified_msg.document = UnifiedMedia(type="DOCUMENT", id=msg.document.file_id, native_obj=msg.document)
-            
+            unified_msg.document = UnifiedMedia(
+                type="DOCUMENT", id=msg.document.file_id, native_obj=msg.document
+            )
+
         # Handle entities
         def convert_entities(entities, source):
             res = []
             for e in entities:
                 ent = UnifiedMessageEntity(
-                    type=str(e.type).replace("MessageEntityType.", ""),
-                    offset=e.offset,
-                    length=e.length
+                    type=str(e.type).replace("MessageEntityType.", ""), offset=e.offset, length=e.length
                 )
                 if e.user:
-                    ent.user = UnifiedUser(id=e.user.id, username=e.user.username, first_name=e.user.first_name or "", is_self=e.user.is_self)
+                    ent.user = UnifiedUser(
+                        id=e.user.id,
+                        username=e.user.username,
+                        first_name=e.user.first_name or "",
+                        is_self=e.user.is_self,
+                    )
                 res.append(ent)
             return res
 
@@ -273,5 +280,5 @@ class TelegramPlatform(PlatformAdapter):
             unified_msg.entities = convert_entities(msg.entities, msg.text)
         if msg.caption_entities:
             unified_msg.caption_entities = convert_entities(msg.caption_entities, msg.caption)
-            
+
         return unified_msg

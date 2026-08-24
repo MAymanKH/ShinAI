@@ -51,6 +51,7 @@ from shin_ai.utils.logger_config import logger
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
 WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
 
+
 class WhatsAppPlatform(PlatformAdapter):
     def __init__(self, session_name: str):
         self.client = NewClient(session_name)
@@ -157,7 +158,9 @@ class WhatsAppPlatform(PlatformAdapter):
     ) -> None:
         apply_media(unified_msg, message, download_message, message_id)
 
-    def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> UnifiedMessage | None:
+    def _build_quoted_message(
+        self, context_info: ContextInfoType, chat: UnifiedChat
+    ) -> UnifiedMessage | None:
         if not context_info.stanzaID:
             return None
         if not context_info.quotedMessage.ListFields():
@@ -388,7 +391,7 @@ class WhatsAppPlatform(PlatformAdapter):
         )
 
         context_info = self._extract_context_info(body)
-        source_text = (text or caption or "")
+        source_text = text or caption or ""
 
         if context_info and context_info.stanzaID:
             unified_msg.reply_to_message_id = str(context_info.stanzaID)
@@ -536,9 +539,13 @@ class WhatsAppPlatform(PlatformAdapter):
             return await self._send_quoted_message(raw_quoted, text)
         return await self.send_message(message.chat.id, text, message.id)
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_message(
+        self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
-        raw_quoted = self.get_cached_raw_message(chat_id, str(reply_to_message_id)) if reply_to_message_id else None
+        raw_quoted = (
+            self.get_cached_raw_message(chat_id, str(reply_to_message_id)) if reply_to_message_id else None
+        )
 
         if raw_quoted:
             return await self._send_quoted_message(raw_quoted, text)
@@ -579,7 +586,9 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return None
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_sticker(
+        self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
         sticker_source = self._resolve_sticker_source(sticker_id)
 
@@ -590,19 +599,31 @@ class WhatsAppPlatform(PlatformAdapter):
             )
             return 0
 
-        raw_quoted = self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id)) if reply_to_message_id else None
+        raw_quoted = (
+            self.get_cached_raw_message(Jid2String(chat_jid), str(reply_to_message_id))
+            if reply_to_message_id
+            else None
+        )
 
         try:
             if raw_quoted:
-                response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, raw_quoted, passthrough=True)
+                response = await self._run_sync(
+                    self.client.send_sticker, chat_jid, sticker_source, raw_quoted, passthrough=True
+                )
             else:
-                response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, passthrough=True)
+                response = await self._run_sync(
+                    self.client.send_sticker, chat_jid, sticker_source, passthrough=True
+                )
         except Exception as e:
             logger.warning("Passthrough sticker failed (%s), retrying with conversion...", e)
             if raw_quoted:
-                response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, raw_quoted, passthrough=False)
+                response = await self._run_sync(
+                    self.client.send_sticker, chat_jid, sticker_source, raw_quoted, passthrough=False
+                )
             else:
-                response = await self._run_sync(self.client.send_sticker, chat_jid, sticker_source, passthrough=False)
+                response = await self._run_sync(
+                    self.client.send_sticker, chat_jid, sticker_source, passthrough=False
+                )
 
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
@@ -615,7 +636,9 @@ class WhatsAppPlatform(PlatformAdapter):
             await self.get_message(chat_id, message_id)
             raw_target = self.get_cached_raw_message(Jid2String(chat_jid), message_id)
             if not raw_target:
-                logger.warning(f"Cannot react on WhatsApp: missing cached target message {message_id} in chat {chat_id}")
+                logger.warning(
+                    f"Cannot react on WhatsApp: missing cached target message {message_id} in chat {chat_id}"
+                )
                 return
 
         sender_jid = raw_target.Info.MessageSource.Sender
@@ -760,7 +783,9 @@ class WhatsAppPlatform(PlatformAdapter):
             ParticipantChange.ADD,
         )
 
-    async def restrict_chat_member(self, chat_id: int | str, user_id: int | str, can_send_messages: bool) -> None:
+    async def restrict_chat_member(
+        self, chat_id: int | str, user_id: int | str, can_send_messages: bool
+    ) -> None:
         raise NotImplementedError("WhatsApp adapter does not support per-user mute/unmute.")
 
     async def create_chat_invite_link(self, chat_id: int | str) -> str:

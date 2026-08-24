@@ -3,6 +3,7 @@ Gemini AI Provider
 
 Handles API calls to Google's Gemini models with key rotation and statistics.
 """
+
 import asyncio
 import inspect
 
@@ -156,9 +157,7 @@ async def gemini_api(
 
                 response_text = _extract_gemini_text(response)
                 if not response_text and not pending_actions:
-                    raise RuntimeError(
-                        "Gemini response contained neither text nor pending actions"
-                    )
+                    raise RuntimeError("Gemini response contained neither text nor pending actions")
 
                 # Log cache hit stats — only when there is an actual cache hit
                 usage = getattr(response, "usage_metadata", None)
@@ -169,7 +168,10 @@ async def gemini_api(
                         pct = cached / total_in * 100
                         logger.debug(
                             "Gemini cache hit: %d/%d input tokens cached (%.0f%%) — model=%s",
-                            cached, total_in, pct, model,
+                            cached,
+                            total_in,
+                            pct,
+                            model,
                             extra={"event_name": "provider.cache"},
                         )
 
@@ -197,7 +199,8 @@ async def gemini_api(
                 await reservation.failed(failure)
                 log_failure = (
                     logger.warning
-                    if failure.kind in {
+                    if failure.kind
+                    in {
                         GeminiFailureKind.AUTHENTICATION,
                         GeminiFailureKind.INVALID_REQUEST,
                         GeminiFailureKind.UNKNOWN,
@@ -233,17 +236,15 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
         return contents
 
     for idx, media_info in enumerate(media_list, 1):
-        image_bytes = media_info['bytes']
-        mime_type = media_info['mime_type']
-        sender = media_info['sender']
-        position = media_info['position']
-        media_type = media_info['media_type']
+        image_bytes = media_info["bytes"]
+        mime_type = media_info["mime_type"]
+        sender = media_info["sender"]
+        position = media_info["position"]
+        media_type = media_info["media_type"]
 
         label = f"\n[Image {idx}/{len(media_list)}: {media_type} from {sender}, {position}]"
         contents.append(label)
-        contents.append(
-            genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        )
+        contents.append(genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
 
     logger.debug("Added %d media item(s) to Gemini request", len(media_list))
     return contents
@@ -288,8 +289,7 @@ def _openai_schema_to_gemini_function(schema: dict):
                 parameters=genai.types.Schema(
                     type=genai.types.Type.OBJECT,
                     properties={
-                        k: _param_to_gemini_schema(v)
-                        for k, v in params.get("properties", {}).items()
+                        k: _param_to_gemini_schema(v) for k, v in params.get("properties", {}).items()
                     },
                     required=params.get("required", []),
                 ),
@@ -384,6 +384,7 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
             return "Audio transcription is unavailable in this context (no chat/platform bound).", None
         platform, msg = tool_context
         from shin_ai.providers.tool_loop import _transcribe_chat_audio
+
         try:
             return await _transcribe_chat_audio(platform, msg, "Gemini", message_id), None
         except Exception as e:

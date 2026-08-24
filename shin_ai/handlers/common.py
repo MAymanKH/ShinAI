@@ -14,13 +14,7 @@ def _message_text(msg: UnifiedMessage) -> str:
 
 def _has_supported_media(msg: UnifiedMessage) -> bool:
     return bool(
-        msg.photo
-        or msg.sticker
-        or msg.voice
-        or msg.audio
-        or msg.video
-        or msg.animation
-        or msg.document
+        msg.photo or msg.sticker or msg.voice or msg.audio or msg.video or msg.animation or msg.document
     )
 
 

@@ -219,10 +219,7 @@ def test_scheduler_keeps_a_large_burst_strictly_bounded() -> None:
             job_ttl_seconds=60,
         )
 
-        results = [
-            await scheduler.submit(f"chat-{index}", index, delay_seconds=60)
-            for index in range(5_000)
-        ]
+        results = [await scheduler.submit(f"chat-{index}", index, delay_seconds=60) for index in range(5_000)]
 
         assert sum(result.accepted for result in results) == 128
         assert scheduler.pending_count == 128

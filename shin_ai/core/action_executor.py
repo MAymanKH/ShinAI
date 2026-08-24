@@ -7,6 +7,7 @@ Actions arrive as:
   - A list of pending_action dicts queued by the tool-calling loop
     (send_reaction / send_sticker / moderate_user tool calls)
 """
+
 import asyncio
 import random
 from dataclasses import dataclass
@@ -61,9 +62,7 @@ async def execute_text_messages(
     """
     # Normalize to (text, tag_target) pairs; bare strings from older call
     # sites are treated as (text, None).
-    pairs: list[tuple[str, str | None]] = [
-        (m, None) if isinstance(m, str) else m for m in messages
-    ]
+    pairs: list[tuple[str, str | None]] = [(m, None) if isinstance(m, str) else m for m in messages]
 
     sent_messages: list[str] = []
 
@@ -97,7 +96,9 @@ async def execute_text_messages(
             if reply_to_id is None:
                 logger.warning(
                     "[%s] Ignoring invalid [REPLY_TO] target %r for chat=%s",
-                    platform.platform_name, tag_target, msg.chat.id,
+                    platform.platform_name,
+                    tag_target,
+                    msg.chat.id,
                 )
         elif idx == 0:
             reply_to_id = _normalize_reply_target(platform, default_reply_to_id)
@@ -111,7 +112,7 @@ async def execute_text_messages(
                 sent_messages.append(text)
                 preview = text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
                 logger.info(
-                    "Responded — part=%d/%d text=\"%s%s\"",
+                    'Responded — part=%d/%d text="%s%s"',
                     idx + 1,
                     len(pairs),
                     preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
@@ -127,7 +128,10 @@ async def execute_text_messages(
                 if tag_target is not None and reply_to_id is not None:
                     logger.info(
                         "[%s] Reply-overrode target — chat=%s sent=%s -> reply_to=%s (model-chosen)",
-                        platform.platform_name, msg.chat.id, sent_id, reply_to_id,
+                        platform.platform_name,
+                        msg.chat.id,
+                        sent_id,
+                        reply_to_id,
                     )
                 await save_reply(
                     msg.chat.id,
@@ -192,6 +196,7 @@ async def execute_pending_actions(
 # Internal helpers — reactions
 # ---------------------------------------------------------------------------
 
+
 async def _execute_reaction(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
@@ -226,6 +231,7 @@ async def _execute_reaction(
 # ---------------------------------------------------------------------------
 # Internal helpers — stickers
 # ---------------------------------------------------------------------------
+
 
 async def _execute_sticker(
     platform: PlatformAdapter,
@@ -283,6 +289,7 @@ async def _execute_sticker(
 # ---------------------------------------------------------------------------
 # Internal helpers — moderation
 # ---------------------------------------------------------------------------
+
 
 async def _execute_mod_action(
     platform: PlatformAdapter,
@@ -424,6 +431,7 @@ def _resolve_name_to_username(name: str, platform_name: str = "") -> str | None:
 # Internal helpers — context / memory
 # ---------------------------------------------------------------------------
 
+
 async def _record_outgoing_context(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
@@ -470,7 +478,9 @@ async def save_interaction_memory(
         short_context = ""
         if reply_text:
             if "reply to a conversation chain" in reply_text:
-                short_context = reply_text.split(":\n", 1)[-1].replace("\n- ", " > ").replace("\n", " ").strip()
+                short_context = (
+                    reply_text.split(":\n", 1)[-1].replace("\n- ", " > ").replace("\n", " ").strip()
+                )
             else:
                 short_context = reply_text.strip()
 
@@ -510,6 +520,7 @@ async def save_interaction_memory(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
 
 def _normalize_reply_target(
     platform: PlatformAdapter,

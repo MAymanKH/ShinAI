@@ -183,15 +183,11 @@ def _parse_provider(raw: dict[str, Any]) -> ProviderSettings:
     if not name:
         raise ValueError("Each provider entry must have a 'name' field.")
     if provider_type not in {"gemini", "openai"}:
-        raise ValueError(
-            f"Provider '{name}': type must be 'gemini' or 'openai', got '{provider_type}'."
-        )
+        raise ValueError(f"Provider '{name}': type must be 'gemini' or 'openai', got '{provider_type}'.")
     if provider_type == "openai":
         missing = [key for key in ("base_url", "api_key", "model") if not raw.get(key)]
         if missing:
-            raise ValueError(
-                f"Provider '{name}' (type=openai) is missing required fields: {missing}"
-            )
+            raise ValueError(f"Provider '{name}' (type=openai) is missing required fields: {missing}")
 
     models = tuple(str(model).strip() for model in raw.get("models", ()) if str(model).strip())
     if provider_type == "gemini" and not models:
@@ -235,9 +231,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     min_delay = float(response.get("min_delay_seconds", 0.0))
     max_delay = float(response.get("max_delay_seconds", 0.0))
     if min_delay < 0 or max_delay < min_delay:
-        raise ValueError(
-            "response delays must satisfy 0 <= min_delay_seconds <= max_delay_seconds."
-        )
+        raise ValueError("response delays must satisfy 0 <= min_delay_seconds <= max_delay_seconds.")
     probability = float(response.get("random_trigger_probability", 0.05))
     if not 0.0 <= probability <= 1.0:
         raise ValueError("response.random_trigger_probability must be between 0 and 1.")
@@ -250,12 +244,8 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     logging_settings = LoggingSettings(
         debug=bool(logging_raw.get("debug", raw.get("debug", False))),
         file=log_file,
-        max_bytes=_positive_int(
-            logging_raw.get("max_bytes"), name="logging.max_bytes", default=25_000_000
-        ),
-        backup_count=_positive_int(
-            logging_raw.get("backup_count"), name="logging.backup_count", default=5
-        ),
+        max_bytes=_positive_int(logging_raw.get("max_bytes"), name="logging.max_bytes", default=25_000_000),
+        backup_count=_positive_int(logging_raw.get("backup_count"), name="logging.backup_count", default=5),
         content_preview_chars=max(0, int(logging_raw.get("content_preview_chars", 120))),
     )
 
@@ -333,8 +323,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     )
     if runtime.media_max_total_bytes < runtime.media_max_file_bytes:
         raise ValueError(
-            "runtime.media_max_total_bytes must be greater than or equal to "
-            "runtime.media_max_file_bytes."
+            "runtime.media_max_total_bytes must be greater than or equal to runtime.media_max_file_bytes."
         )
 
     coordination_raw = raw.get("coordination") or {}
@@ -344,9 +333,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     namespace = str(coordination_raw.get("namespace", "shinai")).strip()
     if not namespace:
         raise ValueError("coordination.namespace cannot be empty.")
-    database_path = Path(
-        str(coordination_raw.get("database_path", "data/coordination.sqlite3"))
-    )
+    database_path = Path(str(coordination_raw.get("database_path", "data/coordination.sqlite3")))
     if not database_path.is_absolute():
         database_path = project_root / database_path
     coordination = CoordinationSettings(
@@ -377,19 +364,13 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
 
     embedding_raw = raw.get("embedding") or {}
     embedding = EmbeddingSettings(
-        model=str(
-            embedding_raw.get(
-                "model", raw.get("embedding_model", "intfloat/multilingual-e5-large")
-            )
-        ),
+        model=str(embedding_raw.get("model", raw.get("embedding_model", "intfloat/multilingual-e5-large"))),
         max_concurrency=_positive_int(
             embedding_raw.get("max_concurrency"),
             name="embedding.max_concurrency",
             default=1,
         ),
-        batch_size=_positive_int(
-            embedding_raw.get("batch_size"), name="embedding.batch_size", default=16
-        ),
+        batch_size=_positive_int(embedding_raw.get("batch_size"), name="embedding.batch_size", default=16),
     )
 
     chroma_raw = raw.get("chroma") or {}
@@ -416,9 +397,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     whisper = WhisperSettings(
         model=str(whisper_raw.get("model", "large-v3-turbo")),
         language=str(whisper_raw.get("language", "auto")),
-        cpu_threads=_positive_int(
-            whisper_raw.get("cpu_threads"), name="whisper.cpu_threads", default=2
-        ),
+        cpu_threads=_positive_int(whisper_raw.get("cpu_threads"), name="whisper.cpu_threads", default=2),
         max_concurrent_transcriptions=_positive_int(
             whisper_raw.get("max_concurrent_transcriptions"),
             name="whisper.max_concurrent_transcriptions",
@@ -465,23 +444,18 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         fallback = str(fallback_value)
         if fallback not in providers:
             raise ValueError(
-                f"Fallback provider '{fallback}' is not defined in ai.providers. "
-                f"Available: {list(providers)}"
+                f"Fallback provider '{fallback}' is not defined in ai.providers. Available: {list(providers)}"
             )
         if fallback != primary and fallback not in fallbacks:
             fallbacks.append(fallback)
     rotation = str(ai_raw.get("rotation", "failover")).lower()
     if rotation not in {"failover", "round_robin"}:
-        raise ValueError(
-            f"ai.rotation must be 'failover' or 'round_robin', got '{rotation}'."
-        )
+        raise ValueError(f"ai.rotation must be 'failover' or 'round_robin', got '{rotation}'.")
     ai = AISettings(
         timeout_seconds=_positive_float(
             ai_raw.get("timeout_seconds"), name="ai.timeout_seconds", default=60.0
         ),
-        max_retries=_positive_int(
-            ai_raw.get("max_retries"), name="ai.max_retries", default=3
-        ),
+        max_retries=_positive_int(ai_raw.get("max_retries"), name="ai.max_retries", default=3),
         global_timeout_seconds=_positive_float(
             ai_raw.get("global_timeout_seconds"),
             name="ai.global_timeout_seconds",

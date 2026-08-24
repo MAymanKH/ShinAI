@@ -70,6 +70,7 @@ async def _send_action_with_timeout(
     )
 
     if action == "typing" and recover_late_typing:
+
         def cancel_after_late_typing(_task: asyncio.Task) -> None:
             try:
                 loop = asyncio.get_running_loop()
@@ -81,10 +82,7 @@ async def _send_action_with_timeout(
                     "cancel",
                     recover_late_typing=False,
                 ),
-                name=(
-                    f"shinai-typing-recovery-{session.platform.platform_name}-"
-                    f"{session.chat_id}"
-                ),
+                name=(f"shinai-typing-recovery-{session.platform.platform_name}-{session.chat_id}"),
             )
             _track_detached_action(recovery)
 

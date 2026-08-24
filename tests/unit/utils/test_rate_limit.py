@@ -15,15 +15,9 @@ def run(coro):
 def test_user_rate_limit_is_shared_but_credential_scoped() -> None:
     async def scenario() -> None:
         store = InMemoryCoordinationStore()
-        assert await check_rate_limit_shared(
-            "telegram", 1, coordination_scope="bot-a", store=store
-        )
-        assert not await check_rate_limit_shared(
-            "telegram", 1, coordination_scope="bot-a", store=store
-        )
-        assert await check_rate_limit_shared(
-            "telegram", 1, coordination_scope="bot-b", store=store
-        )
+        assert await check_rate_limit_shared("telegram", 1, coordination_scope="bot-a", store=store)
+        assert not await check_rate_limit_shared("telegram", 1, coordination_scope="bot-a", store=store)
+        assert await check_rate_limit_shared("telegram", 1, coordination_scope="bot-b", store=store)
 
     run(scenario())
 

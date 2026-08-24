@@ -3,6 +3,7 @@ ShinAI Configuration Module
 
 All configuration is sourced from config.yaml via the provider registry.
 """
+
 from pathlib import Path
 
 from shin_ai.settings import get_settings
@@ -26,9 +27,7 @@ DISCORD_ENABLED = _cfg.platform.discord_enabled
 WHATSAPP_ENABLED = _cfg.platform.whatsapp_enabled
 
 # Platform Readiness
-TELEGRAM_CONFIGURED = bool(
-    TELEGRAM_API_ID and TELEGRAM_API_HASH and TELEGRAM_BOT_TOKEN
-)
+TELEGRAM_CONFIGURED = bool(TELEGRAM_API_ID and TELEGRAM_API_HASH and TELEGRAM_BOT_TOKEN)
 DISCORD_CONFIGURED = bool(DISCORD_BOT_TOKEN)
 
 # Admin

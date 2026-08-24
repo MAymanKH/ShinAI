@@ -3,6 +3,7 @@ Core Handler Module
 
 Universal message handler logic for ShinAI, agnostic of platform.
 """
+
 import hashlib
 import os
 import random
@@ -66,6 +67,7 @@ class _AdmittedInteraction:
 
 _interaction_scheduler: InteractionScheduler[_AdmittedInteraction] | None = None
 _shutting_down = False
+
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Deduplicate and admit an interaction without retaining downloaded media."""
@@ -195,10 +197,7 @@ def _log_interaction_drop(payload: _AdmittedInteraction, reason: str) -> None:
 
 
 def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> None:
-    user_name = (
-        (msg.from_user.username or msg.from_user.first_name)
-        if msg.from_user else "unknown"
-    )
+    user_name = (msg.from_user.username or msg.from_user.first_name) if msg.from_user else "unknown"
     full_text = msg.text or msg.caption or ""
     text_preview = full_text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
     media_hint = ""
@@ -215,7 +214,7 @@ def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> 
     elif msg.document:
         media_hint = " [document]"
     logger.info(
-        "Triggered — chat_name=%s user_name=%s type=%s%s text=\"%s%s\"",
+        'Triggered — chat_name=%s user_name=%s type=%s%s text="%s%s"',
         msg.chat.title or msg.chat.type,
         user_name,
         _get_interaction_type(msg).split("(")[0].strip(),
@@ -303,7 +302,7 @@ async def _passes_speculative_preflight(
         f"--- RECENT CHAT HISTORY ---\n"
         f"{recent_context_section}\n"
     )
-    eval_prompt = f"User's message: \"{prompt}\""
+    eval_prompt = f'User\'s message: "{prompt}"'
     try:
         logger.debug("Running speculative reply pre-flight evaluation...")
         eval_ans, _ = await call_ai_provider(
@@ -367,7 +366,6 @@ def _build_target_instructions(msg: UnifiedMessage) -> str:
     )
 
 
-
 async def _execute_frozen_message(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
@@ -401,14 +399,13 @@ async def _execute_frozen_message(
     if is_trivial_message(msg):
         logger.debug("Skip classifier: trivial message, skipping")
         logger.info(
-            "[%s] Skipped reply — chat=%s msg=%s (trivial/laugh/sticker) | text=\"%s\"",
+            '[%s] Skipped reply — chat=%s msg=%s (trivial/laugh/sticker) | text="%s"',
             msg.chat.type,
             msg.chat.id,
             msg.id,
             (msg.text or msg.caption or "").replace("\n", " ")[:60],
         )
         return
-
 
     typing_session = await start_typing(platform, msg.chat.id)
 
@@ -445,7 +442,7 @@ async def _execute_frozen_message(
         response = parse_model_response(answer or "", has_actions=bool(pending_actions))
         if response.skips_all_text:
             logger.info(
-                "AI chose to skip text%s — trigger=\"%s\"",
+                'AI chose to skip text%s — trigger="%s"',
                 " after tool action(s)" if pending_actions else "",
                 (prompt or "").replace("\n", " ")[:80],
                 extra={"event_name": "response.skipped"},
@@ -519,10 +516,10 @@ async def _execute_frozen_message(
             await stop_typing(typing_session)
 
 
-
 # ===========================================
 # Helper Functions
 # ===========================================
+
 
 async def _get_style_examples(prompt: str) -> str:
     try:
@@ -536,13 +533,18 @@ async def _get_reply_chain_text(platform: PlatformAdapter, msg: UnifiedMessage) 
     try:
         reply_chain = await get_reply_chain(msg, platform)
         if reply_chain:
-            return "\n\nThe user's message is a reply to a conversation chain (most recent first):\n" + "\n".join([f"- {part}" for part in reply_chain])
+            return (
+                "\n\nThe user's message is a reply to a conversation chain (most recent first):\n"
+                + "\n".join([f"- {part}" for part in reply_chain])
+            )
     except Exception as e:
         logger.error("Error building reply chain: %s", e, exc_info=True)
         if msg.reply_to_message and msg.reply_to_message.from_user:
-            return (f"\n\nThe user's message is a reply to a previous message from "
-                    f"{msg.reply_to_message.from_user.username}/{msg.reply_to_message.from_user.first_name} "
-                    f"that said: {msg.reply_to_message.text}")
+            return (
+                f"\n\nThe user's message is a reply to a previous message from "
+                f"{msg.reply_to_message.from_user.username}/{msg.reply_to_message.from_user.first_name} "
+                f"that said: {msg.reply_to_message.text}"
+            )
     return ""
 
 
@@ -557,9 +559,7 @@ def _is_direct_interaction(msg: UnifiedMessage) -> bool:
         return True
 
     return bool(
-        msg.reply_to_message
-        and msg.reply_to_message.from_user
-        and msg.reply_to_message.from_user.is_self
+        msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_self
     )
 
 
@@ -574,8 +574,10 @@ async def _get_member_statuses(platform: PlatformAdapter, msg: UnifiedMessage) -
     if msg.chat.type in ["GROUP", "SUPERGROUP"] and msg.from_user:
         user_status = await platform.get_chat_member_status(msg.chat.id, msg.from_user.id)
         if msg.reply_to_message and msg.reply_to_message.from_user:
-            reply_target_status = await platform.get_chat_member_status(msg.chat.id, msg.reply_to_message.from_user.id)
-            
+            reply_target_status = await platform.get_chat_member_status(
+                msg.chat.id, msg.reply_to_message.from_user.id
+            )
+
     return user_status, reply_target_status
 
 

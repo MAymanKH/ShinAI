@@ -70,6 +70,7 @@ def sort_memory_results_by_timestamp(pairs: list[tuple[str, dict]]) -> list[dict
     Sort (doc, meta) pairs newest-to-oldest and format each as a result dict
     with all metadata fields visible to the bot.
     """
+
     def ts(pair):
         return pair[1].get("timestamp", 0) if pair[1] else 0
 

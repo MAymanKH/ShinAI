@@ -55,9 +55,7 @@ def test_parse_config_rejects_unknown_fallback() -> None:
 
 def test_parse_config_rejects_duplicate_provider_names() -> None:
     raw = _minimal_config()
-    raw["ai"]["providers"].append(
-        {"name": "gemini", "type": "gemini", "models": ["other-model"]}
-    )
+    raw["ai"]["providers"].append({"name": "gemini", "type": "gemini", "models": ["other-model"]})
 
     with pytest.raises(ValueError, match="Duplicate provider name"):
         _parse_config(raw)

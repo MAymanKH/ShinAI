@@ -3,6 +3,7 @@ Social Context Service
 
 Manages semantic retrieval of member information for contextual responses.
 """
+
 import asyncio
 import re
 
@@ -21,9 +22,7 @@ def _get_social_collection():
     """Return the social context collection, creating it on first use."""
     global _social_collection
     if _social_collection is None:
-        _social_collection = get_chroma_client().get_or_create_collection(
-            "social_context_members"
-        )
+        _social_collection = get_chroma_client().get_or_create_collection("social_context_members")
     return _social_collection
 
 
@@ -39,12 +38,12 @@ def _username_field_for_platform(platform: str) -> str:
 def resolve_username_to_key(username: str, platform: str = "") -> str | None:
     """
     Resolve a platform username to a MEMBERS dict key.
-    
+
     If platform is provided, check the platform-specific username field first.
     Falls back to checking both fields and the names list.
     """
     clean = username.lower().strip().lstrip("@")
-    
+
     # 1. Platform-specific field (prioritised)
     if platform:
         field = _username_field_for_platform(platform)
@@ -113,9 +112,7 @@ async def index_social_context() -> None:
     if ids:
         # E5 requires "passage: " prefix for stored documents
         prefixed_documents = [f"passage: {doc}" for doc in documents]
-        keywords_embeddings = (
-            await get_embedding_service().encode(prefixed_documents)
-        ).tolist()
+        keywords_embeddings = (await get_embedding_service().encode(prefixed_documents)).tolist()
         collection = _get_social_collection()
         existing = await asyncio.to_thread(collection.get, include=["metadatas"])
         stale_ids = list(set(existing.get("ids") or []) - set(ids))
@@ -130,17 +127,18 @@ async def index_social_context() -> None:
         )
         logger.info(f"Indexed {len(ids)} members for social context.")
 
+
 async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
     """
     Analyzes the message and reply chain to decide which members' lore to inject.
     Returns a string containing the relevant social context.
     """
     platform = msg.platform
-    
+
     active_keys = set()
     sender_key = None
     target_key = None
-    
+
     # 1. Add the Sender & Identify (platform-aware)
     if msg.from_user:
         if msg.from_user.username:
@@ -148,11 +146,11 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
             if resolved:
                 active_keys.add(resolved)
                 sender_key = resolved
-        
+
         # Fallback Name Check if username didn't match
         if not sender_key and msg.from_user.first_name:
             fname = msg.from_user.first_name.lower().strip()
-            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
+            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v["names"]]]:
                 active_keys.add(listbox[0])
                 sender_key = listbox[0]
 
@@ -163,21 +161,21 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
             if resolved:
                 active_keys.add(resolved)
                 target_key = resolved
-        
+
         if not target_key and msg.reply_to_message.from_user.first_name:
             fname = msg.reply_to_message.from_user.first_name.lower().strip()
-            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v['names']]]:
+            if listbox := [k for k, v in MEMBERS.items() if fname in [n.lower() for n in v["names"]]]:
                 active_keys.add(listbox[0])
                 target_key = listbox[0]
 
     # 3. Scan text for mentions (Exact Match)
     combined_text = (msg.text or msg.caption or "") + " " + reply_chain_text
-    
+
     # Check all names/aliases for explicit mentions
     for key, data in MEMBERS.items():
         if key in active_keys:
             continue
-        for name in data['names']:
+        for name in data["names"]:
             if re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", combined_text.lower()):
                 active_keys.add(key)
                 break
@@ -197,9 +195,9 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
             include=["distances"],
         )
 
-        if results['ids']:
-            ids = results['ids'][0]
-            dists = results['distances'][0]
+        if results["ids"]:
+            ids = results["ids"][0]
+            dists = results["distances"][0]
 
             for i, member_id in enumerate(ids):
                 if dists[i] < 1.1:
@@ -217,33 +215,41 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
         if key not in MEMBERS:
             continue
         member = MEMBERS[key]
-        
+
         # Add aliases to context so the bot knows who is who
-        aliases = [n for n in member['names'] if n.lower() not in member['preferred_name'].lower()]
+        aliases = [n for n in member["names"] if n.lower() not in member["preferred_name"].lower()]
         aliases_str = f" (aka: {', '.join(aliases)})" if aliases else ""
-        
+
         line = f"- {member['preferred_name']}{aliases_str}: {member['role']}"
         if member.get("location"):
             line += f". Location: {member['location']}"
         if member.get("backstory"):
             line += f". Backstory: {member['backstory']}"
         context_lines.append(line)
-    
+
     # Explicit Identification Section
     context_lines.append("\nCURRENT INTERACTION IDENTITIES (STRICT MAPPING):")
     if sender_key and sender_key in MEMBERS:
         s_mem = MEMBERS[sender_key]
-        context_lines.append(f"THE USER TALKING TO YOU ({msg.from_user.first_name} / @{msg.from_user.username or 'NoUser'}) IS: {s_mem['preferred_name']}.")
+        context_lines.append(
+            f"THE USER TALKING TO YOU ({msg.from_user.first_name} / @{msg.from_user.username or 'NoUser'}) IS: {s_mem['preferred_name']}."
+        )
     else:
         context_lines.append(f"THE USER TALKING TO YOU ({msg.from_user.first_name}) is Unknown (Guest).")
 
     if target_key and target_key in MEMBERS:
         t_mem = MEMBERS[target_key]
         if msg.reply_to_message:
-            context_lines.append(f"THE USER BEING REPLIED TO ({msg.reply_to_message.from_user.first_name}) IS: {t_mem['preferred_name']}.")
-    
+            context_lines.append(
+                f"THE USER BEING REPLIED TO ({msg.reply_to_message.from_user.first_name}) IS: {t_mem['preferred_name']}."
+            )
+
     context_lines.append("\nSTRICT RULES FOR CONTEXT:")
-    context_lines.append("1. NAMING: You MUST address the members above using ONLY their 'preferred_name' (e.g. use '{preferred_name}' instead of @username).")
-    context_lines.append("2. BACKSTORY & LOCATION: The 'Backstory' and 'Location' fields are HIDDEN KNOWLEDGE. DO NOT mention them unless the conversation TOPIC explicitly requires it (e.g. asking 'where are you from?' or 'what do you study?'). If we are just joking around, DO NOT bring up their university or history. Keep it natural.")
-    
+    context_lines.append(
+        "1. NAMING: You MUST address the members above using ONLY their 'preferred_name' (e.g. use '{preferred_name}' instead of @username)."
+    )
+    context_lines.append(
+        "2. BACKSTORY & LOCATION: The 'Backstory' and 'Location' fields are HIDDEN KNOWLEDGE. DO NOT mention them unless the conversation TOPIC explicitly requires it (e.g. asking 'where are you from?' or 'what do you study?'). If we are just joking around, DO NOT bring up their university or history. Keep it natural."
+    )
+
     return "\n".join(context_lines)

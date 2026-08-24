@@ -70,12 +70,14 @@ async def _fetch_surrounding_interactions(
         for doc, meta in zip(docs, metas, strict=False):
             if not meta:
                 continue
-            candidates.append({
-                "timestamp": meta.get("timestamp", 0),
-                "date_string": meta.get("date_string", "Unknown"),
-                "username": meta.get("username", "Unknown"),
-                "text": doc,
-            })
+            candidates.append(
+                {
+                    "timestamp": meta.get("timestamp", 0),
+                    "date_string": meta.get("date_string", "Unknown"),
+                    "username": meta.get("username", "Unknown"),
+                    "text": doc,
+                }
+            )
 
         if not candidates:
             return []
@@ -99,12 +101,14 @@ async def _fetch_surrounding_interactions(
         surrounding = []
         for i in range(start_idx, end_idx):
             cand = candidates[i]
-            surrounding.append({
-                "timestamp": cand["date_string"],
-                "username": cand["username"],
-                "text": cand["text"],
-                "is_result_interaction": (i == closest_idx)
-            })
+            surrounding.append(
+                {
+                    "timestamp": cand["date_string"],
+                    "username": cand["username"],
+                    "text": cand["text"],
+                    "is_result_interaction": (i == closest_idx),
+                }
+            )
         return surrounding
     except Exception as e:
         logger.error(f"Failed to fetch surrounding interactions: {e}", exc_info=True)
@@ -199,12 +203,14 @@ async def _fetch_context_chunk(
         for doc, meta in zip(docs, metas, strict=False):
             if not meta:
                 continue
-            candidates.append({
-                "timestamp": meta.get("timestamp", 0),
-                "date_string": meta.get("date_string", "Unknown"),
-                "username": meta.get("username", "Unknown"),
-                "text": doc,
-            })
+            candidates.append(
+                {
+                    "timestamp": meta.get("timestamp", 0),
+                    "date_string": meta.get("date_string", "Unknown"),
+                    "username": meta.get("username", "Unknown"),
+                    "text": doc,
+                }
+            )
 
         candidates.sort(key=lambda x: x["timestamp"])
 
@@ -228,12 +234,14 @@ async def _fetch_context_chunk(
             surrounding = []
             for i in range(start_idx, end_idx):
                 cand = candidates[i]
-                surrounding.append({
-                    "timestamp": cand["date_string"],
-                    "username": cand["username"],
-                    "text": cand["text"],
-                    "is_result_interaction": (i == closest_idx)
-                })
+                surrounding.append(
+                    {
+                        "timestamp": cand["date_string"],
+                        "username": cand["username"],
+                        "text": cand["text"],
+                        "is_result_interaction": (i == closest_idx),
+                    }
+                )
             result["surrounding_interactions"] = surrounding
     except Exception as e:
         logger.error(f"Failed to fetch batch surrounding context: {e}", exc_info=True)
@@ -260,13 +268,21 @@ async def memory_lookup_tool(
     logger.debug(
         "Memory lookup — keywords=%r, usernames=%r, chat_titles=%r, platform=%r, "
         "time_start=%r, time_end=%r, limit=%d",
-        keywords, usernames, chat_titles, platform, time_start, time_end, limit,
+        keywords,
+        usernames,
+        chat_titles,
+        platform,
+        time_start,
+        time_end,
+        limit,
     )
 
     # Validation
     if not any([keywords, usernames, chat_titles, platform, time_start]):
         return json.dumps(
-            {"error": "At least one filter parameter must be provided (keywords, usernames, chat_titles, platform, or time_start)."},
+            {
+                "error": "At least one filter parameter must be provided (keywords, usernames, chat_titles, platform, or time_start)."
+            },
             ensure_ascii=False,
         )
 
@@ -292,9 +308,13 @@ async def memory_lookup_tool(
 
         if not results:
             return json.dumps(
-                {"query_filters": build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
-                "results": [],
-                "message": "No memories matched the given filters."},
+                {
+                    "query_filters": build_filter_summary(
+                        keywords, usernames, chat_titles, platform, time_start, time_end
+                    ),
+                    "results": [],
+                    "message": "No memories matched the given filters.",
+                },
                 ensure_ascii=False,
             )
 
@@ -306,9 +326,13 @@ async def memory_lookup_tool(
                 del r["timestamp_epoch"]
 
         return json.dumps(
-            {"query_filters": build_filter_summary(keywords, usernames, chat_titles, platform, time_start, time_end),
-            "count": len(results),
-            "results": results},
+            {
+                "query_filters": build_filter_summary(
+                    keywords, usernames, chat_titles, platform, time_start, time_end
+                ),
+                "count": len(results),
+                "results": results,
+            },
             ensure_ascii=False,
         )
 
@@ -398,6 +422,7 @@ async def _lookup_with_keywords(
         embs_arr = np.array(embs)
 
         from sklearn.metrics.pairwise import cosine_similarity
+
         similarities = cosine_similarity(query_arr, embs_arr)[0]
 
         # Filter by generous threshold
@@ -469,6 +494,8 @@ async def _lookup_metadata_only(
     except Exception as e:
         logger.error("ChromaDB metadata-only get() failed: %s", e, exc_info=True)
         return []
+
+
 # Tool schema (OpenAI function-calling format)
 # Used by Groq, Cerebras, OpenRouter, and Local LLM providers.
 

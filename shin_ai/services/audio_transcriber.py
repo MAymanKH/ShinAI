@@ -126,13 +126,9 @@ def _whisper_worker(
                     mime_type,
                     language,
                 )
-                connection.send(
-                    (request_id, True, text, detected_language, probability, None)
-                )
+                connection.send((request_id, True, text, detected_language, probability, None))
             except BaseException as error:
-                connection.send(
-                    (request_id, False, "", "unknown", 0.0, repr(error))
-                )
+                connection.send((request_id, False, "", "unknown", 0.0, repr(error)))
             finally:
                 del command
                 del audio_bytes
@@ -226,21 +222,15 @@ class WhisperProcessManager:
                 self._start_worker()
                 request_id = uuid.uuid4().hex
                 try:
-                    self._connection.send(
-                        ("transcribe", request_id, audio_bytes, mime_type)
-                    )
+                    self._connection.send(("transcribe", request_id, audio_bytes, mime_type))
                     deadline = time.monotonic() + self.timeout_seconds
-                    while not self._connection.poll(
-                        min(0.1, max(0.0, deadline - time.monotonic()))
-                    ):
+                    while not self._connection.poll(min(0.1, max(0.0, deadline - time.monotonic()))):
                         if cancel_event is not None and cancel_event.is_set():
                             self._discard_worker(terminate=True)
                             raise _TranscriptionCancelled
                         if time.monotonic() >= deadline:
                             self._discard_worker(terminate=True)
-                            raise TimeoutError(
-                                f"Whisper exceeded {self.timeout_seconds:.0f}s timeout"
-                            )
+                            raise TimeoutError(f"Whisper exceeded {self.timeout_seconds:.0f}s timeout")
                     response = self._connection.recv()
                 except (BrokenPipeError, EOFError, OSError):
                     self._discard_worker(terminate=True)

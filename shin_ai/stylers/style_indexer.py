@@ -11,9 +11,7 @@ from shin_ai.utils.logger_config import logger
 
 
 async def _upsert_batch(collection, ids: list[str], documents: list[str]) -> None:
-    embeddings = await get_embedding_service().encode(
-        [f"passage: {text}" for text in documents]
-    )
+    embeddings = await get_embedding_service().encode([f"passage: {text}" for text in documents])
     await asyncio.to_thread(
         collection.upsert,
         ids=ids,

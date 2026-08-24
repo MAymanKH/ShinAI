@@ -3,6 +3,7 @@ Replies Service
 
 Tracks bot replies for reply chain detection.
 """
+
 import asyncio
 import hashlib
 import json
@@ -197,9 +198,7 @@ async def save_reply(
     _load_cache_from_disk()
     assert _replies_cache is not None
 
-    scoped_chat_id = (
-        _reply_key(platform, chat_id, coordination_scope) if platform else str(chat_id)
-    )
+    scoped_chat_id = _reply_key(platform, chat_id, coordination_scope) if platform else str(chat_id)
 
     if scoped_chat_id not in _replies_cache:
         while len(_replies_cache) >= CONTEXT_MAX_CHATS:
@@ -263,11 +262,7 @@ async def check_reply_chain(
     coordination_scope: str | None = None,
     store: "CoordinationStore | None" = None,
 ) -> bool:
-    if (
-        msg.reply_to_message
-        and msg.reply_to_message.from_user
-        and msg.reply_to_message.from_user.is_self
-    ):
+    if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_self:
         return True
 
     if msg.reply_to_message_id:

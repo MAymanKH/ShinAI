@@ -80,9 +80,7 @@ def classify_gemini_error(error: BaseException) -> GeminiFailure:
         kind = GeminiFailureKind.TRANSIENT
     elif "quota" in lowered or "rate limit" in lowered or re.search(r"\b429\b", lowered):
         kind = GeminiFailureKind.RATE_LIMIT
-    elif "unauthenticated" in lowered or "invalid api key" in lowered or re.search(
-        r"\b(401|403)\b", lowered
-    ):
+    elif "unauthenticated" in lowered or "invalid api key" in lowered or re.search(r"\b(401|403)\b", lowered):
         kind = GeminiFailureKind.AUTHENTICATION
     elif "timed out" in lowered or "timeout" in lowered:
         kind = GeminiFailureKind.TIMEOUT
@@ -97,4 +95,3 @@ def classify_gemini_error(error: BaseException) -> GeminiFailure:
         retry_after_seconds=_retry_after(error, message),
         message=message or type(error).__name__,
     )
-

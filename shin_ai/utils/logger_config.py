@@ -71,9 +71,7 @@ class ApplicationLogFilter(logging.Filter):
                 ("msg", context.get("message_id")),
                 ("user", context.get("user_id")),
             )
-        record.log_context = " ".join(
-            f"{key}={value}" for key, value in ordered if value not in (None, "")
-        )
+        record.log_context = " ".join(f"{key}={value}" for key, value in ordered if value not in (None, ""))
         if record.log_context:
             record.log_context += " | "
         return True
@@ -162,14 +160,28 @@ def setup_logger(
 
 
 _THIRD_PARTY_LOGGERS = (
-    "httpx", "httpcore", "hpack",
-    "pyrogram", "pyrogram.connection.connection", "pyrogram.session.session", "pyrogram.dispatcher",
-    "discord", "discord.client", "discord.gateway", "discord.http",
-    "whatsmeow", "whatsmeow.Client",
-    "google_genai", "google_genai.models", "google.genai", "google.genai.models",
-    "google.ai.generativelanguage", "google.api_core",
+    "httpx",
+    "httpcore",
+    "hpack",
+    "pyrogram",
+    "pyrogram.connection.connection",
+    "pyrogram.session.session",
+    "pyrogram.dispatcher",
+    "discord",
+    "discord.client",
+    "discord.gateway",
+    "discord.http",
+    "whatsmeow",
+    "whatsmeow.Client",
+    "google_genai",
+    "google_genai.models",
+    "google.genai",
+    "google.genai.models",
+    "google.ai.generativelanguage",
+    "google.api_core",
     "sentence_transformers",
-    "huggingface_hub", "huggingface_hub.utils._http",
+    "huggingface_hub",
+    "huggingface_hub.utils._http",
 )
 
 _sdk_noise_filter = ThirdPartyNoiseFilter()

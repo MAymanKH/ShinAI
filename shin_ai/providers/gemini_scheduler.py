@@ -125,10 +125,7 @@ class GeminiScheduler:
         return self._key_ids[key_name]
 
     def _pair_key(self, prefix: str, model: str, key_name: str) -> str:
-        return (
-            f"gemini:{prefix}:{self._safe_component(model)}:"
-            f"{self._key_id(key_name)}"
-        )
+        return f"gemini:{prefix}:{self._safe_component(model)}:{self._key_id(key_name)}"
 
     def _key_health_key(self, key_name: str) -> str:
         return f"gemini:key-health:{self._key_id(key_name)}"
@@ -146,9 +143,7 @@ class GeminiScheduler:
             return None
         excluded = excluded_keys or set()
         key_names = list(self.keys)
-        cursor = await self.store.increment(
-            f"gemini:cursor:{self.pool_id}:{self._safe_component(model)}"
-        )
+        cursor = await self.store.increment(f"gemini:cursor:{self.pool_id}:{self._safe_component(model)}")
         start = (cursor - 1) % len(key_names)
         ordered = key_names[start:] + key_names[:start]
         now = self.clock()
@@ -164,9 +159,7 @@ class GeminiScheduler:
         for key_name in ordered:
             if key_name in excluded or self._key_health_key(key_name) in state:
                 continue
-            health = PairHealth.decode(
-                state.get(self._pair_key("health", model, key_name))
-            )
+            health = PairHealth.decode(state.get(self._pair_key("health", model, key_name)))
             if health.cooldown_until > now:
                 continue
 
@@ -267,9 +260,7 @@ class GeminiScheduler:
             available = 0
             for key_name in self.keys:
                 disabled = self._key_health_key(key_name) in state
-                health = PairHealth.decode(
-                    state.get(self._pair_key("health", model, key_name))
-                )
+                health = PairHealth.decode(state.get(self._pair_key("health", model, key_name)))
                 eligible = not disabled and health.cooldown_until <= now
                 if eligible:
                     available += 1

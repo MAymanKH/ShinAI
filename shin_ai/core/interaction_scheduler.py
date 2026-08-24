@@ -163,12 +163,7 @@ class InteractionScheduler(Generic[Payload]):
         while self._ready_heap:
             ready_at, sequence, chat_key = self._ready_heap[0]
             queue = self._queues.get(chat_key)
-            if (
-                queue is None
-                or queue.active
-                or not queue.jobs
-                or queue.jobs[0].sequence != sequence
-            ):
+            if queue is None or queue.active or not queue.jobs or queue.jobs[0].sequence != sequence:
                 heapq.heappop(self._ready_heap)
                 continue
             if ready_at > now:
@@ -183,12 +178,7 @@ class InteractionScheduler(Generic[Payload]):
         while self._ready_heap:
             ready_at, sequence, chat_key = self._ready_heap[0]
             queue = self._queues.get(chat_key)
-            if (
-                queue is None
-                or queue.active
-                or not queue.jobs
-                or queue.jobs[0].sequence != sequence
-            ):
+            if queue is None or queue.active or not queue.jobs or queue.jobs[0].sequence != sequence:
                 heapq.heappop(self._ready_heap)
                 continue
             return max(0.0, ready_at - now)

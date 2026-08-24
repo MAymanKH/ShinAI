@@ -173,8 +173,10 @@ def add_bot_message_to_context(
     if bot_user.username:
         user_name += f" (@{bot_user.username})"
     if media_type and not text:
-        text_content = "[Sticker]" if media_type.startswith("sticker") else (
-            "[Photo]" if media_type == "photo" else "[Media]"
+        text_content = (
+            "[Sticker]"
+            if media_type.startswith("sticker")
+            else ("[Photo]" if media_type == "photo" else "[Media]")
         )
     else:
         text_content = text or ""
@@ -239,22 +241,18 @@ def _recent_media(
     return result
 
 
-def get_recent_media_messages(
-    platform: str, chat_id: int | str, max_count: int = 10
-) -> list[dict]:
+def get_recent_media_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
     return _recent_media(
         platform,
         chat_id,
-        allowed=lambda media_type: media_type == "photo" or bool(
-            media_type and media_type.startswith("sticker")
+        allowed=lambda media_type: (
+            media_type == "photo" or bool(media_type and media_type.startswith("sticker"))
         ),
         max_count=max_count,
     )
 
 
-def get_recent_audio_messages(
-    platform: str, chat_id: int | str, max_count: int = 10
-) -> list[dict]:
+def get_recent_audio_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
     return _recent_media(
         platform,
         chat_id,

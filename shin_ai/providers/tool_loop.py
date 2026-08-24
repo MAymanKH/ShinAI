@@ -46,7 +46,12 @@ TRANSCRIBE_AUDIO_TOOL_SCHEMA = {
     },
 }
 
-TOOLS = [WEB_SEARCH_TOOL_SCHEMA, MEMORY_LOOKUP_TOOL_SCHEMA, TRANSCRIBE_AUDIO_TOOL_SCHEMA, *ACTION_TOOL_SCHEMAS]
+TOOLS = [
+    WEB_SEARCH_TOOL_SCHEMA,
+    MEMORY_LOOKUP_TOOL_SCHEMA,
+    TRANSCRIBE_AUDIO_TOOL_SCHEMA,
+    *ACTION_TOOL_SCHEMAS,
+]
 
 # Injected into tool results for side-effect actions (reaction / sticker /
 # moderation) so the model never forgets it may answer with text OR [SKIP].
@@ -84,22 +89,17 @@ async def run_tool_calling_chat(
     if media_list and include_raw_images:
         content: Any = [{"type": "text", "text": prompt}]
         for idx, media_info in enumerate(media_list, 1):
-            image_bytes = media_info['bytes']
-            mime_type = media_info['mime_type']
-            sender = media_info['sender']
-            position = media_info['position']
-            media_type = media_info['media_type']
+            image_bytes = media_info["bytes"]
+            mime_type = media_info["mime_type"]
+            sender = media_info["sender"]
+            position = media_info["position"]
+            media_type = media_info["media_type"]
 
             label = f"\n[Image {idx}/{len(media_list)}: {media_type} from {sender}, {position}]"
             content.append({"type": "text", "text": label})
 
-            b64_str = base64.b64encode(image_bytes).decode('utf-8')
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{mime_type};base64,{b64_str}"
-                }
-            })
+            b64_str = base64.b64encode(image_bytes).decode("utf-8")
+            content.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_str}"}})
     else:
         content = prompt
 
@@ -110,29 +110,31 @@ async def run_tool_calling_chat(
 
     active_tools = list(TOOLS)
     if media_list:
-        active_tools.append({
-            "type": "function",
-            "function": {
-                "name": "ask_gemini_about_image",
-                "description": (
-                    "Ask the Gemini vision model a specific question about the attached image(s): "
-                    "this is how you actually SEE/inspect the image content on-demand (the same way "
-                    "transcribe_audio lets you hear voice/audio messages). "
-                    "Use it to get detailed visual information, read text, identify objects/people, "
-                    "or verify specific details whenever the initial media description is insufficient."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "question": {
-                            "type": "string",
-                            "description": "The specific question to ask Gemini about the image(s)."
-                        }
+        active_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "ask_gemini_about_image",
+                    "description": (
+                        "Ask the Gemini vision model a specific question about the attached image(s): "
+                        "this is how you actually SEE/inspect the image content on-demand (the same way "
+                        "transcribe_audio lets you hear voice/audio messages). "
+                        "Use it to get detailed visual information, read text, identify objects/people, "
+                        "or verify specific details whenever the initial media description is insufficient."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "description": "The specific question to ask Gemini about the image(s).",
+                            }
+                        },
+                        "required": ["question"],
                     },
-                    "required": ["question"]
-                }
+                },
             }
-        })
+        )
 
     response = None
     pending_actions: list[dict] = []
@@ -242,17 +244,19 @@ async def _transcribe_audio_target(
     source_note = ""
     if target_msg is not requested_msg:
         source_note = (
-            f" (audio source: message id '{getattr(target_msg, 'id', '?')}',"
-            " found via the reply chain)"
+            f" (audio source: message id '{getattr(target_msg, 'id', '?')}', found via the reply chain)"
         )
 
     logger.info(
         "[Audio Tool] Transcribed %s from %s (%s) → %d chars",
-        media_type.lower(), sender_name, request_desc, len(transcription),
+        media_type.lower(),
+        sender_name,
+        request_desc,
+        len(transcription),
     )
     return (
         f"[{media_type} from {sender_name}{source_note} — Whisper transcription]:\n"
-        f"\"{transcription}\"\n\n"
+        f'"{transcription}"\n\n'
         "[TRANSCRIPTION NOTE: Transcribed with the configured local Whisper model. "
         "It may contain phonetic spelling errors, hallucinated artifacts, or illogical "
         "words due to dialect variations (especially Egyptian Arabic). Intelligently "
@@ -354,16 +358,13 @@ async def _execute_tool_call(
         if not media_list:
             return "No image is currently attached to this conversation context.", None
         from shin_ai.providers.gemini import gemini_api
+
         try:
             system_prompt = (
                 "You are an assistant that answers specific questions about attached media/images. "
                 "Answer the user's question accurately, concisely, and factually based on the visual content."
             )
-            answer, _ = await gemini_api(
-                system_prompt=system_prompt,
-                prompt=question,
-                media_list=media_list
-            )
+            answer, _ = await gemini_api(system_prompt=system_prompt, prompt=question, media_list=media_list)
             return answer, None
         except Exception as e:
             logger.error(f"Failed to ask Gemini about image: {e}")

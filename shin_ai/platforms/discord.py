@@ -48,13 +48,8 @@ class DiscordPlatform(PlatformAdapter):
         me = self.client.user
         if not me:
             raise RuntimeError("Discord client not logged in")
-            
-        self._bot_user = UnifiedUser(
-            id=me.id,
-            username=me.name,
-            first_name=me.display_name,
-            is_self=True
-        )
+
+        self._bot_user = UnifiedUser(id=me.id, username=me.name, first_name=me.display_name, is_self=True)
         return self._bot_user
 
     async def start(self) -> None:
@@ -100,20 +95,21 @@ class DiscordPlatform(PlatformAdapter):
         self._bot_user = None
         logger.info("Discord Platform stopped.")
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_message(
+        self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         channel = self.client.get_channel(int(chat_id)) or await self.client.fetch_channel(int(chat_id))
-        
+
         reference = None
         if reply_to_message_id:
-            reference = discord.MessageReference(
-                message_id=int(reply_to_message_id),
-                channel_id=int(chat_id)
-            )
-                
+            reference = discord.MessageReference(message_id=int(reply_to_message_id), channel_id=int(chat_id))
+
         msg = await channel.send(content=text, reference=reference)
         return msg.id
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
+    async def send_sticker(
+        self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None
+    ) -> int | str:
         # User requested to drop sticker support for discord
         logger.info("Stickers are dropped for discord, doing nothing.")
         return 0
@@ -177,7 +173,7 @@ class DiscordPlatform(PlatformAdapter):
                         id=candidate.id,
                         username=candidate.name,
                         first_name=candidate.display_name,
-                        is_self=(candidate.id == self.client.user.id)
+                        is_self=(candidate.id == self.client.user.id),
                     )
         return None
 
@@ -185,7 +181,7 @@ class DiscordPlatform(PlatformAdapter):
         channel = self.client.get_channel(int(chat_id))
         if not channel or not hasattr(channel, "guild"):
             return "Unknown"
-        
+
         try:
             member = await channel.guild.fetch_member(int(user_id))
             if channel.guild.owner_id == member.id:
@@ -214,7 +210,9 @@ class DiscordPlatform(PlatformAdapter):
         if channel and hasattr(channel, "guild"):
             await channel.guild.unban(discord.Object(id=int(user_id)))
 
-    async def restrict_chat_member(self, chat_id: int | str, user_id: int | str, can_send_messages: bool) -> None:
+    async def restrict_chat_member(
+        self, chat_id: int | str, user_id: int | str, can_send_messages: bool
+    ) -> None:
         channel = self.client.get_channel(int(chat_id))
         if channel and hasattr(channel, "guild"):
             member = channel.guild.get_member(int(user_id))
@@ -222,6 +220,7 @@ class DiscordPlatform(PlatformAdapter):
                 # To mute, we timeout
                 if not can_send_messages:
                     from datetime import timedelta
+
                     await member.timeout(discord.utils.utcnow() + timedelta(days=28))
                 else:
                     await member.timeout(None)
@@ -235,22 +234,18 @@ class DiscordPlatform(PlatformAdapter):
 
     def to_unified_message(self, msg: discord.Message) -> UnifiedMessage:
         chat_type = "PRIVATE" if isinstance(msg.channel, discord.DMChannel) else "GROUP"
-        
-        chat = UnifiedChat(
-            id=msg.channel.id,
-            title=getattr(msg.channel, "name", None),
-            type=chat_type
-        )
-        
+
+        chat = UnifiedChat(id=msg.channel.id, title=getattr(msg.channel, "name", None), type=chat_type)
+
         from_user = None
         if msg.author:
             from_user = UnifiedUser(
                 id=msg.author.id,
                 username=msg.author.name,
                 first_name=msg.author.display_name,
-                is_self=(msg.author.id == self.client.user.id) if self.client.user else False
+                is_self=(msg.author.id == self.client.user.id) if self.client.user else False,
             )
-            
+
         unified_msg = UnifiedMessage(
             platform=self.platform_name,
             id=msg.id,
@@ -258,20 +253,20 @@ class DiscordPlatform(PlatformAdapter):
             from_user=from_user,
             text=msg.content,
             date=msg.created_at.timestamp(),
-            native_msg=msg
+            native_msg=msg,
         )
-        
+
         if self.client.user and self.client.user.mentioned_in(msg):
             unified_msg.mentioned = True
-            
+
         if msg.reference and msg.reference.message_id:
             unified_msg.reply_to_message_id = msg.reference.message_id
-            
-            # Note: We aren't fetching the full reply instantly here to avoid 
-            # API spam, but you would normally resolve msg.reference.resolved 
+
+            # Note: We aren't fetching the full reply instantly here to avoid
+            # API spam, but you would normally resolve msg.reference.resolved
             if msg.reference.resolved and isinstance(msg.reference.resolved, discord.Message):
                 unified_msg.reply_to_message = self.to_unified_message(msg.reference.resolved)
-                
+
         # Handle media by scanning attachments and keeping first hit per media slot.
         if msg.attachments:
             for att in msg.attachments:
@@ -287,7 +282,7 @@ class DiscordPlatform(PlatformAdapter):
                     continue
 
                 is_audio = "audio" in content_type_str or filename_str.endswith(
-                    ('.ogg', '.mp3', '.wav', '.m4a', '.flac', '.opus', '.webm')
+                    (".ogg", ".mp3", ".wav", ".m4a", ".flac", ".opus", ".webm")
                 )
                 if is_audio and not unified_msg.audio and not unified_msg.voice:
                     unified_msg.audio = UnifiedMedia(
@@ -305,7 +300,7 @@ class DiscordPlatform(PlatformAdapter):
                         mime_type=att.content_type,
                         native_obj=att,
                     )
-                
+
         # Emulate entities for mentions
         entities = []
         for user in msg.mentions:
@@ -315,13 +310,15 @@ class DiscordPlatform(PlatformAdapter):
                 offset = msg.content.find(mention_str)
                 if offset != -1:
                     ent = UnifiedMessageEntity(
-                        type="MENTION", 
-                        offset=offset, 
+                        type="MENTION",
+                        offset=offset,
                         length=len(mention_str),
-                        user=UnifiedUser(id=user.id, username=user.name, first_name=user.display_name, is_self=False)
+                        user=UnifiedUser(
+                            id=user.id, username=user.name, first_name=user.display_name, is_self=False
+                        ),
                     )
                     entities.append(ent)
-        
+
         unified_msg.entities = entities
 
         return unified_msg

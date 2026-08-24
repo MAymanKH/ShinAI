@@ -41,9 +41,7 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
         workdir=".",  # Keep session files in project root.
     )
 elif TELEGRAM_ENABLED and not TELEGRAM_CONFIGURED:
-    logger.warning(
-        "Telegram is enabled but credentials are incomplete; Telegram platform will be skipped."
-    )
+    logger.warning("Telegram is enabled but credentials are incomplete; Telegram platform will be skipped.")
     app = DisabledTelegramClient()
 else:
     logger.info("Telegram platform is disabled by configuration.")
