@@ -366,6 +366,8 @@ async def _lookup_with_keywords(
     If no metadata filter is provided, fall back to a direct semantic query.
     Results are sorted newest-to-oldest.
     """
+    import numpy as np
+
     if where_filter is not None:
         # Step 1: Get candidates matching metadata filters
         pool_size = min(limit * 5, 500)
