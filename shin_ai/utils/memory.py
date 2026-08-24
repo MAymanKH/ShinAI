@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from shin_ai.utils.db import client
-from shin_ai.stylers.style_retriever import embedder
+from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
 
@@ -75,7 +75,7 @@ async def save_memory(platform: str, user_id: int | str, username: str, prompt: 
         # We include the timestamp and chat_title in the passage so it's nominally searchable.
         searchable_text = f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
         # Off-thread to avoid blocking event loop
-        embedding_tensor = await asyncio.to_thread(embedder.encode, searchable_text)
+        embedding_tensor = await get_embedding_service().encode(searchable_text)
         embedding = embedding_tensor.tolist()
         
         await asyncio.to_thread(
@@ -149,7 +149,7 @@ async def retrieve_memories(query: str, limit: int = 15):
     """
     try:
         # E5 requires "query: " prefix for search queries, off-thread
-        query_emb_tensor = await asyncio.to_thread(embedder.encode, f"query: {query}")
+        query_emb_tensor = await get_embedding_service().encode(f"query: {query}")
         query_emb = query_emb_tensor.tolist()
 
         # Check for time references in the query
@@ -166,11 +166,12 @@ async def retrieve_memories(query: str, limit: int = 15):
             logger.debug("Time-filtered memory search: %s → %s", start_epoch, end_epoch)
 
         # Fetch a large pool for MMR deduplication
-        results = _get_memory_collection().query(
+        results = await asyncio.to_thread(
+            _get_memory_collection().query,
             query_embeddings=[query_emb],
             n_results=40,
             where=where_filter,
-            include=["documents", "distances", "embeddings"]
+            include=["documents", "distances", "embeddings"],
         )
         
         filtered_docs = []
@@ -209,10 +210,11 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
     Accepts a pre-computed embedding to avoid re-encoding.
     """
     try:
-        results = _get_memory_collection().query(
+        results = await asyncio.to_thread(
+            _get_memory_collection().query,
             query_embeddings=[query_emb],
             n_results=40,
-            include=["documents", "distances", "embeddings"]
+            include=["documents", "distances", "embeddings"],
         )
         filtered_docs = []
         filtered_embs = []

@@ -4,6 +4,7 @@ import shin_ai.bot
 from shin_ai.utils.logger_config import logger, reconfigure_logger
 from shin_ai.config import DEBUG
 from shin_ai.services.social import index_social_context
+from shin_ai.services.embeddings import close_embedding_service
 from shin_ai.coordination.runtime import close_coordination_store
 from shin_ai.core.handler import shutdown_interaction_scheduler
 from shin_ai.handlers.telegram_chat import telegram_platform
@@ -16,7 +17,7 @@ reconfigure_logger(DEBUG)
 async def main():
     # Initialize the social context database
     try: 
-        index_social_context()
+        await index_social_context()
     except Exception as e: 
         logger.error(f"Failed to index social context: {e}")
 
@@ -55,6 +56,7 @@ async def main():
                 await platform.stop()
             except Exception as e:
                 logger.error(f"Failed to stop {platform_label} platform cleanly: {e}")
+        await close_embedding_service()
         await close_coordination_store()
 
 if __name__ == "__main__":

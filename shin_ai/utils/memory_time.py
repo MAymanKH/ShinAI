@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from shin_ai.stylers.style_retriever import embedder  # Lazy proxy
+from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
 
 
@@ -124,6 +124,7 @@ TIME_BUCKETS = [
 _time_example_embeddings = None
 _example_bucket_indices = None
 _no_time_embeddings = None
+_embedding_init_lock = asyncio.Lock()
 
 _TEMPORAL_INDICATOR_WORDS = {
     "ago", "yesterday", "today", "last", "week", "month", "year", "hour", "hours",
@@ -147,22 +148,24 @@ async def _init_embeddings() -> None:
     if _time_example_embeddings is not None:
         return
 
-    def _compute():
+    async with _embedding_init_lock:
+        if _time_example_embeddings is not None:
+            return
         all_examples = []
-        bucket_indices = []
+        bucket_indices_list = []
         for idx, bucket in enumerate(TIME_BUCKETS):
             for example in bucket["examples"]:
                 all_examples.append(f"query: {example}")
-                bucket_indices.append(idx)
+                bucket_indices_list.append(idx)
 
-        logger.info(f"Pre-computing {len(all_examples)} time reference embeddings...")
-        time_embs = embedder.encode(all_examples)
-        no_time_embs = embedder.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES])
-        return time_embs, bucket_indices, no_time_embs
-
-    _time_example_embeddings, bucket_indices_list, _no_time_embeddings = await asyncio.to_thread(_compute)
-    _example_bucket_indices = np.array(bucket_indices_list)
-    logger.info("Time reference embeddings ready.")
+        logger.info("Pre-computing %d time reference embeddings...", len(all_examples))
+        service = get_embedding_service()
+        _time_example_embeddings = await service.encode(all_examples)
+        _no_time_embeddings = await service.encode(
+            [f"query: {q}" for q in _NO_TIME_EXAMPLES]
+        )
+        _example_bucket_indices = np.array(bucket_indices_list)
+        logger.info("Time reference embeddings ready.")
 
 
 _NO_TIME_EXAMPLES = [
@@ -189,7 +192,7 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
 
     now = datetime.now().astimezone()
 
-    query_emb_tensor = await asyncio.to_thread(embedder.encode, f"query: {query}")
+    query_emb_tensor = await get_embedding_service().encode(f"query: {query}")
     query_emb = query_emb_tensor.reshape(1, -1)
 
     time_similarities = cosine_similarity(query_emb, _time_example_embeddings)[0]

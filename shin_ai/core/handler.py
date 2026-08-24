@@ -266,7 +266,7 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
             prompt=prompt,
             media_list=media_list,
             reply_text=reply_text,
-            style_examples=_get_style_examples(prompt),
+            style_examples=await _get_style_examples(prompt),
             social_context_section=await get_social_context(msg, reply_text),
             memory_section=await _get_memory_section(prompt, msg),
             runtime_context=await _build_runtime_context(platform, msg),
@@ -712,9 +712,9 @@ async def _download_media_from_context(platform: PlatformAdapter, chat_id: int |
     return media_list
 
 
-def _get_style_examples(prompt: str) -> str:
+async def _get_style_examples(prompt: str) -> str:
     try:
-        return "\n".join(get_style_examples(prompt))
+        return "\n".join(await get_style_examples(prompt))
     except Exception as e:
         logger.debug("No style examples retrieved: %s", e)
         return ""

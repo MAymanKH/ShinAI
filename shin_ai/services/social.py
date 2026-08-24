@@ -8,7 +8,7 @@ import asyncio
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
-from shin_ai.stylers.style_retriever import embedder
+from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.data.loader import MEMBERS
 
 # --- SEMANTIC SOCIAL CONTEXT SETUP ---
@@ -78,20 +78,13 @@ def get_platform_username_for_member(member_key: str, platform: str) -> str | No
     return username if username else None
 
 
-def index_social_context():
+async def index_social_context() -> None:
     """Indexes members into ChromaDB for semantic retrieval.
 
-    Deletes the existing collection first to ensure stale entries are removed,
-    then re-creates and upserts all current members.
+    Upserts current members and removes stale IDs without recreating a shared
+    collection while another bot instance may be using it.
     """
     global _social_collection
-
-    # Delete and recreate to ensure removed members are purged from the DB
-    try:
-        client.delete_collection("social_context_members")
-    except Exception:
-        pass
-    _social_collection = None  # Force recreation
 
     ids = []
     documents = []
@@ -117,9 +110,21 @@ def index_social_context():
     if ids:
         # E5 requires "passage: " prefix for stored documents
         prefixed_documents = [f"passage: {doc}" for doc in documents]
-        keywords_embeddings = embedder.encode(prefixed_documents).tolist()
+        keywords_embeddings = (
+            await get_embedding_service().encode(prefixed_documents)
+        ).tolist()
         collection = _get_social_collection()
-        collection.upsert(ids=ids, embeddings=keywords_embeddings, documents=documents, metadatas=metadatas)
+        existing = await asyncio.to_thread(collection.get, include=["metadatas"])
+        stale_ids = list(set(existing.get("ids") or []) - set(ids))
+        if stale_ids:
+            await asyncio.to_thread(collection.delete, ids=stale_ids)
+        await asyncio.to_thread(
+            collection.upsert,
+            ids=ids,
+            embeddings=keywords_embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
         logger.info(f"Indexed {len(ids)} members for social context.")
 
 async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
@@ -178,7 +183,7 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
         # We query using the message content to find conceptually related members
         # e.g. "Who is your creator?" -> matches "creator" in MaymanKH's doc
         # E5 requires "query: " prefix
-        query_emb = await asyncio.to_thread(embedder.encode, f"query: {combined_text}")
+        query_emb = await get_embedding_service().encode(f"query: {combined_text}")
 
         # We fetch up to 2 most relevant members
         results = await asyncio.to_thread(

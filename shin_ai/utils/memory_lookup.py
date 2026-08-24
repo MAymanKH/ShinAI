@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import Optional
 
-from shin_ai.stylers.style_retriever import embedder
+from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import _get_memory_collection
 from shin_ai.utils.memory_lookup_filters import (
@@ -390,7 +390,7 @@ async def _lookup_with_keywords(
             return []
 
         # Step 2: Semantic re-rank with E5
-        query_emb = await asyncio.to_thread(embedder.encode, f"query: {keywords}")
+        query_emb = await get_embedding_service().encode(f"query: {keywords}")
         query_emb_list = query_emb.tolist()
         query_arr = np.array(query_emb_list).reshape(1, -1)
         embs_arr = np.array(embs)
@@ -416,7 +416,7 @@ async def _lookup_with_keywords(
 
     else:
         # No metadata filter — pure semantic search
-        query_emb = await asyncio.to_thread(embedder.encode, f"query: {keywords}")
+        query_emb = await get_embedding_service().encode(f"query: {keywords}")
         query_emb_list = query_emb.tolist()
 
         results = await asyncio.to_thread(
