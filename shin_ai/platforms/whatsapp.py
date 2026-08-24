@@ -462,6 +462,9 @@ class WhatsAppPlatform(PlatformAdapter):
 
         if self._connect_task and not self._connect_task.done():
             self._connect_task.cancel()
+        if self._connect_task is not None:
+            await asyncio.gather(self._connect_task, return_exceptions=True)
+            self._connect_task = None
 
         with self._cache_lock:
             self._raw_message_cache.clear()

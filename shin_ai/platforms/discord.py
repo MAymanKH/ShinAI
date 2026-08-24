@@ -19,6 +19,7 @@ class DiscordPlatform(PlatformAdapter):
         )
         self.token = token
         self._bot_user = None
+        self._connect_task: asyncio.Task | None = None
 
     @property
     def platform_name(self) -> str:
@@ -49,12 +50,38 @@ class DiscordPlatform(PlatformAdapter):
 
     async def start(self) -> None:
         await self.client.login(self.token)
-        asyncio.create_task(self.client.connect())
-        await self.client.wait_until_ready()
+        self._connect_task = asyncio.create_task(
+            self.client.connect(),
+            name="shinai-discord-connection",
+        )
+        ready_task = asyncio.create_task(self.client.wait_until_ready())
+        try:
+            done, _ = await asyncio.wait(
+                {self._connect_task, ready_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if self._connect_task in done:
+                await self._connect_task
+                raise RuntimeError("Discord connection stopped before becoming ready")
+            await ready_task
+        except BaseException:
+            ready_task.cancel()
+            await asyncio.gather(ready_task, return_exceptions=True)
+            await self.client.close()
+            await asyncio.gather(self._connect_task, return_exceptions=True)
+            self._connect_task = None
+            raise
         logger.info(f"Discord Platform started as {self.client.user}")
 
     async def stop(self) -> None:
         await self.client.close()
+        connect_task = self._connect_task
+        self._connect_task = None
+        if connect_task is not None:
+            results = await asyncio.gather(connect_task, return_exceptions=True)
+            if results and isinstance(results[0], Exception):
+                logger.debug("Discord connection task ended with: %s", results[0])
+        self._bot_user = None
         logger.info("Discord Platform stopped.")
 
     async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
