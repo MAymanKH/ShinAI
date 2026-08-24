@@ -41,6 +41,7 @@ def test_parse_config_applies_stable_defaults() -> None:
     assert config.runtime.max_concurrent_interactions == 24
     assert config.runtime.platform_message_cache_size == 500
     assert config.coordination.backend == "sqlite"
+    assert config.coordination.reply_state_ttl_seconds == 86_400
 
 
 def test_parse_config_rejects_unknown_fallback() -> None:

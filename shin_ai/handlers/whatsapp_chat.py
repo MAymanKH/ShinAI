@@ -30,7 +30,11 @@ if WHATSAPP_ENABLED:
                     f"reason={reason} text='{(text or '<no text>').replace(chr(10), ' ')[:80]}'"
                 )
 
-            should_respond = await should_respond_to_message(unified_msg, debug_hook=_whatsapp_debug)
+            should_respond = await should_respond_to_message(
+                unified_msg,
+                coordination_scope=whatsapp_platform.coordination_scope,
+                debug_hook=_whatsapp_debug,
+            )
 
             if should_respond and not state.IS_CHECKING_KEYS:
                 await process_message(whatsapp_platform, unified_msg)

@@ -122,7 +122,12 @@ async def execute_text_messages(
                         "[%s] Reply-overrode target — chat=%s sent=%s -> reply_to=%s (model-chosen)",
                         platform.platform_name, msg.chat.id, sent_id, reply_to_id,
                     )
-                await save_reply(msg.chat.id, sent_id, platform.platform_name)
+                await save_reply(
+                    msg.chat.id,
+                    sent_id,
+                    platform.platform_name,
+                    coordination_scope=platform.coordination_scope,
+                )
                 await _record_outgoing_context(
                     platform=platform,
                     msg=msg,
@@ -248,7 +253,12 @@ async def _execute_sticker(
                 reply_to_id or "none",
                 extra={"event_name": "action.sticker"},
             )
-            await save_reply(msg.chat.id, sent_id, platform.platform_name)
+            await save_reply(
+                msg.chat.id,
+                sent_id,
+                platform.platform_name,
+                coordination_scope=platform.coordination_scope,
+            )
             await _record_outgoing_context(
                 platform=platform,
                 msg=msg,

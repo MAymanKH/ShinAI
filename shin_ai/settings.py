@@ -90,6 +90,7 @@ class CoordinationSettings:
     database_path: Path
     lease_seconds: float
     event_dedup_ttl_seconds: float
+    reply_state_ttl_seconds: float
     cleanup_interval_seconds: float
 
 
@@ -314,6 +315,11 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         event_dedup_ttl_seconds=_positive_float(
             coordination_raw.get("event_dedup_ttl_seconds"),
             name="coordination.event_dedup_ttl_seconds",
+            default=86_400.0,
+        ),
+        reply_state_ttl_seconds=_positive_float(
+            coordination_raw.get("reply_state_ttl_seconds"),
+            name="coordination.reply_state_ttl_seconds",
             default=86_400.0,
         ),
         cleanup_interval_seconds=_positive_float(

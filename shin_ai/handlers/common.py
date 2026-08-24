@@ -49,6 +49,8 @@ def should_record_context(msg: UnifiedMessage) -> bool:
 
 async def should_respond_to_message(
     msg: UnifiedMessage,
+    *,
+    coordination_scope: str | None = None,
     debug_hook: Callable[[str, str], None] | None = None,
 ) -> bool:
     def _debug(reason: str) -> None:
@@ -67,7 +69,11 @@ async def should_respond_to_message(
         _debug("skip:system_broadcast")
         return False
 
-    is_next = check_and_clear_next_message_watch(msg.platform, msg.chat.id)
+    is_next = await check_and_clear_next_message_watch(
+        msg.platform,
+        msg.chat.id,
+        coordination_scope=coordination_scope,
+    )
 
     text = _message_text(msg)
 
@@ -78,7 +84,10 @@ async def should_respond_to_message(
         _debug("pass:private")
         return True
 
-    is_bot_reply = await check_reply_chain(msg)
+    is_bot_reply = await check_reply_chain(
+        msg,
+        coordination_scope=coordination_scope,
+    )
 
     if is_next and not msg.reply_to_message_id:
         msg.is_speculative_reply = True

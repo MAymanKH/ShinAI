@@ -81,6 +81,7 @@ COORDINATION_NAMESPACE = _cfg.coordination.namespace
 COORDINATION_DATABASE_PATH = _cfg.coordination.database_path
 COORDINATION_LEASE_SECONDS = _cfg.coordination.lease_seconds
 EVENT_DEDUP_TTL_SECONDS = _cfg.coordination.event_dedup_ttl_seconds
+REPLY_STATE_TTL_SECONDS = _cfg.coordination.reply_state_ttl_seconds
 COORDINATION_CLEANUP_INTERVAL_SECONDS = _cfg.coordination.cleanup_interval_seconds
 
 # Logging

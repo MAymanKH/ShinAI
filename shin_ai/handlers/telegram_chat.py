@@ -66,6 +66,7 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
 
             should_respond = await should_respond_to_message(
                 unified_msg,
+                coordination_scope=telegram_platform.coordination_scope,
                 debug_hook=lambda reason, text: _telegram_debug(reason, text, msg),
             )
         except Exception as e:

@@ -225,6 +225,7 @@ coordination:
   database_path: data/coordination.sqlite3
   lease_seconds: 240
   event_dedup_ttl_seconds: 86400
+  reply_state_ttl_seconds: 86400 # Shared reply triggers and next-message markers
   cleanup_interval_seconds: 300
 
 # AI Providers Configuration

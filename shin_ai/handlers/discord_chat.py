@@ -34,7 +34,11 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
             )
 
         try:
-            should_respond = await should_respond_to_message(unified_msg, debug_hook=_discord_debug)
+            should_respond = await should_respond_to_message(
+                unified_msg,
+                coordination_scope=discord_platform.coordination_scope,
+                debug_hook=_discord_debug,
+            )
         except Exception as e:
             logger.error("Discord filter evaluation failed: %s", e, exc_info=True)
             return
@@ -50,4 +54,3 @@ elif DISCORD_ENABLED and not DISCORD_CONFIGURED:
     logger.warning("Discord is enabled but DISCORD_BOT_TOKEN is missing; Discord handler is disabled.")
 else:
     logger.info("Discord handler is disabled by configuration.")
-
