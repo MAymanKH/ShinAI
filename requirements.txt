@@ -1,28 +1,30 @@
 # Bot Frameworks
-discord.py
-pyrofork
-tgcrypto
-tgcrypto-pyrofork
-neonize
-protobuf==6.33.6
+discord.py>=2.7.1,<3
+pyrofork>=2.3.69,<3
+tgcrypto-pyrofork>=1.2.8,<2
+neonize>=0.4.3.post0,<0.5
+protobuf>=6.33.6,<7
 
 # Vector Database for Memory/Context
 chromadb==1.5.5
+# Keep the OpenTelemetry family aligned; mixed versions can break Chroma imports.
 opentelemetry-api==1.40.0
 opentelemetry-sdk==1.40.0
 opentelemetry-proto==1.40.0
 opentelemetry-exporter-otlp-proto-common==1.40.0
 opentelemetry-exporter-otlp-proto-grpc==1.40.0
-sentence-transformers
+sentence-transformers>=5.7,<6
+numpy>=1.26,<3
+scikit-learn>=1.6,<2
 
 # AI Providers
-google-genai
-openai
+google-genai>=2.17,<3
+openai>=2.54,<3
 
 # Utilities
-PyYAML
-python-dateutil
-ddgs
-beautifulsoup4
-httpx
-faster-whisper
+PyYAML>=6.0.3,<7
+python-dateutil>=2.9,<3
+ddgs>=9.14,<10
+beautifulsoup4>=4.15,<5
+httpx>=0.28.1,<1
+faster-whisper>=1.2.1,<2

@@ -14,5 +14,14 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[test]"
+      # Unit tests intentionally avoid heavyweight bot/model SDK imports.
+      - run: >-
+          python -m pip install
+          "PyYAML>=6,<7"
+          "pytest>=8,<10"
+          "pytest-asyncio>=0.24,<2"
+          "pytest-cov>=6,<8"
+          "pytest-timeout>=2.3,<3"
+          "hypothesis>=6.120,<7"
+      - run: python -m pip install --no-deps -e .
       - run: python -m pytest
