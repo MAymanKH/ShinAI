@@ -39,6 +39,12 @@ class DiscordPlatform(PlatformAdapter):
         return False
 
     @property
+    def supported_moderation_actions(self) -> frozenset[str]:
+        # "add" DMs an invite link, but send_message resolves a channel id and
+        # cannot address a user directly.
+        return frozenset({"kick", "ban", "unban", "mute", "unmute"})
+
+    @property
     def coordination_scope(self) -> str:
         return f"discord:{self.credential_fingerprint(self.token)}"
 

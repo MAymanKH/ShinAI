@@ -243,10 +243,11 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
     return contents
 
 
-def _build_gemini_config(system_prompt: str, model: str, media_list=None):
+def _build_gemini_config(system_prompt: str, model: str, media_list=None, tool_context=None):
     from shin_ai.providers.tool_loop import (
         ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA,
         TRANSCRIBE_AUDIO_TOOL_SCHEMA,
+        tools_for_platform,
     )
     from shin_ai.utils.action_tools import (
         MODERATE_USER_TOOL_SCHEMA,
@@ -254,14 +255,22 @@ def _build_gemini_config(system_prompt: str, model: str, media_list=None):
         SEND_STICKER_TOOL_SCHEMA,
     )
 
-    # Build Gemini-native tool declarations from the OpenAI schemas
+    # Build Gemini-native tool declarations from the OpenAI schemas, keeping
+    # only the ones this platform can actually carry out.
+    platform = tool_context[0] if tool_context else None
+    platform_tools = tools_for_platform(
+        [
+            TRANSCRIBE_AUDIO_TOOL_SCHEMA,
+            SEND_REACTION_TOOL_SCHEMA,
+            SEND_STICKER_TOOL_SCHEMA,
+            MODERATE_USER_TOOL_SCHEMA,
+        ],
+        platform,
+    )
     gemini_tools = [
         search_web_tool,
         memory_lookup_tool,
-        _openai_schema_to_gemini_function(TRANSCRIBE_AUDIO_TOOL_SCHEMA),
-        _openai_schema_to_gemini_function(SEND_REACTION_TOOL_SCHEMA),
-        _openai_schema_to_gemini_function(SEND_STICKER_TOOL_SCHEMA),
-        _openai_schema_to_gemini_function(MODERATE_USER_TOOL_SCHEMA),
+        *(_openai_schema_to_gemini_function(schema) for schema in platform_tools),
     ]
     # The static system prompt tells every model it has this tool. Gemini sees
     # images natively, but leaving the tool undeclared meant the prompt was

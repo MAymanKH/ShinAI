@@ -77,6 +77,13 @@ class WhatsAppPlatform(PlatformAdapter):
         return False
 
     @property
+    def supported_moderation_actions(self) -> frozenset[str]:
+        # ban and kick both resolve to removing the participant, so advertising
+        # "ban" would promise a permanent block the platform never applies.
+        # mute/unmute raise; unban/add have no faithful WhatsApp equivalent.
+        return frozenset({"kick"})
+
+    @property
     def uses_integer_message_ids(self) -> bool:
         # Stanza ids are opaque strings such as "3EB0C767D..."; coercing them
         # to int would silently discard every reply target.

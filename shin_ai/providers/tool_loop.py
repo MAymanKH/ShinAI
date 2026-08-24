@@ -3,6 +3,7 @@ import base64
 import inspect
 import json
 from collections.abc import Callable
+from copy import deepcopy
 from typing import Any
 
 from shin_ai.utils.action_tools import (
@@ -85,6 +86,44 @@ TOOLS = [
 ]
 
 
+def tools_for_platform(tools: list[dict], platform: Any) -> list[dict]:
+    """Drop tools the adapter cannot honour, and narrow the ones it partly can.
+
+    A tool result tells the model "[ACTION EXECUTED]: the requested side-effect
+    has been performed", and the system prompt then invites it to answer with
+    [SKIP]. If the adapter silently drops that action the bot goes completely
+    quiet, so an unsupported tool must never be offered in the first place.
+    """
+    if platform is None:
+        return list(tools)
+
+    allowed_actions = platform.supported_moderation_actions
+    filtered: list[dict] = []
+    for tool in tools:
+        name = tool["function"]["name"]
+
+        if name == "send_sticker" and not platform.supports_stickers:
+            continue
+
+        if name == "moderate_user":
+            actions = [
+                action
+                for action in tool["function"]["parameters"]["properties"]["action"]["enum"]
+                if action in allowed_actions
+                and (action not in {"mute", "unmute"} or platform.supports_member_restrictions)
+            ]
+            if not actions:
+                continue
+            if actions != tool["function"]["parameters"]["properties"]["action"]["enum"]:
+                tool = deepcopy(tool)
+                tool["function"]["parameters"]["properties"]["action"]["enum"] = actions
+            filtered.append(tool)
+            continue
+
+        filtered.append(tool)
+    return filtered
+
+
 async def run_tool_calling_chat(
     *,
     provider_name: str,
@@ -128,7 +167,8 @@ async def run_tool_calling_chat(
         {"role": "user", "content": content},
     ]
 
-    active_tools = list(TOOLS)
+    platform = tool_context[0] if tool_context else None
+    active_tools = tools_for_platform(TOOLS, platform)
     if media_list:
         active_tools.append(ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA)
 

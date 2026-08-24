@@ -27,6 +27,15 @@ class PlatformAdapter(ABC):
         return True
 
     @property
+    def supported_moderation_actions(self) -> frozenset[str]:
+        """Moderation actions this adapter implements with correct semantics.
+
+        An action left out here is never offered to the model, so it cannot be
+        told an action succeeded that the adapter would drop or fail.
+        """
+        return frozenset({"kick", "ban", "unban", "mute", "unmute", "add"})
+
+    @property
     def uses_integer_message_ids(self) -> bool:
         """Whether message ids are numeric and must be coerced to int.
 
