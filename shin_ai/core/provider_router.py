@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -78,24 +77,25 @@ async def call_ai_provider(
         retry_prompt = provider_prompt
         attempts = max(1, max_retries)
         for attempt in range(1, attempts + 1):
-            remaining = global_timeout_seconds - (clock() - chain_started)
-            if remaining <= 0:
+            if clock() - chain_started >= global_timeout_seconds:
                 logger.error(
                     "Global AI timeout exhausted during retry",
                     extra={"event_name": "provider.deadline"},
                 )
                 break
             try:
-                answer, pending_actions = await asyncio.wait_for(
-                    execute(
-                        provider,
-                        msg,
-                        system_prompt,
-                        retry_prompt,
-                        provider_media,
-                        platform,
-                    ),
-                    timeout=min(attempt_timeout_seconds, remaining),
+                # No wall-clock wrapper here: a provider that rotates keys and
+                # models does that work itself, and cutting the rotation short
+                # left later models untried. Each provider applies the attempt
+                # timeout to a single model call instead.
+                answer, pending_actions = await execute(
+                    provider,
+                    msg,
+                    system_prompt,
+                    retry_prompt,
+                    provider_media,
+                    platform,
+                    attempt_timeout_seconds=attempt_timeout_seconds,
                 )
                 if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
                     raise RuntimeError("AI provider returned empty response")
@@ -188,6 +188,8 @@ async def execute_provider_once(
     prompt: str,
     media_list: list[dict],
     platform: PlatformAdapter | None = None,
+    *,
+    attempt_timeout_seconds: float | None = None,
 ) -> tuple[str, list[dict]]:
     tool_context: Any = (platform, msg) if platform is not None else None
 
@@ -199,6 +201,7 @@ async def execute_provider_once(
             prompt,
             media_list=media_list,
             tool_context=tool_context,
+            attempt_timeout_seconds=attempt_timeout_seconds,
         )
     if provider.type == "openai":
         from shin_ai.providers.openai_compatible import openai_provider
@@ -209,6 +212,7 @@ async def execute_provider_once(
             prompt,
             media_list=media_list,
             tool_context=tool_context,
+            attempt_timeout_seconds=attempt_timeout_seconds,
         )
 
     logger.error("Unknown provider type '%s' for provider '%s'", provider.type, provider.name)

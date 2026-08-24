@@ -106,6 +106,7 @@ async def gemini_api(
     *,
     scheduler: GeminiScheduler | None = None,
     allow_image_tool: bool = True,
+    attempt_timeout_seconds: float | None = None,
 ) -> tuple[str, list[dict]]:
     """Call the Gemini API with tool support.
 
@@ -118,6 +119,9 @@ async def gemini_api(
         tool_context:  Optional (platform, triggering_msg) tuple that gives
                        context-bound tools (e.g. transcribe_audio) access to
                        the current chat.
+        attempt_timeout_seconds: Budget for a single key/model generation.
+                       Each pair gets its own full allowance; defaults to
+                       ai.timeout_seconds.
 
     Returns:
         (response_text, pending_actions) where pending_actions is a list of
@@ -126,6 +130,10 @@ async def gemini_api(
     """
     active_scheduler = scheduler or get_gemini_scheduler()
     models_to_try = list(active_scheduler.models)
+    ai_settings = get_settings().ai
+    attempt_timeout = (
+        ai_settings.timeout_seconds if attempt_timeout_seconds is None else attempt_timeout_seconds
+    )
     last_exception = None
 
     for model in models_to_try:
@@ -139,13 +147,20 @@ async def gemini_api(
                 genai_client = _get_genai_client(reservation.api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model, media_list if allow_image_tool else None)
-                response, pending_actions = await _run_gemini_generation_loop(
-                    genai_client,
-                    model,
-                    contents,
-                    config,
-                    tool_context,
-                    media_list,
+                # The timeout covers the generation itself. Walking the key and
+                # model rotation costs nothing against it, so a pool-wide 429
+                # burst can no longer burn the allowance before the later models
+                # are ever tried.
+                response, pending_actions = await asyncio.wait_for(
+                    _run_gemini_generation_loop(
+                        genai_client,
+                        model,
+                        contents,
+                        config,
+                        tool_context,
+                        media_list,
+                    ),
+                    timeout=attempt_timeout,
                 )
 
                 response_text = _extract_gemini_text(response)

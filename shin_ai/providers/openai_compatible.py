@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncOpenAI
 
 from shin_ai.providers.tool_loop import run_tool_calling_chat
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 if TYPE_CHECKING:
@@ -82,6 +83,8 @@ async def openai_provider(
     prompt: str,
     media_list: list[dict] | None = None,
     tool_context: Any = None,
+    *,
+    attempt_timeout_seconds: float | None = None,
 ) -> tuple[str, list[dict]]:
     """
     Call any OpenAI-compatible provider defined in config.yaml.
@@ -94,6 +97,9 @@ async def openai_provider(
         tool_context:  Optional (platform, triggering_msg) tuple that gives
                        context-bound tools (e.g. transcribe_audio) access to
                        the current chat.
+        attempt_timeout_seconds: Budget for the model call itself. Waiting for a
+                       free concurrency slot sits outside it. Defaults to
+                       ai.timeout_seconds.
 
     Returns:
         (response_text, pending_actions) where pending_actions is a list of
@@ -129,8 +135,15 @@ async def openai_provider(
             tool_context=tool_context,
         )
 
+    # The router no longer wraps provider calls in a deadline, so the timeout on
+    # the model call is applied here — inside the semaphore, so queueing behind
+    # another request does not eat into this one's allowance.
+    timeout = (
+        get_settings().ai.timeout_seconds if attempt_timeout_seconds is None else attempt_timeout_seconds
+    )
+
     if semaphore is not None:
         async with semaphore:
-            return await _call()
+            return await asyncio.wait_for(_call(), timeout=timeout)
 
-    return await _call()
+    return await asyncio.wait_for(_call(), timeout=timeout)
