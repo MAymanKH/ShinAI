@@ -31,6 +31,18 @@ import json
 
 from shin_ai.utils.logger_config import logger
 
+# Injected into tool results for side-effect actions (reaction / sticker /
+# moderation) so the model never forgets it may answer with text OR [SKIP].
+POST_ACTION_TOOL_REMINDER = (
+    "\n\n[ACTION EXECUTED]: The requested side-effect has been performed. "
+    "Now decide the text channel:\n"
+    "  • Output [SKIP] if the action itself (reaction / sticker / moderation) IS the complete response.\n"
+    "  • Write your normal text reply if words are also needed.\n"
+    "  • Output [SKIP] and then write text if you want both.\n"
+    "  • (For stickers) You may also call send_sticker again to send another sticker."
+)
+
+
 # send_reaction
 SEND_REACTION_TOOL_SCHEMA = {
     "type": "function",

@@ -5,7 +5,11 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS, ACTION_TOOL_SCHEMAS
+from shin_ai.utils.action_tools import (
+    ACTION_TOOL_HANDLERS,
+    ACTION_TOOL_SCHEMAS,
+    POST_ACTION_TOOL_REMINDER,
+)
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_lookup import MEMORY_LOOKUP_TOOL_SCHEMA, memory_lookup_tool
 from shin_ai.utils.web_search import WEB_SEARCH_TOOL_SCHEMA, search_web_tool
@@ -46,23 +50,39 @@ TRANSCRIBE_AUDIO_TOOL_SCHEMA = {
     },
 }
 
+# Offered only when media is attached. Gemini sees images natively but the
+# system prompt advertises this tool to every provider, so it must exist for
+# every provider.
+ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "ask_gemini_about_image",
+        "description": (
+            "Ask the Gemini vision model a specific question about the attached image(s): "
+            "this is how you actually SEE/inspect the image content on-demand (the same way "
+            "transcribe_audio lets you hear voice/audio messages). "
+            "Use it to get detailed visual information, read text, identify objects/people, "
+            "or verify specific details whenever the initial media description is insufficient."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The specific question to ask Gemini about the image(s).",
+                }
+            },
+            "required": ["question"],
+        },
+    },
+}
+
 TOOLS = [
     WEB_SEARCH_TOOL_SCHEMA,
     MEMORY_LOOKUP_TOOL_SCHEMA,
     TRANSCRIBE_AUDIO_TOOL_SCHEMA,
     *ACTION_TOOL_SCHEMAS,
 ]
-
-# Injected into tool results for side-effect actions (reaction / sticker /
-# moderation) so the model never forgets it may answer with text OR [SKIP].
-_POST_ACTION_TOOL_REMINDER = (
-    "\n\n[ACTION EXECUTED]: The requested side-effect has been performed. "
-    "Now decide the text channel:\n"
-    "  • Output [SKIP] if the action itself (reaction / sticker / moderation) IS the complete response.\n"
-    "  • Write your normal text reply if words are also needed.\n"
-    "  • Output [SKIP] and then write text if you want both.\n"
-    "  • (For stickers) You may also call send_sticker again to send another sticker."
-)
 
 
 async def run_tool_calling_chat(
@@ -110,31 +130,7 @@ async def run_tool_calling_chat(
 
     active_tools = list(TOOLS)
     if media_list:
-        active_tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": "ask_gemini_about_image",
-                    "description": (
-                        "Ask the Gemini vision model a specific question about the attached image(s): "
-                        "this is how you actually SEE/inspect the image content on-demand (the same way "
-                        "transcribe_audio lets you hear voice/audio messages). "
-                        "Use it to get detailed visual information, read text, identify objects/people, "
-                        "or verify specific details whenever the initial media description is insufficient."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "question": {
-                                "type": "string",
-                                "description": "The specific question to ask Gemini about the image(s).",
-                            }
-                        },
-                        "required": ["question"],
-                    },
-                },
-            }
-        )
+        active_tools.append(ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA)
 
     response = None
     pending_actions: list[dict] = []
@@ -179,7 +175,7 @@ async def run_tool_calling_chat(
             )
             if pending_action is not None:
                 pending_actions.append(pending_action)
-                tool_result += _POST_ACTION_TOOL_REMINDER
+                tool_result += POST_ACTION_TOOL_REMINDER
             messages.append(
                 {
                     "role": "tool",
@@ -307,6 +303,30 @@ async def _transcribe_chat_audio(
     return "No voice message or audio file found in this conversation or recent chat history."
 
 
+async def ask_gemini_about_image(question: str, media_list: list[dict] | None) -> str:
+    """Answer a targeted question about the attached image(s) via Gemini."""
+    logger.debug("Gemini image question: %r", question)
+    if not media_list:
+        return "No image is currently attached to this conversation context."
+
+    from shin_ai.providers.gemini import gemini_api
+
+    try:
+        answer, _ = await gemini_api(
+            "You are an assistant that answers specific questions about attached media/images. "
+            "Answer the user's question accurately, concisely, and factually based on the visual content.",
+            question,
+            media_list=media_list,
+            # This call *is* the image tool. Re-declaring it here would let the
+            # nested model call the tool that invoked it.
+            allow_image_tool=False,
+        )
+        return answer
+    except Exception as e:
+        logger.error("Failed to ask Gemini about the image: %s", e)
+        return f"Error querying Gemini about the image: {e!s}"
+
+
 async def _execute_tool_call(
     provider_name: str,
     tool_call: Any,
@@ -353,22 +373,7 @@ async def _execute_tool_call(
             return f"Error transcribing audio: {e!s}", None
 
     if tool_name == "ask_gemini_about_image":
-        question = args.get("question", "")
-        logger.debug("Gemini image question: %r", question)
-        if not media_list:
-            return "No image is currently attached to this conversation context.", None
-        from shin_ai.providers.gemini import gemini_api
-
-        try:
-            system_prompt = (
-                "You are an assistant that answers specific questions about attached media/images. "
-                "Answer the user's question accurately, concisely, and factually based on the visual content."
-            )
-            answer, _ = await gemini_api(system_prompt=system_prompt, prompt=question, media_list=media_list)
-            return answer, None
-        except Exception as e:
-            logger.error(f"Failed to ask Gemini about image: {e}")
-            return f"Error querying Gemini about the image: {e!s}", None
+        return await ask_gemini_about_image(args.get("question", ""), media_list), None
 
     handler = ACTION_TOOL_HANDLERS.get(tool_name)
     if handler:

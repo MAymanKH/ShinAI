@@ -24,21 +24,10 @@ from shin_ai.providers.gemini_keys import (
     get_gemini_stats_message as get_gemini_stats_message,
 )
 from shin_ai.providers.gemini_scheduler import GeminiScheduler
-from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS
+from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS, POST_ACTION_TOOL_REMINDER
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_lookup import memory_lookup_tool
 from shin_ai.utils.web_search import search_web_tool
-
-# Injected into tool results for side-effect actions (reaction / sticker /
-# moderation) so the model never forgets it may answer with text OR [SKIP].
-_POST_ACTION_TOOL_REMINDER = (
-    "\n\n[ACTION EXECUTED]: The requested side-effect has been performed. "
-    "Now decide the text channel:\n"
-    "  • Output [SKIP] if the action itself (reaction / sticker / moderation) IS the complete response.\n"
-    "  • Write your normal text reply if words are also needed.\n"
-    "  • Output [SKIP] and then write text if you want both.\n"
-    "  • (For stickers) You may also call send_sticker again to send another sticker."
-)
 
 # Cache genai.Client instances per API key to avoid recreating connections
 _genai_client_cache: dict[str, genai.Client] = {}
@@ -116,6 +105,7 @@ async def gemini_api(
     tool_context=None,
     *,
     scheduler: GeminiScheduler | None = None,
+    allow_image_tool: bool = True,
 ) -> tuple[str, list[dict]]:
     """Call the Gemini API with tool support.
 
@@ -123,6 +113,8 @@ async def gemini_api(
         system_prompt: The static system prompt.
         prompt:        The user prompt (may include dynamic context).
         media_list:    Optional list of media dicts (images) to attach.
+        allow_image_tool: Declare ask_gemini_about_image. Cleared for the
+                       nested call that tool itself makes, so it cannot recurse.
         tool_context:  Optional (platform, triggering_msg) tuple that gives
                        context-bound tools (e.g. transcribe_audio) access to
                        the current chat.
@@ -146,13 +138,14 @@ async def gemini_api(
             try:
                 genai_client = _get_genai_client(reservation.api_key)
                 contents = _build_gemini_contents(prompt, media_list)
-                config = _build_gemini_config(system_prompt, model)
+                config = _build_gemini_config(system_prompt, model, media_list if allow_image_tool else None)
                 response, pending_actions = await _run_gemini_generation_loop(
                     genai_client,
                     model,
                     contents,
                     config,
                     tool_context,
+                    media_list,
                 )
 
                 response_text = _extract_gemini_text(response)
@@ -250,8 +243,11 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
     return contents
 
 
-def _build_gemini_config(system_prompt: str, model: str):
-    from shin_ai.providers.tool_loop import TRANSCRIBE_AUDIO_TOOL_SCHEMA
+def _build_gemini_config(system_prompt: str, model: str, media_list=None):
+    from shin_ai.providers.tool_loop import (
+        ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA,
+        TRANSCRIBE_AUDIO_TOOL_SCHEMA,
+    )
     from shin_ai.utils.action_tools import (
         MODERATE_USER_TOOL_SCHEMA,
         SEND_REACTION_TOOL_SCHEMA,
@@ -267,6 +263,11 @@ def _build_gemini_config(system_prompt: str, model: str):
         _openai_schema_to_gemini_function(SEND_STICKER_TOOL_SCHEMA),
         _openai_schema_to_gemini_function(MODERATE_USER_TOOL_SCHEMA),
     ]
+    # The static system prompt tells every model it has this tool. Gemini sees
+    # images natively, but leaving the tool undeclared meant the prompt was
+    # describing a capability the model could not actually invoke.
+    if media_list:
+        gemini_tools.append(_openai_schema_to_gemini_function(ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA))
 
     thinking_config = genai.types.ThinkingConfig(thinking_level="high") if "gemini-3" in model else None
     return genai.types.GenerateContentConfig(
@@ -321,7 +322,7 @@ def _param_to_gemini_schema(param: dict):
 
 
 async def _run_gemini_generation_loop(
-    genai_client, model: str, contents: list, config, tool_context=None
+    genai_client, model: str, contents: list, config, tool_context=None, media_list=None
 ) -> tuple[object, list[dict]]:
     max_turns = 3
     current_turn = 0
@@ -340,10 +341,10 @@ async def _run_gemini_generation_loop(
 
         contents.append(response.candidates[0].content)
         for fn_call in response.function_calls:
-            tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call, tool_context)
+            tool_result_str, pending_action = await _dispatch_gemini_tool(fn_call, tool_context, media_list)
             if pending_action is not None:
                 pending_actions.append(pending_action)
-                tool_result_str += _POST_ACTION_TOOL_REMINDER
+                tool_result_str += POST_ACTION_TOOL_REMINDER
             tool_part = genai.types.Part.from_function_response(
                 name=fn_call.name,
                 response={"result": tool_result_str},
@@ -355,7 +356,7 @@ async def _run_gemini_generation_loop(
     return response, pending_actions
 
 
-async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict | None]:
+async def _dispatch_gemini_tool(fn_call, tool_context=None, media_list=None) -> tuple[str, dict | None]:
     """Dispatch a Gemini function call to the appropriate handler.
 
     Returns:
@@ -390,6 +391,11 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
         except Exception as e:
             logger.error("Tool transcribe_audio failed: %s", e, exc_info=True)
             return f"Error transcribing audio: {e!s}", None
+
+    if fn_call.name == "ask_gemini_about_image":
+        from shin_ai.providers.tool_loop import ask_gemini_about_image
+
+        return await ask_gemini_about_image(args.get("question", ""), media_list), None
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:
