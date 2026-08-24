@@ -9,6 +9,7 @@ or Whisper models. This keeps verification fast for developers and coding agents
 Install development dependencies in a normal project environment:
 
 ```bash
+python -m pip install -r requirements-cpu.txt  # Linux CPU-only PyTorch
 python -m pip install -e ".[test]"
 ```
 

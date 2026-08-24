@@ -13,6 +13,8 @@ opentelemetry-sdk==1.40.0
 opentelemetry-proto==1.40.0
 opentelemetry-exporter-otlp-proto-common==1.40.0
 opentelemetry-exporter-otlp-proto-grpc==1.40.0
+# Install requirements-cpu.txt first on Linux to avoid PyPI's CUDA-enabled wheel.
+torch==2.12.1
 sentence-transformers>=5.7,<6
 numpy>=1.26,<3
 scikit-learn>=1.6,<2
