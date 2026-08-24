@@ -46,11 +46,11 @@ from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.utils.logger_config import bind_log_context, logger
 from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
 from shin_ai.utils.memory import retrieve_memories
-from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
+from shin_ai.utils.context_manager import get_recent_context_string
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
-from shin_ai.services.audio_transcriber import transcribe_audio_source
+from shin_ai.services.media import prepare_prompt_and_media
 from shin_ai.data.loader import PERSONALITY
 
 
@@ -258,7 +258,7 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                 )
                 return
 
-            prompt, media_list = await _prepare_prompt_and_media(platform, msg)
+            prompt, media_list = await prepare_prompt_and_media(platform, msg)
             recent_context_section = _get_recent_context(platform.platform_name, msg)
 
             if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
@@ -279,85 +279,6 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
             )
         finally:
             reset_request_context()
-
-
-async def _prepare_prompt_and_media(
-    platform: PlatformAdapter,
-    msg: UnifiedMessage,
-) -> tuple[str, list[dict]]:
-    prompt = _extract_prompt(msg)
-    media_list = await _download_media(platform, msg)
-    prompt = await _attach_audio_transcription(platform, msg, prompt)
-
-    if not media_list:
-        media_list.extend(await _download_mentioned_recent_media(platform, msg, prompt))
-
-    return prompt, media_list
-
-
-async def _attach_audio_transcription(
-    platform: PlatformAdapter,
-    msg: UnifiedMessage,
-    prompt: str,
-) -> str:
-    # Check current message first, then walk the reply chain
-    audio_msg = msg
-    if not (audio_msg.voice or audio_msg.audio):
-        audio_msg = _find_audio_in_reply_chain(msg)
-    if not audio_msg:
-        return prompt
-
-    transcription = await _transcribe_audio_message(platform, audio_msg)
-    if not transcription:
-        return prompt
-
-    sender_name = (
-        audio_msg.from_user.first_name if audio_msg.from_user else "Unknown"
-    )
-    media_type = "Voice message" if audio_msg.voice else "Audio file"
-    from_label = "from user" if audio_msg is msg else f"from {sender_name} (replied-to message)"
-    audio_disclaimer = (
-        f"[{media_type} {from_label} - Transcription]: \"{transcription}\"\n"
-        "[TRANSCRIPTION NOTE: The above was transcribed from audio. "
-        "It may contain phonetic spelling errors, hallucinated artifacts, "
-        "or illogical words due to dialect variations (especially Egyptian Arabic). "
-        "Before responding, intelligently interpret any illogical words based on "
-        "the surrounding context to find the nearest logical meaning.]"
-    )
-    return f"{audio_disclaimer}\n\n{prompt}" if prompt.strip() else audio_disclaimer
-
-
-def _find_audio_in_reply_chain(msg: UnifiedMessage) -> UnifiedMessage | None:
-    """Walk the reply chain to find a voice/audio message."""
-    curr = msg
-    depth = 0
-    while curr.reply_to_message and depth < 10:
-        reply = curr.reply_to_message
-        depth += 1
-        if reply.voice or reply.audio:
-            return reply
-        curr = reply
-    return None
-
-
-async def _download_mentioned_recent_media(
-    platform: PlatformAdapter,
-    msg: UnifiedMessage,
-    prompt: str,
-) -> list[dict]:
-    prompt_lower = prompt.lower()
-    image_keywords = ["image", "photo", "picture", "pic", "sticker", "صورة", "الصورة", "صوره"]
-
-    if not any(keyword in prompt_lower for keyword in image_keywords):
-        return []
-
-    logger.debug("User mentioned media but no reply chain — checking recent context for images")
-    recent_media = get_recent_media_messages(platform.platform_name, msg.chat.id, max_count=10)
-    if not recent_media:
-        return []
-
-    media_ids = [m["msg_id"] for m in recent_media[:5]]
-    return await _download_media_from_context(platform, msg.chat.id, media_ids)
 
 
 async def _passes_speculative_preflight(
@@ -615,109 +536,6 @@ async def _execute_frozen_message(
 # ===========================================
 # Helper Functions
 # ===========================================
-
-def _extract_prompt(msg: UnifiedMessage) -> str:
-    prompt = msg.text or msg.caption
-    if prompt:
-        return prompt
-
-    if msg.sticker:
-        return f"[User sent a sticker {msg.sticker.emoji or ''}]"
-    if msg.photo:
-        return "[User sent a photo]"
-    if msg.animation:
-        return "[User sent a GIF/Animation]"
-    if msg.video:
-        return "[User sent a Video]"
-    if msg.voice:
-        return "[User sent a Voice Message]"
-    if msg.audio:
-        return "[User sent an Audio file]"
-    if msg.document:
-        return "[User sent a Document]"
-    
-    return " "
-
-
-async def _download_media(platform: PlatformAdapter, msg: UnifiedMessage) -> list[dict]:
-    media_list = []
-    
-    async def process(target_msg: UnifiedMessage, position: str):
-        sender_name = target_msg.from_user.username or target_msg.from_user.first_name if target_msg.from_user else "Unknown"
-        if target_msg.photo:
-            bts = await platform.download_media(target_msg.photo)
-            mime = target_msg.photo.mime_type or "image/jpeg"
-            return bts, mime, "photo", sender_name
-        elif target_msg.sticker and not target_msg.sticker.is_animated and not target_msg.sticker.is_video:
-            bts = await platform.download_media(target_msg.sticker)
-            mime = target_msg.sticker.mime_type or "image/webp"
-            return bts, mime, f"sticker {target_msg.sticker.emoji or ''}".strip(), sender_name
-        return None, None, None, None
-        
-    res = await process(msg, "current")
-    if res[0]:
-        media_list.append({'bytes': res[0], 'mime_type': res[1], 'sender': res[3], 'position': 'Current message', 'media_type': res[2]})
-        
-    curr = msg
-    depth = 0
-    while curr.reply_to_message and depth < 10:
-        reply = curr.reply_to_message
-        depth += 1
-        res = await process(reply, f"reply_{depth}")
-        if res[0]:
-            media_list.append({'bytes': res[0], 'mime_type': res[1], 'sender': res[3], 'position': f"{depth} messages back", 'media_type': res[2]})
-        curr = reply
-
-    return media_list
-
-
-async def _transcribe_audio_message(platform: PlatformAdapter, msg: UnifiedMessage) -> str:
-    """Download and transcribe a voice/audio message using Whisper."""
-    media_handle = msg.voice or msg.audio
-    if not media_handle:
-        return ""
-
-    try:
-        mime_type = media_handle.mime_type or "audio/ogg"
-        transcription = await transcribe_audio_source(
-            lambda: platform.download_media(media_handle),
-            mime_type,
-        )
-        if transcription:
-            logger.info(
-                "[Audio] Transcribed (%s) → %d chars: \"%s%s\"",
-                mime_type,
-                len(transcription),
-                transcription[:80],
-                "..." if len(transcription) > 80 else "",
-            )
-        else:
-            logger.warning("[Audio] Whisper returned empty transcription (%s)", mime_type)
-        return transcription
-    except Exception as e:
-        logger.error("Audio transcription failed: %s", e, exc_info=True)
-        return ""
-
-
-async def _download_media_from_context(platform: PlatformAdapter, chat_id: int | str, media_msg_ids: list[int | str]) -> list[dict]:
-    media_list = []
-    for idx, msg_id in enumerate(media_msg_ids):
-        msg = await platform.get_message(chat_id, msg_id)
-        if not msg: continue
-        sender_name = msg.from_user.username or msg.from_user.first_name if msg.from_user else "Unknown"
-        
-        if msg.photo:
-            bts = await platform.download_media(msg.photo)
-            if bts:
-                mime = msg.photo.mime_type or "image/jpeg"
-                media_list.append({'bytes': bts, 'mime_type': mime, 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': 'photo'})
-        elif msg.sticker and not msg.sticker.is_animated and not msg.sticker.is_video:
-            bts = await platform.download_media(msg.sticker)
-            if bts:
-                mime = msg.sticker.mime_type or "image/webp"
-                media_list.append({'bytes': bts, 'mime_type': mime, 'sender': sender_name, 'position': f"From context msg {idx+1}", 'media_type': f"sticker {msg.sticker.emoji or ''}"})
-    return media_list
-
 
 async def _get_style_examples(prompt: str) -> str:
     try:
