@@ -3,25 +3,26 @@ Gemini AI Provider
 
 Handles API calls to Google's Gemini models with key rotation and statistics.
 """
-import time
-
 from google import genai
 
 from shin_ai.providers.gemini_keys import (
     API_KEYS_MAP,
     MODELS_LIST,
     get_gemini_stats_message,
-    save_keys,
-    update_key_status,
 )
+from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.providers.gemini_errors import (
+    GeminiFailure,
+    GeminiFailureKind,
+    classify_gemini_error,
+)
+from shin_ai.providers.gemini_scheduler import GeminiScheduler
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.web_search import search_web_tool
 from shin_ai.utils.memory_lookup import memory_lookup_tool
 from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS
 import asyncio
 
-
-MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
 
 # Injected into tool results for side-effect actions (reaction / sticker /
 # moderation) so the model never forgets it may answer with text OR [SKIP].
@@ -36,6 +37,7 @@ _POST_ACTION_TOOL_REMINDER = (
 
 # Cache genai.Client instances per API key to avoid recreating connections
 _genai_client_cache: dict[str, genai.Client] = {}
+_gemini_scheduler: GeminiScheduler | None = None
 
 
 def _get_genai_client(api_key: str) -> genai.Client:
@@ -45,12 +47,15 @@ def _get_genai_client(api_key: str) -> genai.Client:
     return _genai_client_cache[api_key]
 
 
-def _is_model_on_cooldown(model: str) -> bool:
-    return time.time() < MODEL_COOLDOWN_UNTIL.get(model, 0.0)
-
-
-def _set_model_cooldown(model: str, seconds: int = 900) -> None:
-    MODEL_COOLDOWN_UNTIL[model] = time.time() + seconds
+def get_gemini_scheduler() -> GeminiScheduler:
+    global _gemini_scheduler
+    if _gemini_scheduler is None:
+        _gemini_scheduler = GeminiScheduler(
+            API_KEYS_MAP,
+            MODELS_LIST,
+            get_coordination_store(),
+        )
+    return _gemini_scheduler
 
 
 def _extract_gemini_text(response) -> str:
@@ -75,7 +80,14 @@ def _extract_gemini_text(response) -> str:
     return "\n".join(collected_parts).strip()
 
 
-async def gemini_api(system_prompt, prompt, media_list=None, tool_context=None) -> tuple[str, list[dict]]:
+async def gemini_api(
+    system_prompt,
+    prompt,
+    media_list=None,
+    tool_context=None,
+    *,
+    scheduler: GeminiScheduler | None = None,
+) -> tuple[str, list[dict]]:
     """Call the Gemini API with tool support.
 
     Args:
@@ -91,36 +103,34 @@ async def gemini_api(system_prompt, prompt, media_list=None, tool_context=None) 
         action dicts queued by send_reaction / send_sticker / moderate_user
         tool calls during the generation loop.
     """
-    models_to_try = list(MODELS_LIST)
+    active_scheduler = scheduler or get_gemini_scheduler()
+    models_to_try = list(active_scheduler.models)
     last_exception = None
-    total_attempts = 0
-    max_total_attempts = 8
 
     for model in models_to_try:
-        if _is_model_on_cooldown(model):
-            logger.warning(f"Model {model} is on cooldown. Skipping.")
-            continue
-        # Create a list of items to iterate over, preserving the current order
-        for key_name, api_key in list(API_KEYS_MAP.items()):
-            if total_attempts >= max_total_attempts:
-                logger.warning("Gemini total attempt budget exhausted (%d attempts).", total_attempts)
+        tried_keys: set[str] = set()
+        while len(tried_keys) < len(active_scheduler.keys):
+            reservation = await active_scheduler.reserve(model, excluded_keys=tried_keys)
+            if reservation is None:
                 break
-            if not api_key:
-                continue
-
-            total_attempts += 1
+            tried_keys.add(reservation.key_name)
             try:
-                genai_client = _get_genai_client(api_key)
+                genai_client = _get_genai_client(reservation.api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model)
-                response, pending_actions = await _run_gemini_generation_loop(genai_client, model, contents, config, tool_context)
+                response, pending_actions = await _run_gemini_generation_loop(
+                    genai_client,
+                    model,
+                    contents,
+                    config,
+                    tool_context,
+                )
 
                 response_text = _extract_gemini_text(response)
-                if not response_text:
-                    logger.warning(
-                        f"Gemini response had no text content (model: {model}, Key: {key_name})"
+                if not response_text and not pending_actions:
+                    raise RuntimeError(
+                        "Gemini response contained neither text nor pending actions"
                     )
-                    continue
 
                 # Log cache hit stats — only when there is an actual cache hit
                 usage = getattr(response, "usage_metadata", None)
@@ -134,44 +144,40 @@ async def gemini_api(system_prompt, prompt, media_list=None, tool_context=None) 
                             cached, total_in, pct, model,
                         )
 
-                update_key_status(key_name, "active", model)
-                
-                _rotate_key_to_back(key_name)
-                    
+                await reservation.succeeded()
+                logger.info(
+                    "Gemini pair succeeded — model=%s key=%s",
+                    model,
+                    reservation.key_name,
+                )
                 return response_text, pending_actions
             except asyncio.CancelledError:
-                if _rotate_key_to_back(key_name):
-                    logger.warning(f"Gemini timed out/cancelled (model: {model}, Key: {key_name}). Rotating key.")
+                await reservation.failed(
+                    GeminiFailure(
+                        kind=GeminiFailureKind.TIMEOUT,
+                        status_code=None,
+                        retry_after_seconds=None,
+                        message="request cancelled or outer deadline exceeded",
+                    )
+                )
                 raise
             except Exception as e:
                 last_exception = e
-                _rotate_key_to_back(key_name)
-
+                failure = classify_gemini_error(e)
+                await reservation.failed(failure)
                 logger.warning(
-                    f"Gemini API key failed (model: {model}, Key: {key_name})"
+                    "Gemini pair failed — model=%s key=%s kind=%s status=%s error=%s",
+                    model,
+                    reservation.key_name,
+                    failure.kind.value,
+                    failure.status_code,
+                    failure.message,
                 )
-
-                if "you exceeded your current quota" in str(e).lower() or "429" in str(e):
-                    logger.warning(f"Gemini API key quota exceeded for model {model} (Key: {key_name}). Skipping model.")
-                    update_key_status(key_name, "exhausted", model, e)
-                    break
-                elif "503" in str(e):
-                    logger.warning(f"Gemini API model {model} is temporarily unavailable (503). Switching model.")
-                    update_key_status(key_name, "unavailable", model, e)
-                    _set_model_cooldown(model)
-                    break
-                else:
-                    logger.error("Error with Gemini API (model: %s, Key: %s): %s", model, key_name, e, exc_info=True)
-                    update_key_status(key_name, "error", model, e)
                 continue
-
-        available_models = [m for m in models_to_try if not _is_model_on_cooldown(m)]
-        if len(available_models) > 1:
-            _set_model_cooldown(model)
 
     if last_exception:
         raise last_exception
-    return "", []
+    raise RuntimeError("No eligible Gemini key/model pair is currently available")
 
 
 def _build_gemini_contents(prompt: str, media_list=None) -> list:
@@ -341,12 +347,3 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
 
     logger.warning("Gemini → unknown tool requested: %r", fn_call.name)
     return f"Unknown tool: {fn_call.name}", None
-
-
-def _rotate_key_to_back(key_name: str) -> bool:
-    if key_name not in API_KEYS_MAP:
-        return False
-
-    API_KEYS_MAP[key_name] = API_KEYS_MAP.pop(key_name)
-    save_keys(API_KEYS_MAP)
-    return True
