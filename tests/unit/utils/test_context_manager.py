@@ -45,3 +45,14 @@ def test_context_buffer_expires_idle_chats() -> None:
 
     assert buffer.snapshot("a") == []
     assert len(buffer) == 0
+
+
+def test_context_buffer_stays_bounded_under_many_unique_chats() -> None:
+    buffer = ContextBuffer(max_chats=128, messages_per_chat=10, ttl_seconds=60)
+
+    for chat_index in range(10_000):
+        buffer.append(f"chat-{chat_index}", _entry(chat_index))
+
+    assert len(buffer) == 128
+    assert buffer.snapshot("chat-0") == []
+    assert buffer.snapshot("chat-9999") == [_entry(9_999)]

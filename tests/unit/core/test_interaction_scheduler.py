@@ -143,3 +143,30 @@ def test_scheduler_only_applies_delay_to_start_of_chat_burst() -> None:
         await scheduler.close(grace_seconds=0.01)
 
     run(scenario())
+
+
+def test_scheduler_keeps_a_large_burst_strictly_bounded() -> None:
+    async def scenario() -> None:
+        scheduler = InteractionScheduler(
+            lambda _payload: asyncio.sleep(0),
+            max_concurrent=4,
+            max_pending=128,
+            per_chat_limit=8,
+            job_ttl_seconds=60,
+        )
+
+        results = [
+            await scheduler.submit(f"chat-{index}", index, delay_seconds=60)
+            for index in range(5_000)
+        ]
+
+        assert sum(result.accepted for result in results) == 128
+        assert scheduler.pending_count == 128
+        assert scheduler.chat_count == 128
+
+        await scheduler.close(grace_seconds=0.01)
+        assert scheduler.pending_count == 0
+        assert scheduler.active_count == 0
+        assert scheduler.chat_count == 0
+
+    run(scenario())
