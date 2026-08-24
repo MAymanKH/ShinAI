@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -92,25 +93,45 @@ class GeminiScheduler:
         owner_id: str | None = None,
         reservation_seconds: float = 75.0,
     ) -> None:
-        self.keys = {name: value for name, value in keys.items() if value}
+        self.keys: dict[str, str] = {}
+        self._key_ids: dict[str, str] = {}
+        seen_credentials: set[str] = set()
+        for name, value in keys.items():
+            if not value:
+                continue
+            credential_id = self._credential_id(value)
+            if credential_id in seen_credentials:
+                continue
+            seen_credentials.add(credential_id)
+            self.keys[name] = value
+            self._key_ids[name] = credential_id
         self.models = tuple(models)
         self.store = store
         self.clock = clock
         self.owner_id = owner_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self.reservation_seconds = reservation_seconds
+        pool_identity = "|".join(sorted(self._key_ids.values()))
+        self.pool_id = hashlib.sha256(pool_identity.encode("utf-8")).hexdigest()[:16]
 
     @staticmethod
     def _safe_component(value: str) -> str:
         return value.replace(":", "_").replace("/", "_")
 
+    @staticmethod
+    def _credential_id(api_key: str) -> str:
+        return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:20]
+
+    def _key_id(self, key_name: str) -> str:
+        return self._key_ids[key_name]
+
     def _pair_key(self, prefix: str, model: str, key_name: str) -> str:
         return (
             f"gemini:{prefix}:{self._safe_component(model)}:"
-            f"{self._safe_component(key_name)}"
+            f"{self._key_id(key_name)}"
         )
 
     def _key_health_key(self, key_name: str) -> str:
-        return f"gemini:key-health:{self._safe_component(key_name)}"
+        return f"gemini:key-health:{self._key_id(key_name)}"
 
     async def _is_key_disabled(self, key_name: str) -> bool:
         return await self.store.get(self._key_health_key(key_name)) is not None
@@ -128,7 +149,9 @@ class GeminiScheduler:
             return None
         excluded = excluded_keys or set()
         key_names = list(self.keys)
-        cursor = await self.store.increment(f"gemini:cursor:{self._safe_component(model)}")
+        cursor = await self.store.increment(
+            f"gemini:cursor:{self.pool_id}:{self._safe_component(model)}"
+        )
         start = (cursor - 1) % len(key_names)
         ordered = key_names[start:] + key_names[:start]
         now = self.clock()

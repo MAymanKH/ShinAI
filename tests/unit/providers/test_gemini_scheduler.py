@@ -152,3 +152,79 @@ def test_two_process_stores_reserve_different_pairs(tmp_path) -> None:
             await second_store.close()
 
     run(scenario())
+
+
+def test_different_credentials_with_the_same_label_do_not_interfere(tmp_path) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "coordination.sqlite3"
+        first_store = SQLiteCoordinationStore(path, "shared")
+        second_store = SQLiteCoordinationStore(path, "shared")
+        first = GeminiScheduler(
+            {"key-1": "first-secret"},
+            ["model"],
+            first_store,
+            owner_id="process-1",
+        )
+        second = GeminiScheduler(
+            {"key-1": "second-secret"},
+            ["model"],
+            second_store,
+            owner_id="process-2",
+        )
+        try:
+            first_reservation, second_reservation = await asyncio.gather(
+                first.reserve("model"),
+                second.reserve("model"),
+            )
+            assert first_reservation is not None
+            assert second_reservation is not None
+            await first_reservation.release()
+            await second_reservation.release()
+        finally:
+            await first_store.close()
+            await second_store.close()
+
+    run(scenario())
+
+
+def test_same_credential_with_different_labels_shares_one_lease(tmp_path) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "coordination.sqlite3"
+        first_store = SQLiteCoordinationStore(path, "shared")
+        second_store = SQLiteCoordinationStore(path, "shared")
+        first = GeminiScheduler(
+            {"primary": "shared-secret"},
+            ["model"],
+            first_store,
+            owner_id="process-1",
+        )
+        second = GeminiScheduler(
+            {"renamed": "shared-secret"},
+            ["model"],
+            second_store,
+            owner_id="process-2",
+        )
+        try:
+            reservations = await asyncio.gather(
+                first.reserve("model"),
+                second.reserve("model"),
+            )
+            assert sum(reservation is not None for reservation in reservations) == 1
+            for reservation in reservations:
+                if reservation is not None:
+                    await reservation.release()
+        finally:
+            await first_store.close()
+            await second_store.close()
+
+    run(scenario())
+
+
+def test_duplicate_credentials_in_one_file_are_deduplicated() -> None:
+    scheduler = GeminiScheduler(
+        {"first": "same-secret", "duplicate": "same-secret"},
+        ["model"],
+        InMemoryCoordinationStore("test"),
+    )
+
+    assert scheduler.keys == {"first": "same-secret"}
