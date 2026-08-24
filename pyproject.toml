@@ -9,7 +9,7 @@ description = "A personality-driven multi-platform group chat bot"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-dynamic = ["dependencies"]
+dependencies = []
 
 [project.optional-dependencies]
 test = [
@@ -26,19 +26,6 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["shin_ai*"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", marker = "platform_system == 'Linux' and platform_machine == 'x86_64'" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

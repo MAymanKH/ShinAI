@@ -1,3 +1,7 @@
+# Use PyTorch's official CPU wheel index. The explicit +cpu version below
+# prevents pip from selecting CUDA-enabled Linux wheels from PyPI.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Bot Frameworks
 discord.py>=2.7.1,<3
 pyrofork>=2.3.69,<3
@@ -13,8 +17,7 @@ opentelemetry-sdk==1.40.0
 opentelemetry-proto==1.40.0
 opentelemetry-exporter-otlp-proto-common==1.40.0
 opentelemetry-exporter-otlp-proto-grpc==1.40.0
-# Install requirements-cpu.txt first on Linux to avoid PyPI's CUDA-enabled wheel.
-torch==2.12.1
+torch==2.12.1+cpu
 sentence-transformers>=5.7,<6
 numpy>=1.26,<3
 scikit-learn>=1.6,<2

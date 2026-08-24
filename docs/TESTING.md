@@ -9,9 +9,14 @@ or Whisper models. This keeps verification fast for developers and coding agents
 Install development dependencies in a normal project environment:
 
 ```bash
-python -m pip install -r requirements-cpu.txt  # Linux CPU-only PyTorch
+python -m pip install -r requirements.txt
 python -m pip install -e ".[test]"
 ```
+
+`requirements.txt` is the canonical runtime dependency list because it also
+declares PyTorch's CPU-only package index. Project metadata intentionally keeps
+runtime dependencies empty; package indexes are pip configuration and cannot be
+represented safely as Python package metadata.
 
 Run the complete fast suite:
 

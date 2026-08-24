@@ -91,7 +91,6 @@ source venv/bin/activate
 ### 3. Install Dependencies
 
 ```bash
-pip install -r requirements-cpu.txt  # Linux CPU-only PyTorch
 pip install -r requirements.txt
 ```
 
