@@ -73,8 +73,8 @@ class TestGateRejectsNonTemporal:
             "ساعدني في الكود",
             "الكلام ده مهم",
             "الصور الجديدة",
-            # Recall phrasing with no time reference: handled here, which is
-            # why it does not belong in _NO_TIME_EXAMPLES.
+            # Recall phrasing with no time reference: the gate is what rejects
+            # these, which is why no semantic negative list is needed.
             "what did I say",
             "do you remember",
             "مين قال",
@@ -84,13 +84,14 @@ class TestGateRejectsNonTemporal:
         assert _gate(query) is False
 
 
-class TestNoTimeExamples:
-    def test_recall_phrasings_are_not_used_as_negatives(self) -> None:
-        """They can never reach the semantic stage, and suppressed real hits."""
-        for phrase in ("what did I say", "do you remember", "who said", "what happened"):
-            assert phrase not in memory_time._NO_TIME_EXAMPLES
+class TestNoSemanticVeto:
+    def test_the_gap_test_is_gone(self) -> None:
+        """It rejected genuine temporal recall without catching anything the
+        keyword gate had not already caught."""
+        assert not hasattr(memory_time, "TIME_DETECTION_MIN_GAP")
+        assert not hasattr(memory_time, "_NO_TIME_EXAMPLES")
 
-    def test_every_negative_example_is_itself_rejected_by_the_gate(self) -> None:
-        """An example that passes the gate is doing a job the gate already did."""
-        reachable = [q for q in memory_time._NO_TIME_EXAMPLES if _gate(q)]
-        assert reachable == []
+    def test_similarity_floor_is_kept(self) -> None:
+        """Still needed for a temporal word that matches no bucket at all."""
+        assert 0.0 < memory_time.TIME_DETECTION_MIN_SIMILARITY < 1.0
+

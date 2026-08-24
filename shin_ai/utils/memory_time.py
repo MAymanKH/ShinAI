@@ -227,7 +227,6 @@ TIME_BUCKETS = [
 # Pre-computed embeddings — initialized lazily on first call to detect_time_filter
 _time_example_embeddings = None
 _example_bucket_indices = None
-_no_time_embeddings = None
 _embedding_init_lock = asyncio.Lock()
 
 _TEMPORAL_INDICATOR_WORDS = {
@@ -327,13 +326,33 @@ def _query_tokens(query: str) -> set[str]:
 
 _NORMALIZED_TEMPORAL_WORDS = {_normalize_token(word) for word in _TEMPORAL_INDICATOR_WORDS}
 
+# Floor on how close the query must sit to *some* time bucket. It guards the
+# degenerate case where a temporal word matches nothing in TIME_BUCKETS; it is
+# not a recall/non-recall discriminator, because there is no threshold that
+# separates those two classes:
+#
+#   "الاسبوع اللي فات قلت ايه"  (recall)      gap +0.073
+#   "I'll finish it today"       (not recall)  gap +0.078
+#
+# The old gap test against a list of non-temporal examples tried to be that
+# discriminator and
+# rejected half of all genuine temporal queries to catch nothing the keyword
+# gate had not already caught. The gate decides *whether* a query is temporal;
+# the buckets below decide *which window*.
 TIME_DETECTION_MIN_SIMILARITY = 0.62
-TIME_DETECTION_MIN_GAP = 0.08
+
+
+def _bucket_delta(bucket: dict, now: datetime) -> timedelta:
+    """Resolve a bucket to a concrete lookback duration."""
+    delta_hours = bucket["delta_hours"]
+    if delta_hours == "dynamic_today":
+        return timedelta(hours=now.hour, minutes=now.minute, seconds=now.second)
+    return timedelta(hours=delta_hours)
 
 
 async def _init_embeddings() -> None:
     """Pre-compute time reference embeddings on first use."""
-    global _time_example_embeddings, _example_bucket_indices, _no_time_embeddings
+    global _time_example_embeddings, _example_bucket_indices
 
     if _time_example_embeddings is not None:
         return
@@ -351,32 +370,8 @@ async def _init_embeddings() -> None:
         logger.info("Pre-computing %d time reference embeddings...", len(all_examples))
         service = get_embedding_service()
         _time_example_embeddings = await service.encode(all_examples)
-        _no_time_embeddings = await service.encode([f"query: {q}" for q in _NO_TIME_EXAMPLES])
         _example_bucket_indices = np.array(bucket_indices_list)
         logger.info("Time reference embeddings ready.")
-
-
-# Queries that should NOT trigger a time filter. Recall phrasings such as
-# "what did I say" or "do you remember" deliberately do not belong here: they
-# contain no temporal word, so the keyword gate already rejects them before
-# this list is consulted, while their presence dragged genuine temporal recall
-# ("what did we talk about yesterday") below the similarity gap.
-_NO_TIME_EXAMPLES = [
-    "tell me a joke",
-    "explain this code",
-    "what do you think about AI",
-    "help me with my homework",
-    "translate this text",
-    "who are you",
-    "how are you doing",
-    "write a poem",
-    "analyze this image",
-    "قول نكتة",
-    "ساعدني",
-    "مين انت",
-    "ايش رأيك",
-    "شرح لي الكود",
-]
 
 
 async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
@@ -396,17 +391,11 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     time_similarities = cosine_similarities(query_emb_tensor, _time_example_embeddings)
     max_time_sim = float(np.max(time_similarities))
 
-    no_time_similarities = cosine_similarities(query_emb_tensor, _no_time_embeddings)
-    max_no_time_sim = float(np.max(no_time_similarities))
-
-    if (
-        max_time_sim < TIME_DETECTION_MIN_SIMILARITY
-        or max_time_sim < max_no_time_sim + TIME_DETECTION_MIN_GAP
-    ):
+    if max_time_sim < TIME_DETECTION_MIN_SIMILARITY:
         logger.debug(
-            f"Time detection rejected (time_sim={max_time_sim:.3f}, "
-            f"no_time_sim={max_no_time_sim:.3f}, "
-            f"gap={max_time_sim - max_no_time_sim:.3f}, required_gap={TIME_DETECTION_MIN_GAP})"
+            "Time detection rejected: no bucket within reach (time_sim=%.3f, min=%.2f)",
+            max_time_sim,
+            TIME_DETECTION_MIN_SIMILARITY,
         )
         return None, None
 
@@ -414,25 +403,18 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     best_bucket_idx = _example_bucket_indices[best_example_idx]
 
     safe_bucket_idx = min(best_bucket_idx + 1, len(TIME_BUCKETS) - 1)
-    bucket = TIME_BUCKETS[safe_bucket_idx]
-
-    delta_hours = bucket["delta_hours"]
-    if delta_hours == "dynamic_today":
-        delta = timedelta(hours=now.hour, minutes=now.minute, seconds=now.second)
-    else:
-        delta = timedelta(hours=delta_hours)
+    delta = _bucket_delta(TIME_BUCKETS[safe_bucket_idx], now)
 
     start_epoch = int((now - delta).timestamp())
     end_epoch = int(now.timestamp())
 
     matched_example = _all_examples_cache[best_example_idx].replace("query: ", "")
-    matched_bucket_hours = TIME_BUCKETS[best_bucket_idx]["delta_hours"]
     logger.debug(
-        "Time reference detected: '%s' (sim=%.3f) → matched %sh, using safe window %sh → %d–%d",
+        "Time reference detected: '%s' (sim=%.3f) → matched %sh, using window %.2fh → %d–%d",
         matched_example,
         max_time_sim,
-        matched_bucket_hours,
-        delta_hours,
+        TIME_BUCKETS[best_bucket_idx]["delta_hours"],
+        delta.total_seconds() / 3600,
         start_epoch,
         end_epoch,
     )
