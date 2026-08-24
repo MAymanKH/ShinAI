@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 Result = TypeVar("Result")
 Commit = Callable[[], None]
@@ -13,7 +13,7 @@ WorkFactory = Callable[[Commit], Awaitable[Result]]
 
 
 @dataclass(slots=True)
-class _WorkState(Generic[Result]):
+class _WorkState[Result]:
     task: asyncio.Task[Result] | None = None
     committed: bool = False
     on_cancel: Callable[[], None] | None = None

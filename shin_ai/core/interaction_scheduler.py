@@ -9,7 +9,7 @@ import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Hashable
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 Payload = TypeVar("Payload")
 Handler = Callable[[Payload], Awaitable[None]]
@@ -18,7 +18,7 @@ DropHandler = Callable[[Payload, str], None]
 
 
 @dataclass(frozen=True, slots=True)
-class SubmissionResult(Generic[Payload]):
+class SubmissionResult[Payload]:
     accepted: bool
     reason: str | None = None
     dropped: Payload | None = None
@@ -26,7 +26,7 @@ class SubmissionResult(Generic[Payload]):
 
 
 @dataclass(slots=True)
-class _Job(Generic[Payload]):
+class _Job[Payload]:
     sequence: int
     chat_key: Hashable
     payload: Payload
@@ -35,12 +35,12 @@ class _Job(Generic[Payload]):
 
 
 @dataclass(slots=True)
-class _ChatQueue(Generic[Payload]):
+class _ChatQueue[Payload]:
     jobs: deque[_Job[Payload]] = field(default_factory=deque)
     active: bool = False
 
 
-class InteractionScheduler(Generic[Payload]):
+class InteractionScheduler[Payload]:
     """Runs at most ``max_concurrent`` jobs while preserving chat order."""
 
     def __init__(
