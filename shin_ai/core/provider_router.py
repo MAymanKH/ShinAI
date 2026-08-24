@@ -129,7 +129,13 @@ async def call_ai_provider(
             )
 
     if last_error:
-        logger.error("All providers failed. Last error: %s", last_error)
+        # The type matters: a bare TimeoutError stringifies to "", which made
+        # the old message read "Last error: " and hid what had gone wrong.
+        logger.error(
+            "All providers failed. Last error: %s: %s",
+            type(last_error).__name__,
+            last_error,
+        )
     return None, []
 
 
