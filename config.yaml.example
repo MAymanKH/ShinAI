@@ -89,6 +89,10 @@ embedding:
   max_concurrency: 1
   batch_size: 16
 
+# Embedded Chroma is process-local. Give concurrent bot processes different paths.
+chroma:
+  path: chroma_db
+
 # --- Runtime bounds ---
 # These limits keep bursts from creating an unbounded number of tasks or retaining media in RAM.
 runtime:

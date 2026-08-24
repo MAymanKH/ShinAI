@@ -42,6 +42,7 @@ def test_parse_config_applies_stable_defaults() -> None:
     assert config.runtime.platform_message_cache_size == 500
     assert config.coordination.backend == "sqlite"
     assert config.coordination.reply_state_ttl_seconds == 86_400
+    assert config.chroma.path.name == "chroma_db"
 
 
 def test_parse_config_rejects_unknown_fallback() -> None:
@@ -76,6 +77,7 @@ def test_parse_config_reads_runtime_coordination_and_logging(tmp_path) -> None:
                 "namespace": "shared-bot",
                 "database_path": "state/coordination.sqlite3",
             },
+            "chroma": {"path": "state/chroma"},
         }
     )
 
@@ -87,6 +89,7 @@ def test_parse_config_reads_runtime_coordination_and_logging(tmp_path) -> None:
     assert config.runtime.context_max_chats == 250
     assert config.coordination.namespace == "shared-bot"
     assert config.coordination.database_path == tmp_path / "state/coordination.sqlite3"
+    assert config.chroma.path == tmp_path / "state/chroma"
 
 
 @pytest.mark.parametrize(

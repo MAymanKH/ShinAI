@@ -54,6 +54,9 @@ EMBEDDING_MODEL = _cfg.embedding_model
 EMBEDDING_MAX_CONCURRENCY = _cfg.embedding.max_concurrency
 EMBEDDING_BATCH_SIZE = _cfg.embedding.batch_size
 
+# Embedded vector storage
+CHROMA_PATH = _cfg.chroma.path
+
 # Audio Transcription
 WHISPER_MODEL = _cfg.whisper.model
 WHISPER_LANGUAGE = _cfg.whisper.language

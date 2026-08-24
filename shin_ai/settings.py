@@ -60,6 +60,11 @@ class EmbeddingSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class ChromaSettings:
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
 class PlatformSettings:
     telegram_enabled: bool
     telegram_api_id: str | None
@@ -121,6 +126,7 @@ class ShinAISettings:
     web_search_timeout_seconds: float
     whisper: WhisperSettings
     embedding: EmbeddingSettings
+    chroma: ChromaSettings
     runtime: RuntimeSettings
     coordination: CoordinationSettings
     style_group_id: str | None
@@ -346,6 +352,12 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         ),
     )
 
+    chroma_raw = raw.get("chroma") or {}
+    chroma_path = Path(str(chroma_raw.get("path", "chroma_db")))
+    if not chroma_path.is_absolute():
+        chroma_path = project_root / chroma_path
+    chroma = ChromaSettings(path=chroma_path)
+
     whisper_raw = raw.get("whisper") or {}
     whisper = WhisperSettings(
         model=str(whisper_raw.get("model", "large-v3-turbo")),
@@ -453,6 +465,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         ),
         whisper=whisper,
         embedding=embedding,
+        chroma=chroma,
         runtime=runtime,
         coordination=coordination,
         style_group_id=_optional_string(raw.get("style_group_id")),
