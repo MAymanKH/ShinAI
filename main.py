@@ -5,6 +5,7 @@ from shin_ai.utils.logger_config import logger, reconfigure_logger
 from shin_ai.config import DEBUG
 from shin_ai.services.social import index_social_context
 from shin_ai.services.embeddings import close_embedding_service
+from shin_ai.services.audio_transcriber import close_audio_transcriber
 from shin_ai.coordination.runtime import close_coordination_store
 from shin_ai.core.handler import shutdown_interaction_scheduler
 from shin_ai.handlers.telegram_chat import telegram_platform
@@ -56,6 +57,7 @@ async def main():
                 await platform.stop()
             except Exception as e:
                 logger.error(f"Failed to stop {platform_label} platform cleanly: {e}")
+        await close_audio_transcriber()
         await close_embedding_service()
         await close_coordination_store()
 

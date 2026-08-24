@@ -35,6 +35,8 @@ def test_parse_config_applies_stable_defaults() -> None:
     assert config.ai.global_timeout_seconds == 180
     assert config.random_trigger_probability == 0.05
     assert config.whisper.model == "large-v3-turbo"
+    assert config.whisper.timeout_seconds == 180
+    assert config.whisper.max_file_bytes == 25_000_000
     assert config.ai.providers["gemini"].models == ("gemini-test",)
     assert config.runtime.max_concurrent_interactions == 24
     assert config.coordination.backend == "sqlite"

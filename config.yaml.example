@@ -63,6 +63,10 @@ whisper:
   # A child process lets the OS fully reclaim Whisper's native memory after it becomes idle.
   process_isolation: true
   idle_timeout_seconds: 600
+  # Kill and replace a stuck worker after this hard per-file deadline.
+  timeout_seconds: 180
+  # Reject oversized audio after download; only one download is retained at a time.
+  max_file_bytes: 25000000
 
 # --- Web Search (optional - fallback to duckduckgo if not configured) ---
 # firecrawl:

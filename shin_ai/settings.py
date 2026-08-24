@@ -48,6 +48,8 @@ class WhisperSettings:
     max_concurrent_transcriptions: int
     process_isolation: bool
     idle_timeout_seconds: float
+    timeout_seconds: float
+    max_file_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +351,16 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             whisper_raw.get("idle_timeout_seconds"),
             name="whisper.idle_timeout_seconds",
             default=600.0,
+        ),
+        timeout_seconds=_positive_float(
+            whisper_raw.get("timeout_seconds"),
+            name="whisper.timeout_seconds",
+            default=180.0,
+        ),
+        max_file_bytes=_positive_int(
+            whisper_raw.get("max_file_bytes"),
+            name="whisper.max_file_bytes",
+            default=25_000_000,
         ),
     )
 

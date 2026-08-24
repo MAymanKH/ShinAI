@@ -61,6 +61,8 @@ WHISPER_CPU_THREADS = _cfg.whisper.cpu_threads
 WHISPER_MAX_CONCURRENT = _cfg.whisper.max_concurrent_transcriptions
 WHISPER_PROCESS_ISOLATION = _cfg.whisper.process_isolation
 WHISPER_IDLE_TIMEOUT_SECONDS = _cfg.whisper.idle_timeout_seconds
+WHISPER_TIMEOUT_SECONDS = _cfg.whisper.timeout_seconds
+WHISPER_MAX_FILE_BYTES = _cfg.whisper.max_file_bytes
 
 # Runtime admission and cache limits
 MAX_CONCURRENT_INTERACTIONS = _cfg.runtime.max_concurrent_interactions

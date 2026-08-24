@@ -1,147 +1,345 @@
-"""
-Audio Transcription Service
+"""Bounded local audio transcription with optional process isolation."""
 
-Uses faster-whisper (CTranslate2 backend) with the large-v3-turbo model
-to transcribe voice messages and audio files locally. No paid API required.
-"""
+from __future__ import annotations
+
 import asyncio
+import atexit
+import gc
+import multiprocessing
 import tempfile
 import threading
+import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from shin_ai.config import (
-    WHISPER_MODEL,
     WHISPER_CPU_THREADS,
+    WHISPER_IDLE_TIMEOUT_SECONDS,
     WHISPER_LANGUAGE,
     WHISPER_MAX_CONCURRENT,
+    WHISPER_MAX_FILE_BYTES,
+    WHISPER_MODEL,
+    WHISPER_PROCESS_ISOLATION,
+    WHISPER_TIMEOUT_SECONDS,
 )
 from shin_ai.utils.logger_config import logger
 
-# ── Lazy-loaded singleton ────────────────────────────────────────────
-_model = None
-_model_lock = threading.Lock()
 
-# Maximum concurrent transcriptions to avoid CPU thrashing
-_transcription_semaphore = asyncio.Semaphore(WHISPER_MAX_CONCURRENT)
-
-
-def _get_model():
-    """Load the faster-whisper model on first use (thread-safe singleton)."""
-    global _model
-    if _model is not None:
-        return _model
-
-    with _model_lock:
-        # Double-check after acquiring lock
-        if _model is not None:
-            return _model
-
-        from faster_whisper import WhisperModel
-
-        model_name = WHISPER_MODEL or "large-v3-turbo"
-        cpu_threads = WHISPER_CPU_THREADS
-
-        logger.info(
-            f"Loading faster-whisper model '{model_name}' "
-            f"(device=cpu, compute_type=int8, cpu_threads={cpu_threads})..."
-        )
-        _model = WhisperModel(
-            model_name,
-            device="cpu",
-            compute_type="int8",
-            cpu_threads=cpu_threads,
-        )
-        logger.info(f"faster-whisper model '{model_name}' loaded successfully.")
-        return _model
+_MIME_SUFFIXES = {
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/aac": ".aac",
+    "audio/webm": ".webm",
+    "audio/x-m4a": ".m4a",
+}
 
 
-def _transcribe_sync(audio_bytes: bytes, mime_type: str) -> str:
-    """Synchronous transcription — intended to run in a thread pool."""
+def _file_suffix(mime_type: str) -> str:
+    normalized = (mime_type or "").split(";", 1)[0].strip().lower()
+    return _MIME_SUFFIXES.get(normalized, ".ogg")
+
+
+def _create_model(model_name: str, cpu_threads: int):
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(
+        model_name,
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=cpu_threads,
+    )
+
+
+def _transcribe_with_model(
+    model: Any,
+    audio_bytes: bytes,
+    mime_type: str,
+    language: str,
+) -> tuple[str, str, float]:
     if not audio_bytes:
-        return ""
+        return "", "unknown", 0.0
 
-    # Determine a suitable file extension from the MIME type so ffmpeg
-    # can identify the container format when loading from the temp file.
-    ext_map = {
-        "audio/ogg": ".ogg",
-        "audio/opus": ".opus",
-        "audio/mpeg": ".mp3",
-        "audio/mp4": ".m4a",
-        "audio/mp3": ".mp3",
-        "audio/wav": ".wav",
-        "audio/x-wav": ".wav",
-        "audio/flac": ".flac",
-        "audio/aac": ".aac",
-        "audio/webm": ".webm",
-        "audio/x-m4a": ".m4a",
-    }
-
-    # Normalise and look up; fall back to .ogg which is the most common
-    # format for voice messages across all three platforms.
-    mime_lower = (mime_type or "").split(";")[0].strip().lower()
-    suffix = ext_map.get(mime_lower, ".ogg")
-
-    tmp_path: Optional[str] = None
+    temp_path: str | None = None
     try:
-        # Write to a temp file because faster-whisper expects a file path
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=_file_suffix(mime_type), delete=False) as temp_file:
+            temp_file.write(audio_bytes)
+            temp_path = temp_file.name
 
-        model = _get_model()
-        
-        lang_param = None if WHISPER_LANGUAGE.lower() == "auto" else WHISPER_LANGUAGE
-
+        language_parameter = None if language.lower() == "auto" else language
         segments, info = model.transcribe(
-            tmp_path,
-            language=lang_param,
+            temp_path,
+            language=language_parameter,
             task="transcribe",
             beam_size=5,
             condition_on_previous_text=False,
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
+            vad_parameters={"min_silence_duration_ms": 500},
         )
-
-        # faster-whisper returns a generator; materialise it into text.
-        text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
-
-        detected_lang = getattr(info, "language", "unknown")
-        lang_prob = getattr(info, "language_probability", 0.0)
-        logger.debug(
-            "faster-whisper done: lang=%s (prob=%.2f), %d chars",
-            detected_lang, lang_prob, len(text),
+        text = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        return (
+            text,
+            str(getattr(info, "language", "unknown")),
+            float(getattr(info, "language_probability", 0.0)),
         )
-        return text
-    except Exception as e:
-        logger.error("faster-whisper transcription failed: %s", e, exc_info=True)
-        return ""
     finally:
-        # Clean up the temp file
-        if tmp_path:
+        if temp_path:
+            Path(temp_path).unlink(missing_ok=True)
+
+
+def _whisper_worker(
+    connection,
+    model_name: str,
+    cpu_threads: int,
+    language: str,
+    idle_timeout_seconds: float,
+) -> None:
+    """Child entry point. It intentionally imports/loads Whisper only here."""
+    model = None
+    try:
+        while connection.poll(idle_timeout_seconds):
             try:
-                Path(tmp_path).unlink(missing_ok=True)
+                command = connection.recv()
+            except EOFError:
+                break
+            if not command or command[0] == "shutdown":
+                break
+
+            _, request_id, audio_bytes, mime_type = command
+            try:
+                if model is None:
+                    model = _create_model(model_name, cpu_threads)
+                text, detected_language, probability = _transcribe_with_model(
+                    model,
+                    audio_bytes,
+                    mime_type,
+                    language,
+                )
+                connection.send(
+                    (request_id, True, text, detected_language, probability, None)
+                )
+            except BaseException as error:
+                connection.send(
+                    (request_id, False, "", "unknown", 0.0, repr(error))
+                )
+            finally:
+                del command
+                del audio_bytes
+    finally:
+        model = None
+        gc.collect()
+        connection.close()
+
+
+class WhisperProcessManager:
+    """Owns one serial spawned worker so native memory is fully reclaimable."""
+
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        cpu_threads: int,
+        language: str,
+        idle_timeout_seconds: float,
+        timeout_seconds: float,
+        process_context=None,
+    ) -> None:
+        self.model_name = model_name
+        self.cpu_threads = cpu_threads
+        self.language = language
+        self.idle_timeout_seconds = idle_timeout_seconds
+        self.timeout_seconds = timeout_seconds
+        self._context = process_context or multiprocessing.get_context("spawn")
+        self._lock = threading.RLock()
+        self._process = None
+        self._connection = None
+
+    @property
+    def running(self) -> bool:
+        return bool(self._process is not None and self._process.is_alive())
+
+    def _discard_worker(self, *, terminate: bool) -> None:
+        process = self._process
+        connection = self._connection
+        self._process = None
+        self._connection = None
+        if connection is not None:
+            try:
+                connection.close()
             except Exception:
                 pass
+        if process is not None:
+            if terminate and process.is_alive():
+                process.terminate()
+            process.join(timeout=5.0)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=2.0)
+
+    def _start_worker(self) -> None:
+        if self.running:
+            return
+        self._discard_worker(terminate=False)
+        parent_connection, child_connection = self._context.Pipe(duplex=True)
+        process = self._context.Process(
+            target=_whisper_worker,
+            args=(
+                child_connection,
+                self.model_name,
+                self.cpu_threads,
+                self.language,
+                self.idle_timeout_seconds,
+            ),
+            name="shinai-whisper-worker",
+            daemon=True,
+        )
+        process.start()
+        child_connection.close()
+        self._connection = parent_connection
+        self._process = process
+        logger.info(
+            "Whisper worker started — pid=%s model=%s idle_timeout=%.0fs",
+            process.pid,
+            self.model_name,
+            self.idle_timeout_seconds,
+        )
+
+    def transcribe(self, audio_bytes: bytes, mime_type: str) -> str:
+        with self._lock:
+            for attempt in range(2):
+                self._start_worker()
+                request_id = uuid.uuid4().hex
+                try:
+                    self._connection.send(
+                        ("transcribe", request_id, audio_bytes, mime_type)
+                    )
+                    if not self._connection.poll(self.timeout_seconds):
+                        self._discard_worker(terminate=True)
+                        raise TimeoutError(
+                            f"Whisper exceeded {self.timeout_seconds:.0f}s timeout"
+                        )
+                    response = self._connection.recv()
+                except (BrokenPipeError, EOFError, OSError):
+                    self._discard_worker(terminate=True)
+                    if attempt == 0:
+                        continue
+                    raise
+
+                response_id, success, text, language, probability, error = response
+                if response_id != request_id:
+                    self._discard_worker(terminate=True)
+                    raise RuntimeError("Whisper worker returned a mismatched response")
+                if not success:
+                    raise RuntimeError(error or "Whisper worker failed")
+                logger.debug(
+                    "Whisper transcription complete — lang=%s probability=%.2f chars=%d",
+                    language,
+                    probability,
+                    len(text),
+                )
+                return text
+            return ""
+
+    def close(self) -> None:
+        with self._lock:
+            if self._connection is not None and self.running:
+                try:
+                    self._connection.send(("shutdown",))
+                except (BrokenPipeError, EOFError, OSError):
+                    pass
+            self._discard_worker(terminate=False)
+
+
+_in_process_model = None
+_in_process_model_lock = threading.Lock()
+_transcription_semaphore = asyncio.Semaphore(
+    1 if WHISPER_PROCESS_ISOLATION else WHISPER_MAX_CONCURRENT
+)
+_process_manager = WhisperProcessManager(
+    model_name=WHISPER_MODEL or "large-v3-turbo",
+    cpu_threads=WHISPER_CPU_THREADS,
+    language=WHISPER_LANGUAGE,
+    idle_timeout_seconds=WHISPER_IDLE_TIMEOUT_SECONDS,
+    timeout_seconds=WHISPER_TIMEOUT_SECONDS,
+)
+
+
+def _get_in_process_model():
+    global _in_process_model
+    if _in_process_model is not None:
+        return _in_process_model
+    with _in_process_model_lock:
+        if _in_process_model is None:
+            logger.info("Loading in-process Whisper model '%s'...", WHISPER_MODEL)
+            _in_process_model = _create_model(WHISPER_MODEL, WHISPER_CPU_THREADS)
+    return _in_process_model
+
+
+def _transcribe_in_process(audio_bytes: bytes, mime_type: str) -> str:
+    text, language, probability = _transcribe_with_model(
+        _get_in_process_model(),
+        audio_bytes,
+        mime_type,
+        WHISPER_LANGUAGE,
+    )
+    logger.debug(
+        "Whisper transcription complete — lang=%s probability=%.2f chars=%d",
+        language,
+        probability,
+        len(text),
+    )
+    return text
+
+
+async def transcribe_audio_source(
+    loader: Callable[[], Awaitable[bytes]],
+    mime_type: str = "audio/ogg",
+) -> str:
+    """Download and transcribe inside one slot to bound retained audio bytes."""
+    async with _transcription_semaphore:
+        try:
+            audio_bytes = await loader()
+            if not audio_bytes:
+                logger.warning("Audio download returned empty data")
+                return ""
+            if len(audio_bytes) > WHISPER_MAX_FILE_BYTES:
+                logger.warning(
+                    "Audio rejected — bytes=%d limit=%d",
+                    len(audio_bytes),
+                    WHISPER_MAX_FILE_BYTES,
+                )
+                return ""
+            if WHISPER_PROCESS_ISOLATION:
+                return await asyncio.to_thread(
+                    _process_manager.transcribe,
+                    audio_bytes,
+                    mime_type,
+                )
+            return await asyncio.to_thread(_transcribe_in_process, audio_bytes, mime_type)
+        except Exception as error:
+            logger.error("Whisper transcription failed: %s", error, exc_info=True)
+            return ""
 
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
-    """
-    Transcribe audio bytes to text using faster-whisper.
+    async def load_bytes() -> bytes:
+        return audio_bytes
 
-    Runs the (blocking) inference in a thread pool with a configurable
-    concurrency limit so it doesn't block the async event loop.
+    return await transcribe_audio_source(load_bytes, mime_type)
 
-    Args:
-        audio_bytes: Raw audio data (any format ffmpeg can decode).
-        mime_type:   MIME type of the audio (used to pick the right
-                     container extension for ffmpeg).
 
-    Returns:
-        The transcribed text, or an empty string on failure.
-    """
-    if not audio_bytes:
-        return ""
+async def close_audio_transcriber() -> None:
+    global _in_process_model
+    await asyncio.to_thread(_process_manager.close)
+    with _in_process_model_lock:
+        _in_process_model = None
+    gc.collect()
 
-    async with _transcription_semaphore:
-        return await asyncio.to_thread(_transcribe_sync, audio_bytes, mime_type)
+
+atexit.register(_process_manager.close)

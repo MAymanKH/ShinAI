@@ -227,13 +227,12 @@ async def _transcribe_audio_target(
 ) -> str:
     """Download + transcribe the voice/audio on target_msg via the Whisper service."""
     media_handle = target_msg.voice or target_msg.audio
-    audio_bytes = await platform.download_media(media_handle)
-    if not audio_bytes:
-        return "Failed to download the audio (empty data received)."
+    from shin_ai.services.audio_transcriber import transcribe_audio_source
 
-    from shin_ai.services.audio_transcriber import transcribe_audio
-
-    transcription = await transcribe_audio(audio_bytes, media_handle.mime_type or "audio/ogg")
+    transcription = await transcribe_audio_source(
+        lambda: platform.download_media(media_handle),
+        media_handle.mime_type or "audio/ogg",
+    )
     if not transcription:
         return "Transcription produced no text (inaudible or transcription failed)."
 

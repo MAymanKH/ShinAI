@@ -54,7 +54,7 @@ from shin_ai.providers.registry import get_provider_chain, get_first_gemini_prov
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
-from shin_ai.services.audio_transcriber import transcribe_audio
+from shin_ai.services.audio_transcriber import transcribe_audio_source
 from shin_ai.data.loader import PERSONALITY
 
 
@@ -668,24 +668,21 @@ async def _transcribe_audio_message(platform: PlatformAdapter, msg: UnifiedMessa
         return ""
 
     try:
-        audio_bytes = await platform.download_media(media_handle)
-        if not audio_bytes:
-            logger.warning("[Audio] Download returned empty bytes — skipping transcription")
-            return ""
-
         mime_type = media_handle.mime_type or "audio/ogg"
-        transcription = await transcribe_audio(audio_bytes, mime_type)
+        transcription = await transcribe_audio_source(
+            lambda: platform.download_media(media_handle),
+            mime_type,
+        )
         if transcription:
             logger.info(
-                "[Audio] Transcribed %d bytes (%s) → %d chars: \"%s%s\"",
-                len(audio_bytes),
+                "[Audio] Transcribed (%s) → %d chars: \"%s%s\"",
                 mime_type,
                 len(transcription),
                 transcription[:80],
                 "..." if len(transcription) > 80 else "",
             )
         else:
-            logger.warning("[Audio] Whisper returned empty transcription for %d bytes (%s)", len(audio_bytes), mime_type)
+            logger.warning("[Audio] Whisper returned empty transcription (%s)", mime_type)
         return transcription
     except Exception as e:
         logger.error("Audio transcription failed: %s", e, exc_info=True)
