@@ -8,8 +8,9 @@ import multiprocessing
 import sys
 import warnings
 from contextlib import contextmanager
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 from shin_ai.config import DEBUG, LOG_BACKUP_COUNT, LOG_FILE, LOG_MAX_BYTES
 
@@ -146,7 +147,7 @@ def setup_logger(
     if log_file is not None and is_main_process:
         path = Path(log_file)
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = RotatingFileHandler(
+        file_handler = ConcurrentRotatingFileHandler(
             path,
             maxBytes=max_bytes,
             backupCount=backup_count,

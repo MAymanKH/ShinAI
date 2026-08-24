@@ -1,6 +1,8 @@
 import logging
 import uuid
 
+from concurrent_log_handler import ConcurrentRotatingFileHandler
+
 from shin_ai.utils.logger_config import (
     ThirdPartyNoiseFilter,
     bind_log_context,
@@ -55,6 +57,10 @@ def test_file_handler_rotates_at_configured_size(tmp_path) -> None:
         for handler in test_logger.handlers:
             handler.flush()
 
+        assert any(
+            isinstance(handler, ConcurrentRotatingFileHandler)
+            for handler in test_logger.handlers
+        )
         assert log_path.exists()
         assert (tmp_path / "rotating.log.1").exists()
     finally:

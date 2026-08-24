@@ -117,7 +117,9 @@ rg 'tool.requested|provider.fallback|response.sent' shinai_bot.log*
 The rotating file format always includes `module:function:line`. Console warnings
 and errors include a source location too. Set `logging.file: null` when systemd,
 Docker, or another process manager already rotates stdout. Set
-`content_preview_chars: 0` to hide message contents from normal logs.
+`content_preview_chars: 0` to hide message contents from normal logs. File writes
+and size-based rotation use an inter-process lock, so local instances may safely
+use the same configured log path and rotation settings.
 
 ## Safe rollout
 
