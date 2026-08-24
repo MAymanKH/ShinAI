@@ -1,4 +1,6 @@
 import asyncio
+import sqlite3
+import time
 
 from shin_ai.coordination import InMemoryCoordinationStore, SQLiteCoordinationStore
 
@@ -108,3 +110,29 @@ def test_sqlite_get_many_handles_large_key_sets(tmp_path) -> None:
         assert values["key-449"] == "449"
     finally:
         run(store.close())
+
+
+def test_sqlite_lock_contention_does_not_block_event_loop(tmp_path) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "coordination.sqlite3"
+        store = SQLiteCoordinationStore(path, "test")
+        blocker = sqlite3.connect(path, isolation_level=None)
+        try:
+            blocker.execute("BEGIN IMMEDIATE")
+            started_at = time.monotonic()
+            write = asyncio.create_task(store.set("key", "value"))
+
+            await asyncio.sleep(0.05)
+
+            assert time.monotonic() - started_at < 0.5
+            assert not write.done()
+            blocker.execute("ROLLBACK")
+            await asyncio.wait_for(write, timeout=1)
+            assert await store.get("key") == "value"
+        finally:
+            if blocker.in_transaction:
+                blocker.execute("ROLLBACK")
+            blocker.close()
+            await store.close()
+
+    run(scenario())

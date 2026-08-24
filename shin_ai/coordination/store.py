@@ -12,6 +12,8 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 from shin_ai.settings import CoordinationSettings
@@ -161,16 +163,23 @@ class SQLiteCoordinationStore(CoordinationStore):
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._clock = clock
         self._lock = threading.RLock()
-        self._connection = sqlite3.connect(
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="shinai-coordination",
+        )
+        self._connection = self._executor.submit(self._open_connection).result()
+        self._closed = False
+
+    def _open_connection(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(
             self.database_path,
             timeout=5.0,
             isolation_level=None,
-            check_same_thread=False,
         )
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=NORMAL")
-        self._connection.execute("PRAGMA busy_timeout=5000")
-        self._connection.execute(
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute(
             """
             CREATE TABLE IF NOT EXISTS coordination_entries (
                 namespace TEXT NOT NULL,
@@ -182,7 +191,7 @@ class SQLiteCoordinationStore(CoordinationStore):
             )
             """
         )
-        self._connection.execute(
+        connection.execute(
             """
             CREATE TABLE IF NOT EXISTS coordination_counters (
                 namespace TEXT NOT NULL,
@@ -194,14 +203,11 @@ class SQLiteCoordinationStore(CoordinationStore):
             )
             """
         )
-        self._closed = False
+        return connection
 
     async def _run(self, function, *args):
-        # Each operation is one indexed SQLite statement or a tiny transaction.
-        # Keeping it inline avoids executor hand-off overhead on the hottest
-        # coordination path. WAL mode and the busy timeout handle the second
-        # local process; longer application work never runs inside a transaction.
-        return function(*args)
+        future = self._executor.submit(partial(function, *args))
+        return await asyncio.wrap_future(future)
 
     def _get_sync(self, key: str) -> str | None:
         now = self._clock()
@@ -388,7 +394,10 @@ class SQLiteCoordinationStore(CoordinationStore):
                 self._closed = True
 
     async def close(self) -> None:
+        if self._closed:
+            return
         await self._run(self._close_sync)
+        self._executor.shutdown(wait=True, cancel_futures=False)
 
 
 def create_coordination_store(
