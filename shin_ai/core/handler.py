@@ -47,7 +47,7 @@ from shin_ai.core.response_policy import (
 from shin_ai.data.loader import PERSONALITY
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
-from shin_ai.services.media import prepare_prompt_and_media
+from shin_ai.services.media import extract_prompt, prepare_prompt_and_media
 from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.social import get_social_context
 from shin_ai.services.typing import TypingSession, start_typing, stop_typing
@@ -256,12 +256,24 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                 )
                 return
 
-            prompt, media_list = await prepare_prompt_and_media(platform, msg)
-            recent_context_section = _get_recent_context(platform.platform_name, msg)
-
-            if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
+            # Cheap, purely local rejections first. Everything below this point
+            # downloads media, runs Whisper, or hits the vector store, and a
+            # text-free sticker would have thrown all of it away.
+            if is_trivial_message(msg):
+                logger.info(
+                    "Skipped reply — trivial message (laugh/sticker/emoji-only)",
+                    extra={"event_name": "interaction.trivial"},
+                )
                 return
 
+            recent_context_section = _get_recent_context(platform.platform_name, msg)
+
+            # The pre-flight only needs the message text, so run it before any
+            # media download or transcription work.
+            if not await _passes_speculative_preflight(msg, extract_prompt(msg), recent_context_section):
+                return
+
+            prompt, media_list = await prepare_prompt_and_media(platform, msg)
             reply_text = await _get_reply_chain_text(platform, msg)
             await _execute_frozen_message(
                 platform=platform,
@@ -269,6 +281,7 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                 prompt=prompt,
                 media_list=media_list,
                 reply_text=reply_text,
+                recent_context_section=recent_context_section,
                 style_examples=await _get_style_examples(prompt),
                 social_context_section=await get_social_context(msg, reply_text),
                 memory_section=await _get_memory_section(prompt, msg),
@@ -312,12 +325,12 @@ async def _passes_speculative_preflight(
             media_list=[],
         )
         if not eval_ans or "YES" not in eval_ans.strip().upper():
-            logger.debug(f"Pre-flight eval rejected speculative message. Eval: {eval_ans!r}")
+            logger.debug("Pre-flight eval rejected speculative message. Eval: %r", eval_ans)
             return False
         logger.debug("Pre-flight evaluation passed.")
         return True
     except Exception as e:
-        logger.error(f"Pre-flight evaluation failed: {e}", exc_info=True)
+        logger.error("Pre-flight evaluation failed: %s", e, exc_info=True)
         return False
 
 
@@ -372,6 +385,7 @@ async def _execute_frozen_message(
     prompt: str,
     media_list: list,
     reply_text: str,
+    recent_context_section: str,
     style_examples: str,
     social_context_section: str,
     memory_section: str,
@@ -379,7 +393,6 @@ async def _execute_frozen_message(
     target_instructions: str,
 ):
     typing_session: TypingSession | None = None
-    recent_context_section = _get_recent_context(platform.platform_name, msg)
 
     # Static system prompt — 100% cacheable, never changes
     system_prompt = get_static_system_prompt()
@@ -395,17 +408,6 @@ async def _execute_frozen_message(
         reply_text=reply_text,
         target_instructions=target_instructions,
     )
-
-    if is_trivial_message(msg):
-        logger.debug("Skip classifier: trivial message, skipping")
-        logger.info(
-            '[%s] Skipped reply — chat=%s msg=%s (trivial/laugh/sticker) | text="%s"',
-            msg.chat.type,
-            msg.chat.id,
-            msg.id,
-            (msg.text or msg.caption or "").replace("\n", " ")[:60],
-        )
-        return
 
     typing_session = await start_typing(platform, msg.chat.id)
 
