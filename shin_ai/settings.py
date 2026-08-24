@@ -80,6 +80,7 @@ class RuntimeSettings:
     context_max_chats: int
     context_messages_per_chat: int
     context_ttl_seconds: float
+    platform_message_cache_size: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +282,11 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             context_raw.get("ttl_seconds"),
             name="runtime.context.ttl_seconds",
             default=7_200.0,
+        ),
+        platform_message_cache_size=_positive_int(
+            runtime_raw.get("platform_message_cache_size"),
+            name="runtime.platform_message_cache_size",
+            default=500,
         ),
     )
 

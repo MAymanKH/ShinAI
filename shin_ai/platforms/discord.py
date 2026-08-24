@@ -3,6 +3,7 @@ import asyncio
 import discord
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedChat, UnifiedMedia, UnifiedMessageEntity
 from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
 from shin_ai.utils.logger_config import logger
 
 class DiscordPlatform(PlatformAdapter):
@@ -10,7 +11,12 @@ class DiscordPlatform(PlatformAdapter):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
-        self.client = discord.Client(intents=intents)
+        self.client = discord.Client(
+            intents=intents,
+            member_cache_flags=discord.MemberCacheFlags.none(),
+            chunk_guilds_at_startup=False,
+            max_messages=PLATFORM_MESSAGE_CACHE_SIZE,
+        )
         self.token = token
         self._bot_user = None
 
@@ -99,20 +105,20 @@ class DiscordPlatform(PlatformAdapter):
             return None
 
     async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
-        # Discord users aren't easily searchable by just username without a guild
-        # Best effort iteration over all cached members
         username = username.lstrip("@").lower()
         for guild in self.client.guilds:
             member = guild.get_member_named(username)
-            if member:
-                return UnifiedUser(
-                    id=member.id,
-                    username=member.name,
-                    first_name=member.display_name,
-                    is_self=(member.id == self.client.user.id)
-                )
-
-            for candidate in guild.members:
+            candidates = [member] if member else []
+            if not candidates:
+                try:
+                    candidates = await guild.query_members(
+                        query=username,
+                        limit=10,
+                        cache=False,
+                    )
+                except Exception as error:
+                    logger.debug("Discord member query failed for guild=%s: %s", guild.id, error)
+            for candidate in candidates:
                 if candidate.name.lower() == username or candidate.display_name.lower() == username:
                     return UnifiedUser(
                         id=candidate.id,

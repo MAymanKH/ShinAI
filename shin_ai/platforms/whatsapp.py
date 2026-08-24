@@ -45,6 +45,7 @@ from shin_ai.platforms.whatsapp_runtime import (
     build_jid,
 )
 from shin_ai.data.loader import DATA_DIR
+from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
 from shin_ai.utils.logger_config import logger
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
 WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,8 +60,8 @@ class WhatsAppPlatform(PlatformAdapter):
         self._cache_lock = RLock()
         self._raw_message_cache: OrderedDict[tuple[str, str], MessageEventType] = OrderedDict()
         self._unified_message_cache: OrderedDict[tuple[str, str], UnifiedMessage] = OrderedDict()
-        self._cache_limit = 2000
-        self._group_title_cache: dict[str, str] = {}
+        self._cache_limit = PLATFORM_MESSAGE_CACHE_SIZE
+        self._group_title_cache: OrderedDict[str, str] = OrderedDict()
 
     @property
     def platform_name(self) -> str:
@@ -98,6 +99,8 @@ class WhatsAppPlatform(PlatformAdapter):
                 self._raw_message_cache.popitem(last=False)
             while len(self._unified_message_cache) > self._cache_limit:
                 self._unified_message_cache.popitem(last=False)
+            while len(self._group_title_cache) > self._cache_limit:
+                self._group_title_cache.popitem(last=False)
 
     def _jid_to_user_id(self, jid: JIDType) -> str:
         return jid_to_user_id(jid)
@@ -334,12 +337,14 @@ class WhatsAppPlatform(PlatformAdapter):
         if chat_type == "GROUP":
             if chat_id in self._group_title_cache:
                 chat_title = self._group_title_cache[chat_id]
+                self._group_title_cache.move_to_end(chat_id)
             else:
                 try:
                     group_info = await self._run_sync(self.client.get_group_info, chat_jid)
                     if group_info and group_info.GroupName and group_info.GroupName.Name:
                         chat_title = group_info.GroupName.Name
                         self._group_title_cache[chat_id] = chat_title
+                        self._trim_cache_if_needed()
                 except Exception as e:
                     logger.debug(f"Failed to fetch group info for {chat_id}: {e}")
 
@@ -457,6 +462,12 @@ class WhatsAppPlatform(PlatformAdapter):
 
         if self._connect_task and not self._connect_task.done():
             self._connect_task.cancel()
+
+        with self._cache_lock:
+            self._raw_message_cache.clear()
+            self._unified_message_cache.clear()
+            self._group_title_cache.clear()
+        self._bot_user_cache = None
 
         logger.info("WhatsApp Platform stopped.")
 

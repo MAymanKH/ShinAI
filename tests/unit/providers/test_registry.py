@@ -39,6 +39,7 @@ def test_parse_config_applies_stable_defaults() -> None:
     assert config.whisper.max_file_bytes == 25_000_000
     assert config.ai.providers["gemini"].models == ("gemini-test",)
     assert config.runtime.max_concurrent_interactions == 24
+    assert config.runtime.platform_message_cache_size == 500
     assert config.coordination.backend == "sqlite"
 
 

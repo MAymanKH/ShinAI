@@ -73,6 +73,7 @@ SHUTDOWN_GRACE_SECONDS = _cfg.runtime.shutdown_grace_seconds
 CONTEXT_MAX_CHATS = _cfg.runtime.context_max_chats
 CONTEXT_MESSAGES_PER_CHAT = _cfg.runtime.context_messages_per_chat
 CONTEXT_TTL_SECONDS = _cfg.runtime.context_ttl_seconds
+PLATFORM_MESSAGE_CACHE_SIZE = _cfg.runtime.platform_message_cache_size
 
 # Multi-instance coordination
 COORDINATION_BACKEND = _cfg.coordination.backend
