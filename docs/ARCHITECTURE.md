@@ -4,6 +4,16 @@ ShinAI is split around one rule: platform SDK objects stay at the edges, while
 the expensive and failure-prone work is owned by small services with explicit
 bounds and shutdown behavior.
 
+## Startup
+
+`main.py` loads settings, configures logging, then builds `shin_ai/app.py`'s
+`Application`, which creates the platform clients, registers handlers and owns
+startup and shutdown. Nothing below that composition root does work at import
+time: modules call `get_settings()` where a value is used rather than binding it
+as a module constant, so every module imports without a `config.yaml` present.
+Pyrogram captures the running event loop when its `Client` is constructed, which
+is why the application is built inside `asyncio.run`, not at module scope.
+
 ## Interaction flow
 
 1. A platform handler converts the native event into `UnifiedMessage`.
@@ -13,15 +23,17 @@ bounds and shutdown behavior.
 4. `InteractionScheduler` admits the event into a globally bounded,
    per-chat-ordered queue. Only the first event in a chat burst receives the
    human-like delay.
-5. `media` builds bounded prompt attachments. Context, memory, style, social,
+5. Trivial messages (stickers, bare laughter, emoji) are rejected here, before
+   any download, transcription or vector query runs.
+6. `media` builds bounded prompt attachments. Context, memory, style, social,
    reply-chain, and runtime sections are added by the core handler.
-6. `provider_router` applies one total deadline across retries and fallbacks.
+7. `provider_router` applies one total deadline across retries and fallbacks.
    Gemini delegates key/model-pair selection to `GeminiScheduler`.
-7. `response_policy` strips model control syntax and rejects action
+8. `response_policy` strips model control syntax and rejects action
    meta-commentary.
-8. `action_executor` sends text/actions and records only outcomes that actually
+9. `action_executor` sends text/actions and records only outcomes that actually
    succeeded. Long-term memory is written once per interaction.
-9. `lifecycle` drains interactions, stops platform ingress, flushes caches, and
+10. `lifecycle` drains interactions, stops platform ingress, flushes caches, and
    closes model workers, HTTP clients, and SQLite handles.
 
 ## Module ownership
@@ -38,6 +50,9 @@ bounds and shutdown behavior.
 | Short context | `utils/context_manager.py` | LRU, messages-per-chat, and idle TTL are all bounded |
 | Cross-instance state | `coordination/` | Atomic, namespaced, expiring state; no platform secret is stored |
 | Logging | `utils/logger_config.py` | Every admitted interaction has stable correlation fields |
+| Composition | `app.py`, `main.py` | The only place that wires clients, handlers and services together |
+| Configuration | `settings.py` | Parsed once, validated eagerly, read at point of use |
+| Retrieval relevance | `utils/similarity.py` | Chroma reports squared L2; gates are expressed in cosine distance |
 
 ## State boundaries
 
@@ -59,7 +74,10 @@ events, rate limits, replies, and Gemini health in either Chroma mode.
 
 ## Adding functionality
 
-- Put new platform-specific behavior behind `PlatformAdapter`.
+- Put new platform-specific behavior behind `PlatformAdapter`, including
+  capability questions. Never branch on `platform_name` outside an adapter.
+- Never read configuration at import time: call `get_settings()` inside the
+  function that uses the value. Default arguments count as import time.
 - Put provider selection/retry behavior in `provider_router`, and provider wire
   formats in `providers/`.
 - Put reusable stateful work in `services/` with a bounded constructor and a

@@ -4,6 +4,11 @@ The unit suite is intentionally hermetic: it loads `config.yaml.example`, does
 not contact chat platforms or model APIs, and does not load Chroma, transformer,
 or Whisper models. This keeps verification fast for developers and coding agents.
 
+No module reads configuration at import time, so any module can be imported in a
+test without a `config.yaml` on disk. Tests that need different settings use the
+`override_settings` fixture, which swaps a module's `get_settings` for one
+returning a modified copy — never by rebinding module constants.
+
 ## Commands
 
 Install development dependencies in a normal project environment:
@@ -13,10 +18,10 @@ python -m pip install -r requirements.txt
 python -m pip install -e ".[test]"
 ```
 
-`requirements.txt` is the canonical runtime dependency list because it also
-declares PyTorch's CPU-only package index. Project metadata intentionally keeps
-runtime dependencies empty; package indexes are pip configuration and cannot be
-represented safely as Python package metadata.
+`pyproject.toml` is the canonical runtime dependency list. `requirements.txt`
+carries only what package metadata cannot express: PyTorch's CPU-only wheel
+index, plus `-e .`. Installing through `requirements.txt` therefore installs
+exactly what the Docker image installs.
 
 Run the complete fast suite:
 
@@ -36,14 +41,14 @@ python -m pytest -q tests/unit/coordination/test_store.py
 Before committing:
 
 ```bash
-python -m compileall -q shin_ai tests main.py
+ruff check .
+ruff format --check .
 python -m pytest -q
-ruff check shin_ai tests main.py
 ```
 
-CI uses a lightweight install that includes only the package metadata, PyYAML,
-and test tools. This is deliberate: importing a new module from a unit test must
-not accidentally require a platform SDK or multi-gigabyte model dependency.
+CI runs those as two jobs. `lint` installs only ruff, so style problems report
+in seconds. `tests` installs the same dependency set as the Docker image, so a
+dependency that resolves in CI resolves in the image.
 
 ## What is covered
 
@@ -60,6 +65,14 @@ not accidentally require a platform SDK or multi-gigabyte model dependency.
 - Provider retry/fallback/deadline decisions, response control parsing, media
   preparation, correlated logging, rate limits, lifecycle order, and delivered
   outcome persistence.
+- The full trigger matrix in `handlers/common.py`: private chats, mentions, the
+  `يالبوت` keyword, reply chains, speculative replies, media without text, and
+  WhatsApp status broadcasts.
+- Cosine-distance conversion and the MMR diversity re-ranker.
+- Which platforms the composition root registers, and that one platform failing
+  to register or start does not take out the others.
+- That every adapter implements the full `PlatformAdapter` surface and declares
+  each capability the action executor branches on.
 
 ## Test design rules
 
