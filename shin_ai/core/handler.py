@@ -16,6 +16,7 @@ from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.core import state
 from shin_ai.core.interaction_scheduler import InteractionScheduler
+from shin_ai.core.provider_router import call_ai_provider
 from shin_ai.core.request_context import reset_request_context
 from shin_ai.core.prompt_builder import (
     get_static_system_prompt,
@@ -29,9 +30,6 @@ from shin_ai.core.action_executor import (
     split_reply_messages,
 )
 from shin_ai.config import (
-    AI_PROVIDER_MAX_RETRIES,
-    AI_PROVIDER_TIMEOUT_SECONDS,
-    GLOBAL_AI_TIMEOUT_SECONDS,
     GROUP_MAX_RESPONSES_PER_WINDOW,
     GROUP_RATE_LIMIT_WINDOW_SECONDS,
     INTERACTION_TTL_SECONDS,
@@ -49,9 +47,6 @@ from shin_ai.utils.logger_config import bind_log_context, logger
 from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
-from shin_ai.providers.gemini import gemini_api
-from shin_ai.providers.openai_compatible import openai_provider
-from shin_ai.providers.registry import get_provider_chain, get_first_gemini_provider
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.services.social import get_social_context
 from shin_ai.services.replies import get_reply_chain
@@ -391,7 +386,12 @@ async def _passes_speculative_preflight(
     eval_prompt = f"User's message: \"{prompt}\""
     try:
         logger.debug("Running speculative reply pre-flight evaluation...")
-        eval_ans, _ = await _call_ai_provider(msg=msg, system_prompt=eval_system, prompt=eval_prompt, media_list=[])
+        eval_ans, _ = await call_ai_provider(
+            msg=msg,
+            system_prompt=eval_system,
+            prompt=eval_prompt,
+            media_list=[],
+        )
         if not eval_ans or "YES" not in eval_ans.strip().upper():
             logger.debug(f"Pre-flight eval rejected speculative message. Eval: {eval_ans!r}")
             return False
@@ -492,7 +492,7 @@ async def _execute_frozen_message(
     typing_task = _start_typing(platform, msg.chat.id)
 
     try:
-        answer, pending_actions = await _call_ai_provider(
+        answer, pending_actions = await call_ai_provider(
             msg=msg,
             system_prompt=system_prompt,
             prompt=enriched_prompt,
@@ -587,7 +587,7 @@ async def _execute_frozen_message(
                 "Just send a text message reacting to the failure in your usual style."
             )
 
-            error_answer, _ = await _call_ai_provider(
+            error_answer, _ = await call_ai_provider(
                 msg=msg,
                 system_prompt=system_prompt,
                 prompt=error_prompt,
@@ -1027,155 +1027,3 @@ async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyn
         await platform.send_chat_action(chat_id, "cancel")
     except Exception:
         pass
-
-
-async def _call_ai_provider(
-    msg: UnifiedMessage,
-    system_prompt: str,
-    prompt: str,
-    media_list: list[dict],
-    original_prompt: str | None = None,
-    platform: PlatformAdapter | None = None,
-) -> tuple[str | None, list[dict]]:
-    base_prompt = prompt
-    provider_chain = get_provider_chain()
-    last_error = None
-    media_context = None
-    chain_start = time.monotonic()
-    GLOBAL_TIMEOUT = GLOBAL_AI_TIMEOUT_SECONDS
-
-    for provider_cfg in provider_chain:
-        if time.monotonic() - chain_start > GLOBAL_TIMEOUT:
-            logger.error("Global AI timeout budget exhausted (%.0fs) — aborting provider chain.", GLOBAL_TIMEOUT)
-            break
-
-        provider_prompt = base_prompt
-        provider_media = media_list if media_list else []
-
-        if media_list and provider_cfg.type != "gemini":
-            if media_context is None:
-                media_context = await _describe_media_with_gemini(original_prompt or base_prompt, media_list)
-
-            if media_context:
-                provider_prompt = _append_media_context(base_prompt, media_context)
-            else:
-                logger.warning(
-                    "Provider '%s' does not receive raw media and Gemini media description failed.",
-                    provider_cfg.name,
-                )
-
-        retry_prompt = provider_prompt
-        max_attempts = max(1, AI_PROVIDER_MAX_RETRIES)
-
-        for attempt in range(1, max_attempts + 1):
-            remaining = GLOBAL_TIMEOUT - (time.monotonic() - chain_start)
-            if remaining <= 0:
-                logger.error("Global AI timeout budget exhausted mid-retry — aborting.")
-                break
-
-            try:
-                answer, pending_actions = await asyncio.wait_for(
-                    _execute_ai_provider_once(provider_cfg, msg, system_prompt, retry_prompt, provider_media, platform),
-                    timeout=min(AI_PROVIDER_TIMEOUT_SECONDS, remaining),
-                )
-                if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
-                    raise RuntimeError("AI provider returned empty response")
-                logger.info(
-                    "AI provider succeeded — provider=%s attempt=%s",
-                    provider_cfg.name,
-                    attempt,
-                    extra={"event_name": "provider.succeeded"},
-                )
-                return answer, pending_actions
-            except asyncio.TimeoutError as e:
-                last_error = e
-                if attempt >= max_attempts:
-                    break
-                retry_prompt = provider_prompt
-            except Exception as e:
-                last_error = e
-                if attempt >= max_attempts:
-                    break
-                error_text = str(e).strip()[:400]
-                retry_prompt = (
-                    f"{provider_prompt}\n\n[INTERNAL RETRY CONTEXT - NOT A USER MESSAGE]\n"
-                    f"Previous attempt failed with {type(e).__name__}: {error_text}\n"
-                    "If needed, adapt your response approach to avoid the same failure."
-                )
-
-        if len(provider_chain) > 1:
-            logger.warning("Provider '%s' failed after %s attempts. Falling back.", provider_cfg.name, max_attempts)
-
-    if last_error:
-        logger.error("All providers failed. Last error: %s", last_error)
-    return None, []
-
-
-async def _describe_media_with_gemini(user_message: str, media_list: list[dict]) -> str:
-    """Use the configured Gemini provider to describe media for non-vision providers."""
-    gemini_cfg = get_first_gemini_provider()
-    if gemini_cfg is None:
-        logger.warning("No Gemini provider configured; cannot describe media for non-vision provider.")
-        return ""
-
-    media_description_system = (
-        "You describe attached media for another AI model. Return a concise, "
-        "factual description of what is visible and any readable text. "
-        "IMPORTANT: If the user is asking about something specific in the media, you MUST "
-        "identify it and answer it directly, accurately, and in detail so the other AI model "
-        "can answer the user's question correctly."
-    )
-    summary_prompt = (
-        "Describe the attached media for another AI provider that cannot see images. "
-        "Be concise but include all visually relevant details, text/OCR, objects, people, "
-        "actions, layout, and anything that may matter for answering the user's message.\n\n"
-        "User message/context:\n"
-        f"{user_message}"
-    )
-
-    try:
-        media_context, _ = await gemini_api(media_description_system, summary_prompt, media_list=media_list)
-    except Exception as e:
-        logger.error(f"Gemini media fallback failed: {e}")
-        return ""
-
-    media_context = media_context.strip() if isinstance(media_context, str) else ""
-    if media_context:
-        logger.info("Gemini media fallback produced %s chars of context.", len(media_context))
-    return media_context
-
-
-def _append_media_context(prompt: str, media_context: str) -> str:
-    return (
-        f"{prompt}\n\n"
-        "[INTERNAL MEDIA CONTEXT - generated by Gemini from attached media, not a user message]\n"
-        f"{media_context}"
-    )
-
-
-async def _execute_ai_provider_once(
-    provider_cfg,
-    msg: UnifiedMessage,
-    system_prompt: str,
-    prompt: str,
-    media_list: list[dict],
-    platform: PlatformAdapter | None = None,
-) -> tuple[str, list[dict]]:
-    # Context-bound tools (e.g. transcribe_audio) get access to the current
-    # platform adapter + triggering message so they can resolve/download
-    # chat media on demand.
-    tool_context = (platform, msg) if platform is not None else None
-
-    if provider_cfg.type == "gemini":
-        return await gemini_api(system_prompt, prompt, media_list=media_list, tool_context=tool_context)
-
-    if provider_cfg.type == "openai":
-        return await openai_provider(provider_cfg, system_prompt, prompt, media_list=media_list, tool_context=tool_context)
-
-    if provider_cfg.name == "manual":
-        from shin_ai.providers.manual import manual_response
-        text = await manual_response(prompt, msg.from_user)
-        return text or "", []
-
-    logger.error("Unknown provider type '%s' for provider '%s'", provider_cfg.type, provider_cfg.name)
-    return "", []
