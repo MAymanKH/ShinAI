@@ -17,6 +17,7 @@ from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR, REPLY_STATE_TTL_SECONDS
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.utils.chat_identity import chat_scope_key
 from shin_ai.utils.logger_config import logger
 
 if TYPE_CHECKING:
@@ -72,27 +73,12 @@ async def check_and_clear_next_message_watch(
         return local_watch
 
 
-def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
-    raw_chat_id = str(chat_id).strip()
-    if platform != "whatsapp":
-        return raw_chat_id
-
-    lowered = raw_chat_id.lower()
-    if "@" in lowered:
-        user, server = lowered.split("@", 1)
-        user = user.split(":", 1)[0]
-        return f"{user}@{server}"
-
-    return lowered.split(":", 1)[0]
-
-
 def _reply_key(
     platform: str,
     chat_id: int | str,
     coordination_scope: str | None = None,
 ) -> str:
-    scope = coordination_scope or platform
-    return f"{scope}_{_normalize_chat_id(platform, chat_id)}"
+    return chat_scope_key(coordination_scope or platform, platform, chat_id)
 
 
 def _shared_state_key(

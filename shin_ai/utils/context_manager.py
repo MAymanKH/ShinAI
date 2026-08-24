@@ -15,6 +15,7 @@ from shin_ai.config import (
     CONTEXT_TTL_SECONDS,
 )
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser
+from shin_ai.utils.chat_identity import chat_scope_key
 
 
 @dataclass(slots=True)
@@ -89,21 +90,8 @@ _context_buffer = ContextBuffer(
 )
 
 
-def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
-    raw_chat_id = str(chat_id).strip()
-    if platform != "whatsapp":
-        return raw_chat_id
-
-    lowered = raw_chat_id.lower()
-    if "@" in lowered:
-        user, server = lowered.split("@", 1)
-        user = user.split(":", 1)[0]
-        return f"{user}@{server}"
-    return lowered.split(":", 1)[0]
-
-
 def _get_chat_key(platform: str, chat_id: int | str) -> str:
-    return f"{platform}_{_normalize_chat_id(platform, chat_id)}"
+    return chat_scope_key(platform, platform, chat_id)
 
 
 def add_message_to_context(msg: UnifiedMessage) -> None:
