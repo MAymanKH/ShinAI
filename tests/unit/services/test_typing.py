@@ -85,3 +85,65 @@ def test_safety_timeout_cancels_indicator_and_cleans_registry() -> None:
         assert active_typing_count() == 0
 
     run(scenario())
+
+
+def test_stop_is_bounded_when_cancel_action_hangs() -> None:
+    class HungCancelPlatform(_Platform):
+        async def send_chat_action(self, _chat_id, action: str) -> None:
+            self.actions.append(action)
+            if action == "cancel":
+                await asyncio.Event().wait()
+
+    async def scenario() -> None:
+        platform = HungCancelPlatform()
+        session = await start_typing(
+            platform,
+            "chat",
+            action_timeout_seconds=0.01,
+        )
+        await asyncio.sleep(0)
+        await asyncio.wait_for(stop_typing(session), timeout=0.1)
+
+        assert platform.actions == ["typing", "cancel"]
+        assert active_typing_count() == 0
+
+    run(scenario())
+
+
+def test_late_typing_completion_is_followed_by_recovery_cancel() -> None:
+    class CancellationResistantPlatform(_Platform):
+        def __init__(self) -> None:
+            super().__init__()
+            self.typing_started = asyncio.Event()
+            self.release_typing = asyncio.Event()
+
+        async def send_chat_action(self, _chat_id, action: str) -> None:
+            if action == "typing":
+                self.actions.append("typing:start")
+                self.typing_started.set()
+                try:
+                    await self.release_typing.wait()
+                except asyncio.CancelledError:
+                    await self.release_typing.wait()
+                self.actions.append("typing:end")
+            else:
+                self.actions.append("cancel")
+
+    async def scenario() -> None:
+        platform = CancellationResistantPlatform()
+        session = await start_typing(
+            platform,
+            "chat",
+            action_timeout_seconds=0.01,
+        )
+        await platform.typing_started.wait()
+        await asyncio.sleep(0.02)
+        await stop_typing(session)
+
+        platform.release_typing.set()
+        await asyncio.sleep(0.02)
+
+        assert platform.actions[-2:] == ["typing:end", "cancel"]
+        assert active_typing_count() == 0
+
+    run(scenario())

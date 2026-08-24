@@ -73,6 +73,7 @@ MAX_PENDING_INTERACTIONS = _cfg.runtime.max_pending_interactions
 PER_CHAT_QUEUE_SIZE = _cfg.runtime.per_chat_queue_size
 INTERACTION_TTL_SECONDS = _cfg.runtime.interaction_ttl_seconds
 SHUTDOWN_GRACE_SECONDS = _cfg.runtime.shutdown_grace_seconds
+TYPING_ACTION_TIMEOUT_SECONDS = _cfg.runtime.typing_action_timeout_seconds
 CONTEXT_MAX_CHATS = _cfg.runtime.context_max_chats
 CONTEXT_MESSAGES_PER_CHAT = _cfg.runtime.context_messages_per_chat
 CONTEXT_TTL_SECONDS = _cfg.runtime.context_ttl_seconds

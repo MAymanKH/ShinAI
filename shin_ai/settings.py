@@ -81,6 +81,7 @@ class RuntimeSettings:
     per_chat_queue_size: int
     interaction_ttl_seconds: float
     shutdown_grace_seconds: float
+    typing_action_timeout_seconds: float
     context_max_chats: int
     context_messages_per_chat: int
     context_ttl_seconds: float
@@ -275,6 +276,11 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             runtime_raw.get("shutdown_grace_seconds"),
             name="runtime.shutdown_grace_seconds",
             default=30.0,
+        ),
+        typing_action_timeout_seconds=_positive_float(
+            runtime_raw.get("typing_action_timeout_seconds"),
+            name="runtime.typing_action_timeout_seconds",
+            default=2.0,
         ),
         context_max_chats=_positive_int(
             context_raw.get("max_chats"), name="runtime.context.max_chats", default=2_000

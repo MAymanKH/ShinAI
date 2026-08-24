@@ -101,6 +101,8 @@ runtime:
   per_chat_queue_size: 20
   interaction_ttl_seconds: 300
   shutdown_grace_seconds: 30
+  # Never let a stuck platform presence request hold response cleanup forever.
+  typing_action_timeout_seconds: 2
   # Native Discord/WhatsApp message objects can be large; keep only recent items.
   platform_message_cache_size: 500
   context:

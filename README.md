@@ -219,6 +219,7 @@ runtime:
   per_chat_queue_size: 20
   interaction_ttl_seconds: 300
   shutdown_grace_seconds: 30
+  typing_action_timeout_seconds: 2
   platform_message_cache_size: 500
   context:
     max_chats: 2000
