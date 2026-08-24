@@ -21,6 +21,7 @@ data/
 
 # --- Logs ---
 *.log
+.__*.lock
 
 # --- Databases ---
 chroma_db/
