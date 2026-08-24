@@ -402,8 +402,17 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     best_example_idx = int(np.argmax(time_similarities))
     best_bucket_idx = _example_bucket_indices[best_example_idx]
 
-    safe_bucket_idx = min(best_bucket_idx + 1, len(TIME_BUCKETS) - 1)
-    delta = _bucket_delta(TIME_BUCKETS[safe_bucket_idx], now)
+    # Widen by one bucket so a slightly-off match still contains the target.
+    # TIME_BUCKETS is not monotonic in real duration: "dynamic_today" spans
+    # midnight-to-now, so before ~03:00 it is *shorter* than the 3h bucket that
+    # precedes it. Taking the max keeps the padding from narrowing the window --
+    # at 00:30, "قبل ساعتين" used to widen from 3h into a 30-minute window and
+    # exclude the very memory being asked about.
+    next_bucket_idx = min(best_bucket_idx + 1, len(TIME_BUCKETS) - 1)
+    delta = max(
+        _bucket_delta(TIME_BUCKETS[best_bucket_idx], now),
+        _bucket_delta(TIME_BUCKETS[next_bucket_idx], now),
+    )
 
     start_epoch = int((now - delta).timestamp())
     end_epoch = int(now.timestamp())
