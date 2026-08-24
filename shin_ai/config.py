@@ -47,6 +47,7 @@ WEB_SEARCH_TIMEOUT_SECONDS = _cfg.web_search_timeout_seconds
 AI_PROVIDER_TIMEOUT_SECONDS = _cfg.ai.timeout_seconds
 AI_PROVIDER_MAX_RETRIES = _cfg.ai.max_retries
 GLOBAL_AI_TIMEOUT_SECONDS = _cfg.ai.global_timeout_seconds
+PREFLIGHT_TIMEOUT_SECONDS = _cfg.ai.preflight_timeout_seconds
 
 # Embeddings
 EMBEDDING_MODEL = _cfg.embedding_model

@@ -33,6 +33,7 @@ class AISettings:
     timeout_seconds: float
     max_retries: int
     global_timeout_seconds: float
+    preflight_timeout_seconds: float
     providers: dict[str, ProviderSettings]
     primary: str
     fallbacks: tuple[str, ...]
@@ -502,6 +503,11 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             ai_raw.get("global_timeout_seconds"),
             name="ai.global_timeout_seconds",
             default=180.0,
+        ),
+        preflight_timeout_seconds=_positive_float(
+            ai_raw.get("preflight_timeout_seconds"),
+            name="ai.preflight_timeout_seconds",
+            default=15.0,
         ),
         providers=providers,
         primary=primary,

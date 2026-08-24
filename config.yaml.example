@@ -83,8 +83,6 @@ web_search:
 # Get it by forwarding a message from the group to @RawDataBot
 # style_group_id: "-1001234567890"
 
-# --- Embeddings ---
-# One shared, bounded service is used by memory, style, social context and time detection.
 # --- Semantic Retrieval Relevance ---
 # Maximum cosine distance a result may have and still count as relevant.
 # 0.0 = identical, 1.0 = unrelated. These gate what actually reaches the model.
@@ -100,6 +98,8 @@ retrieval:
   # Gate for the explicit memory_lookup_tool.
   lookup_max_distance: 0.16
 
+# --- Embeddings ---
+# One shared, bounded service is used by memory, style, social context and time detection.
 embedding:
   model: intfloat/multilingual-e5-large
   max_concurrency: 1
@@ -162,6 +162,11 @@ ai:
   # Hard total time budget (seconds) across ALL providers and retries for one request
   # After this limit the bot gives up on the request entirely
   global_timeout_seconds: 180.0
+  # Budget for the speculative pre-flight check — the one-word YES/NO call that
+  # decides whether a message following the bot's own is actually aimed at it.
+  # Capped separately (single attempt, no failover) so it cannot double the
+  # provider spend of a busy group. On failure the bot stays silent.
+  preflight_timeout_seconds: 15.0
 
   # -------------------------------------------------------
   # Define as many providers as you like.

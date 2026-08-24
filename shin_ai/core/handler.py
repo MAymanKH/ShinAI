@@ -22,6 +22,7 @@ from shin_ai.config import (
     MAX_REPLY_DELAY_SECONDS,
     MIN_REPLY_DELAY_SECONDS,
     PER_CHAT_QUEUE_SIZE,
+    PREFLIGHT_TIMEOUT_SECONDS,
     SHUTDOWN_GRACE_SECONDS,
 )
 from shin_ai.coordination.runtime import get_coordination_store
@@ -318,11 +319,18 @@ async def _passes_speculative_preflight(
     eval_prompt = f'User\'s message: "{prompt}"'
     try:
         logger.debug("Running speculative reply pre-flight evaluation...")
+        # This is a one-word YES/NO classification that decides whether to stay
+        # silent. It does not deserve the full retry/failover budget of a real
+        # reply: a single attempt on a short deadline keeps a busy group from
+        # roughly doubling its provider calls, and any failure means silence.
         eval_ans, _ = await call_ai_provider(
             msg=msg,
             system_prompt=eval_system,
             prompt=eval_prompt,
             media_list=[],
+            max_retries=1,
+            attempt_timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS,
+            global_timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS,
         )
         if not eval_ans or "YES" not in eval_ans.strip().upper():
             logger.debug("Pre-flight eval rejected speculative message. Eval: %r", eval_ans)
