@@ -193,9 +193,9 @@ def build_user_prompt(
     Returns:
         Enriched user prompt string
     """
-    now = datetime.now()
-    tz_offset = datetime.now(tzlocal()).utcoffset()
-    timestamp = f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC+{tz_offset}"
+    # %z renders the offset as +0300 / -0500. Interpolating the raw timedelta
+    # instead produced "UTC+-1 day, 19:00:00" for every timezone west of UTC.
+    timestamp = datetime.now(tzlocal()).strftime("%Y-%m-%d %H:%M:%S %z")
 
     return f"""\
 <style_examples>
