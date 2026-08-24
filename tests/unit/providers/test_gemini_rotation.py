@@ -11,6 +11,19 @@ from shin_ai.providers.gemini import gemini_api
 from shin_ai.providers.gemini_scheduler import GeminiScheduler
 
 
+class FakeMonotonic:
+    """A clock that only moves when a model is actually generating."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def _scheduler(keys: int = 3, models: tuple[str, ...] = ("model-a", "model-b")) -> GeminiScheduler:
     return GeminiScheduler(
         {f"key-{index}": f"secret-{index}" for index in range(1, keys + 1)},
@@ -38,6 +51,57 @@ def stub_gemini(monkeypatch):
     return _install
 
 
+def test_rejected_keys_do_not_consume_the_generation_budget(stub_gemini, monkeypatch) -> None:
+    """A 429 answered instantly costs no budget, so every pair still gets a turn."""
+    clock = FakeMonotonic()
+    monkeypatch.setattr(gemini_module, "time", SimpleNamespace(monotonic=clock))
+
+    async def rejected(_model):
+        raise RuntimeError("429 rate limit")
+
+    attempts = stub_gemini(rejected)
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match="429"):
+            await gemini_api(
+                "system",
+                "prompt",
+                scheduler=_scheduler(),
+                attempt_timeout_seconds=60.0,
+                rotation_budget_seconds=1.0,
+            )
+
+    asyncio.run(scenario())
+
+    assert len(attempts) == 6
+    assert {model for model, _ in attempts} == {"model-a", "model-b"}
+
+
+def test_generation_time_is_what_exhausts_the_budget(stub_gemini, monkeypatch) -> None:
+    clock = FakeMonotonic()
+    monkeypatch.setattr(gemini_module, "time", SimpleNamespace(monotonic=clock))
+
+    async def slow_failure(_model):
+        clock.advance(0.5)
+        raise RuntimeError("model unavailable")
+
+    attempts = stub_gemini(slow_failure)
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match="model unavailable"):
+            await gemini_api(
+                "system",
+                "prompt",
+                scheduler=_scheduler(),
+                attempt_timeout_seconds=60.0,
+                rotation_budget_seconds=1.0,
+            )
+
+    asyncio.run(scenario())
+
+    assert len(attempts) == 2
+
+
 def test_a_hung_pair_is_cut_off_without_ending_the_rotation(stub_gemini) -> None:
     """The timeout bounds one pair; the remaining models still get tried."""
 
@@ -54,6 +118,7 @@ def test_a_hung_pair_is_cut_off_without_ending_the_rotation(stub_gemini) -> None
             "prompt",
             scheduler=_scheduler(),
             attempt_timeout_seconds=0.02,
+            rotation_budget_seconds=600.0,
         )
         assert answer == "answered"
         assert actions == []

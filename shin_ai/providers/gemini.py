@@ -6,6 +6,7 @@ Handles API calls to Google's Gemini models with key rotation and statistics.
 
 import asyncio
 import inspect
+import time
 
 from google import genai
 
@@ -107,6 +108,7 @@ async def gemini_api(
     scheduler: GeminiScheduler | None = None,
     allow_image_tool: bool = True,
     attempt_timeout_seconds: float | None = None,
+    rotation_budget_seconds: float | None = None,
 ) -> tuple[str, list[dict]]:
     """Call the Gemini API with tool support.
 
@@ -122,6 +124,8 @@ async def gemini_api(
         attempt_timeout_seconds: Budget for a single key/model generation.
                        Each pair gets its own full allowance; defaults to
                        ai.timeout_seconds.
+        rotation_budget_seconds: Ceiling on the *generation* time this call may
+                       spend in total. Defaults to ai.global_timeout_seconds.
 
     Returns:
         (response_text, pending_actions) where pending_actions is a list of
@@ -134,11 +138,31 @@ async def gemini_api(
     attempt_timeout = (
         ai_settings.timeout_seconds if attempt_timeout_seconds is None else attempt_timeout_seconds
     )
+    rotation_budget = (
+        ai_settings.global_timeout_seconds if rotation_budget_seconds is None else rotation_budget_seconds
+    )
     last_exception = None
+    # Only time a model spends actually generating counts against the budget.
+    # Walking past a key the API rejects outright costs a fraction of a second,
+    # and charging that to the clock meant a pool-wide 429 burst could burn the
+    # whole allowance on rotation and leave the later models never even tried.
+    generating_seconds = 0.0
+    budget_spent = False
 
     for model in models_to_try:
+        if budget_spent:
+            break
         tried_keys: set[str] = set()
         while len(tried_keys) < len(active_scheduler.keys):
+            if generating_seconds >= rotation_budget:
+                logger.error(
+                    "Gemini rotation stopped — generation time %.0fs reached budget=%.0fs",
+                    generating_seconds,
+                    rotation_budget,
+                    extra={"event_name": "provider.deadline"},
+                )
+                budget_spent = True
+                break
             reservation = await active_scheduler.reserve(model, excluded_keys=tried_keys)
             if reservation is None:
                 break
@@ -147,21 +171,21 @@ async def gemini_api(
                 genai_client = _get_genai_client(reservation.api_key)
                 contents = _build_gemini_contents(prompt, media_list)
                 config = _build_gemini_config(system_prompt, model, media_list if allow_image_tool else None)
-                # The timeout covers the generation itself. Walking the key and
-                # model rotation costs nothing against it, so a pool-wide 429
-                # burst can no longer burn the allowance before the later models
-                # are ever tried.
-                response, pending_actions = await asyncio.wait_for(
-                    _run_gemini_generation_loop(
-                        genai_client,
-                        model,
-                        contents,
-                        config,
-                        tool_context,
-                        media_list,
-                    ),
-                    timeout=attempt_timeout,
-                )
+                attempt_started = time.monotonic()
+                try:
+                    response, pending_actions = await asyncio.wait_for(
+                        _run_gemini_generation_loop(
+                            genai_client,
+                            model,
+                            contents,
+                            config,
+                            tool_context,
+                            media_list,
+                        ),
+                        timeout=attempt_timeout,
+                    )
+                finally:
+                    generating_seconds += time.monotonic() - attempt_started
 
                 response_text = _extract_gemini_text(response)
                 if not response_text and not pending_actions:
