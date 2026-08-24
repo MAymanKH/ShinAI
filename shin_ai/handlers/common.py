@@ -7,6 +7,11 @@ from shin_ai.settings import get_settings
 
 SUPPORTED_CHAT_TYPES = {"PRIVATE", "GROUP", "SUPERGROUP"}
 
+# Pyrogram runs at most one matching handler per group, so a command handler
+# sharing group 0 with the catch-all chat handler never fires. Commands claim
+# the update from an earlier group and stop propagation there.
+COMMAND_HANDLER_GROUP = -2
+
 
 def _message_text(msg: UnifiedMessage) -> str:
     return (msg.text or msg.caption or "").strip()

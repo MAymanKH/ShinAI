@@ -2,9 +2,10 @@ import asyncio
 import time
 from collections import Counter
 
-from pyrogram import Client, filters
+from pyrogram import Client, StopPropagation, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from shin_ai.handlers.common import COMMAND_HANDLER_GROUP
 from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import _get_memory_collection
@@ -404,21 +405,18 @@ def _render_view(analytics, view: str, page: int):
 def register(client) -> None:
     """Attach the admin analytics command and its pagination callbacks."""
 
-    @client.on_message(filters.command("shinai_analytics"))
+    @client.on_message(filters.command("shinai_analytics"), group=COMMAND_HANDLER_GROUP)
     async def show_analytics(client: Client, msg: Message):
-        if not msg.from_user:
-            return
-
-        if msg.from_user.id != get_settings().admin_user_id:
-            return
-
-        try:
-            analytics = await load_analytics_data()
-            report, keyboard = _render_view(analytics, "main", 0)
-            await msg.reply(report, reply_markup=keyboard)
-        except Exception as e:
-            logger.error("Error generating analytics: %s", e, exc_info=True)
-            await msg.reply("An error occurred while generating analytics.")
+        if msg.from_user and msg.from_user.id == get_settings().admin_user_id:
+            try:
+                analytics = await load_analytics_data()
+                report, keyboard = _render_view(analytics, "main", 0)
+                await msg.reply(report, reply_markup=keyboard)
+            except Exception as e:
+                logger.error("Error generating analytics: %s", e, exc_info=True)
+                await msg.reply("An error occurred while generating analytics.")
+        # A command is never conversation, so it stops here even when ignored.
+        raise StopPropagation
 
     @client.on_callback_query(filters.regex(r"^analytics:"))
     async def analytics_callback(client: Client, callback: CallbackQuery):
