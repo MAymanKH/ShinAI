@@ -2,7 +2,6 @@ import asyncio
 from typing import Any
 
 from shin_ai.config import DEBUG, WHATSAPP_ENABLED
-from shin_ai.core import state
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.utils.context_manager import add_message_to_context
@@ -36,7 +35,7 @@ if WHATSAPP_ENABLED:
                 debug_hook=_whatsapp_debug,
             )
 
-            if should_respond and not state.IS_CHECKING_KEYS:
+            if should_respond:
                 await process_message(whatsapp_platform, unified_msg)
 
         @whatsapp_platform.client.event(MessageEventType)

@@ -1,7 +1,6 @@
 import discord
 
 from shin_ai.config import DEBUG, DISCORD_BOT_TOKEN, DISCORD_CONFIGURED, DISCORD_ENABLED
-from shin_ai.core import state
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.platforms.discord import DiscordPlatform
@@ -44,7 +43,7 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
             logger.error("Discord filter evaluation failed: %s", e, exc_info=True)
             return
 
-        if not should_respond or state.IS_CHECKING_KEYS:
+        if not should_respond:
             return
 
         try:

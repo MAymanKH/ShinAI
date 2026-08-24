@@ -2,7 +2,6 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 from shin_ai.config import DEBUG, TELEGRAM_CONFIGURED, TELEGRAM_ENABLED
-from shin_ai.core import state
 from shin_ai.core.client import app
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import (
@@ -79,10 +78,6 @@ if TELEGRAM_ENABLED and TELEGRAM_CONFIGURED:
             return
 
         if not should_respond:
-            return
-
-        if state.IS_CHECKING_KEYS:
-            logger.debug("[TelegramHandler] Skipping message — IS_CHECKING_KEYS is active")
             return
 
         try:

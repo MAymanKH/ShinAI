@@ -26,7 +26,6 @@ from shin_ai.config import (
     SHUTDOWN_GRACE_SECONDS,
 )
 from shin_ai.coordination.runtime import get_coordination_store
-from shin_ai.core import state
 from shin_ai.core.action_executor import (
     execute_pending_actions,
     execute_text_messages,
@@ -72,7 +71,7 @@ _shutting_down = False
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Deduplicate and admit an interaction without retaining downloaded media."""
-    if state.IS_CHECKING_KEYS or _shutting_down:
+    if _shutting_down:
         return
 
     interaction_id = _interaction_id(platform, msg)
@@ -232,8 +231,6 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
     with bind_log_context(**_message_log_context(platform, msg, payload.interaction_id)):
         reset_request_context()
         try:
-            if state.IS_CHECKING_KEYS:
-                return
             if msg.from_user and not await check_rate_limit_shared(
                 platform.platform_name,
                 msg.from_user.id,
