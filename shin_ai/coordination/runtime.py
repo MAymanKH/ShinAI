@@ -7,6 +7,7 @@ import threading
 
 from shin_ai.coordination.store import CoordinationStore, create_coordination_store
 from shin_ai.settings import get_settings
+from shin_ai.utils.logger_config import logger
 
 
 _store: CoordinationStore | None = None
@@ -44,7 +45,10 @@ async def _run_maintenance() -> None:
         await asyncio.sleep(interval)
         current = _store
         if current is not None:
-            await current.cleanup()
+            try:
+                await current.cleanup()
+            except Exception:
+                logger.exception("Coordination maintenance failed; retrying later")
 
 
 async def close_coordination_store() -> None:

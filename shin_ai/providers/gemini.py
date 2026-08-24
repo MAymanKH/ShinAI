@@ -3,6 +3,9 @@ Gemini AI Provider
 
 Handles API calls to Google's Gemini models with key rotation and statistics.
 """
+import asyncio
+import inspect
+
 from google import genai
 
 from shin_ai.providers.gemini_keys import (
@@ -21,7 +24,6 @@ from shin_ai.utils.logger_config import logger
 from shin_ai.utils.web_search import search_web_tool
 from shin_ai.utils.memory_lookup import memory_lookup_tool
 from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS
-import asyncio
 
 
 # Injected into tool results for side-effect actions (reaction / sticker /
@@ -56,6 +58,29 @@ def get_gemini_scheduler() -> GeminiScheduler:
             get_coordination_store(),
         )
     return _gemini_scheduler
+
+
+async def close_gemini_clients() -> None:
+    """Close cached HTTP pools and release the process-local scheduler."""
+    global _gemini_scheduler
+
+    clients = list({id(client): client for client in _genai_client_cache.values()}.values())
+    _genai_client_cache.clear()
+    _gemini_scheduler = None
+
+    for client in clients:
+        try:
+            async_client = getattr(client, "aio", None)
+            close = getattr(async_client, "aclose", None)
+            if close is None:
+                close = getattr(client, "close", None)
+            if close is None:
+                continue
+            result = close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("Failed to close a Gemini client")
 
 
 def _extract_gemini_text(response) -> str:

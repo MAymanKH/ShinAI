@@ -5,6 +5,9 @@ Tracks bot replies for reply chain detection.
 """
 import asyncio
 import json
+import os
+import threading
+import uuid
 
 from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR
 from shin_ai.utils.logger_config import logger
@@ -17,9 +20,11 @@ _next_message_watch: dict[str, bool] = {}
 # In-memory cache of the replies file. Loaded lazily on first access.
 _replies_cache: dict[str, list[str]] | None = None
 _replies_dirty: bool = False
+_replies_revision: int = 0
 
 _FLUSH_INTERVAL_SECONDS = 30.0
 _flush_task: asyncio.Task | None = None
+_flush_file_lock = threading.Lock()
 
 
 def set_next_message_watch(platform: str, chat_id: int | str):
@@ -90,13 +95,27 @@ async def _flush_to_disk() -> None:
     if not _replies_dirty or _replies_cache is None:
         return
 
-    def _sync_write():
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(REPLIES_FILE, "w") as f:
-            json.dump(_replies_cache, f)
+    revision = _replies_revision
+    snapshot = {chat_id: list(reply_ids) for chat_id, reply_ids in _replies_cache.items()}
+
+    def _sync_write() -> None:
+        with _flush_file_lock:
+            if revision != _replies_revision:
+                return
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            temporary_file = REPLIES_FILE.with_name(
+                f".{REPLIES_FILE.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            )
+            try:
+                with open(temporary_file, "w", encoding="utf-8") as file:
+                    json.dump(snapshot, file)
+                os.replace(temporary_file, REPLIES_FILE)
+            finally:
+                temporary_file.unlink(missing_ok=True)
 
     await asyncio.to_thread(_sync_write)
-    _replies_dirty = False
+    if revision == _replies_revision:
+        _replies_dirty = False
 
 
 async def _flush_periodically() -> None:
@@ -122,7 +141,7 @@ async def save_reply(chat_id: int | str, message_id: int | str, platform: str | 
     Writes to an in-memory cache and marks it dirty; a background task
     flushes to disk periodically to avoid blocking the event loop.
     """
-    global _replies_dirty
+    global _replies_dirty, _replies_revision
     _load_cache_from_disk()
     assert _replies_cache is not None
 
@@ -143,7 +162,29 @@ async def save_reply(chat_id: int | str, message_id: int | str, platform: str | 
         _replies_cache[scoped_chat_id] = _replies_cache[scoped_chat_id][-100:]
 
     _replies_dirty = True
+    _replies_revision += 1
     _ensure_flush_task()
+
+
+async def shutdown_replies_service() -> None:
+    """Stop background work, persist pending replies, and release caches."""
+    global _flush_task, _replies_cache, _replies_dirty, _replies_revision
+
+    flush_task = _flush_task
+    _flush_task = None
+    if flush_task is not None:
+        flush_task.cancel()
+        await asyncio.gather(flush_task, return_exceptions=True)
+
+    try:
+        await _flush_to_disk()
+    except Exception:
+        logger.exception("Failed to flush replies cache during shutdown")
+    finally:
+        _replies_cache = None
+        _replies_dirty = False
+        _replies_revision = 0
+        _next_message_watch.clear()
 
 
 async def check_reply_chain(msg: UnifiedMessage):

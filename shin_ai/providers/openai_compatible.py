@@ -7,6 +7,8 @@ Handles any provider that exposes an OpenAI-compatible chat completions API
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import inspect
 from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
@@ -40,7 +42,8 @@ async def _get_semaphore(cfg: "ProviderConfig") -> asyncio.Semaphore | None:
 
 async def _get_client(cfg: "ProviderConfig") -> AsyncOpenAI:
     """Return a cached AsyncOpenAI client for the provider, or create one."""
-    cache_key = f"{cfg.base_url}:{cfg.api_key}"
+    key_digest = hashlib.sha256(cfg.api_key.encode("utf-8")).hexdigest()
+    cache_key = f"{cfg.base_url}:{key_digest}"
     if cache_key not in _client_cache:
         async with _client_lock:
             if cache_key not in _client_cache:
@@ -51,6 +54,25 @@ async def _get_client(cfg: "ProviderConfig") -> AsyncOpenAI:
                 _client_cache[cache_key] = client
                 logger.debug("Created new AsyncOpenAI client for provider '%s'", cfg.name)
     return _client_cache[cache_key]
+
+
+async def close_openai_clients() -> None:
+    """Close cached HTTP pools and reset process-local provider state."""
+    async with _client_lock:
+        clients = list({id(client): client for client in _client_cache.values()}.values())
+        _client_cache.clear()
+    async with _semaphore_lock:
+        _semaphores.clear()
+
+    async def _close(client: AsyncOpenAI) -> None:
+        try:
+            result = client.close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("Failed to close an OpenAI-compatible client")
+
+    await asyncio.gather(*(_close(client) for client in clients))
 
 
 async def openai_provider(
