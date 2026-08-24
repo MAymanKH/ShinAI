@@ -67,7 +67,7 @@ You can either chat with the bot on [Telegram](https://t.me/shinobi7kbot) or [Di
 
 ### 0. Install Prerequisites
 
-- [Python](https://www.python.org/downloads/) 3.11 or higher
+- [Python](https://www.python.org/downloads/) 3.13 or higher
 - [Git](https://git-scm.com/install/)
 - Make sure they are added to your path.
 
@@ -93,6 +93,9 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+Runtime dependencies are declared in `pyproject.toml`; `requirements.txt` adds
+PyTorch's CPU wheel index, which package metadata cannot express.
 
 ### 4. Configure Environment
 
@@ -148,139 +151,16 @@ docker-compose logs -f
 
 ShinAI is configured using a centralized `config.yaml` file. Copy `config.yaml.example` to `config.yaml` and fill in your details.
 
-### Configuration Structure
+### Configuration Reference
 
-The structure of the `config.yaml` configuration is shown below as a commented template:
+[`config.yaml.example`](config.yaml.example) is the reference: every key is
+listed there with a comment explaining it and a sensible default. It is kept
+in step with the parser in `shin_ai/settings.py`, which validates the file at
+startup and fails with an explicit message naming the offending key.
 
-```yaml
-# Platform Settings
-platform:
-  telegram:
-    enabled: true           # Enable/disable Telegram client (true/false)
-    api_id: 123456          # API ID from https://my.telegram.org
-    api_hash: "your_hash"   # API Hash from https://my.telegram.org
-    bot_token: "your_token" # Bot token from @BotFather
-  discord:
-    enabled: false          # Enable/disable Discord client (true/false)
-    bot_token: "your_token" # Discord Bot token from the Developer Portal
-  whatsapp:
-    enabled: false          # Enable/disable WhatsApp (will link session via console QR code)
-
-# Administration User ID
-admin_user_id: 123456789    # Platform user ID (Telegram or Discord) allowed to run admin commands
-
-# Logging
-logging:
-  debug: false              # INFO normally; useful detailed events when true
-  file: shinai_bot.log      # Set to null when stdout is managed externally
-  max_bytes: 25000000
-  backup_count: 5
-  content_preview_chars: 120
-
-# Response Timings & Probability
-response:
-  min_delay_seconds: 5.0    # Lower boundary for randomized response delay (simulate typing/reading)
-  max_delay_seconds: 300.0  # Upper boundary for randomized response delay
-  random_trigger_probability: 0.05 # Random chance (0.0 to 1.0) to respond to normal group messages without mention
-  group_max_responses: 3    # Max responses per chat within the window below
-  group_rate_limit_window_seconds: 10.0 # Window for the per-group response limit above
-
-# Voice Transcription Service (Whisper)
-whisper:
-  model: large-v3-turbo     # Model size to load: tiny, base, small, medium, large-v2, large-v3-turbo
-  language: auto            # Language code (e.g., 'ar', 'en') or 'auto' to auto-detect
-  cpu_threads: 2            # Number of CPU threads dedicated to Whisper inference
-  max_concurrent_transcriptions: 1 # Bound native inference workspaces
-  process_isolation: true           # Reclaim native memory by stopping the worker
-  idle_timeout_seconds: 600
-  timeout_seconds: 180
-  max_file_bytes: 25000000
-
-# Web Search Settings
-web_search:
-  timeout_seconds: 30.0     # Total time budget for a web search operation per user request
-# firecrawl:
-#   api_key: "fc-your-key-here"                   # (Optional - fallback to duckduckgo if not configured)
-
-# Semantic Retrieval & Style Settings
-embedding:
-  model: intfloat/multilingual-e5-large # Transformer used for memories and style indexing
-  max_concurrency: 1
-  batch_size: 16
-chroma:
-  mode: embedded # Use server mode when concurrent processes share long-term memory
-  path: chroma_db
-  host: 127.0.0.1
-  port: 8000
-  ssl: false
-  tenant: default_tenant
-  database: default_database
-style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
-
-# Runtime bounds prevent traffic bursts from creating unlimited tasks or retained media.
-runtime:
-  max_concurrent_interactions: 24
-  max_pending_interactions: 256
-  per_chat_queue_size: 20
-  interaction_ttl_seconds: 300
-  shutdown_grace_seconds: 30
-  typing_action_timeout_seconds: 2
-  platform_message_cache_size: 500
-  media_max_items: 5
-  media_max_file_bytes: 10000000
-  media_max_total_bytes: 20000000
-  context:
-    max_chats: 2000
-    messages_per_chat: 50
-    message_chars: 4000
-    ttl_seconds: 7200
-
-# Two instances coordinate when they use the same namespace and SQLite file.
-coordination:
-  backend: sqlite
-  namespace: shinai-production
-  database_path: data/coordination.sqlite3
-  lease_seconds: 240
-  event_dedup_ttl_seconds: 86400
-  reply_state_ttl_seconds: 86400 # Shared reply triggers and next-message markers
-  cleanup_interval_seconds: 300
-
-# AI Providers Configuration
-ai:
-  timeout_seconds: 60       # Timeout limit per attempt on provider calls
-  max_retries: 3            # Max retries per provider before switching/failing
-  global_timeout_seconds: 180.0 # Hard total time budget across ALL providers and retries for one interaction
-  
-  # List of defined providers (support OpenRouter, Groq, Cerebras, DeepSeek, Ollama, Gemini, etc.)
-  providers:
-    - name: my_openrouter
-      type: openai          # 'openai' or 'gemini'
-      base_url: https://openrouter.ai/api/v1 # API base url (ignored for type: gemini)
-      api_key: "your-api-key"
-      model: anthropic/claude-3.5-sonnet
-      
-    - name: my_local_ollama
-      type: openai
-      base_url: http://localhost:11434/v1
-      api_key: ollama
-      model: llama3.2
-      concurrency: 1        # Optional: restrict concurrent requests (great for local hardware)
-
-    - name: my_gemini
-      type: gemini
-      # API keys for Gemini are loaded and rotated from data/gemini_keys.json
-      models:               # Optional: Gemini model name rotation list
-        - gemini-3.5-flash
-        - gemini-3-flash
-
-  primary: my_openrouter    # Primary provider to use by default
-  
-  fallbacks:                # Providers to try in sequence if primary fails
-    - my_gemini
-    - my_local_ollama
-    
-  rotation: failover        # Rotation strategy: 'failover' or 'round_robin'
-```
+The main sections are `platform`, `logging`, `response`, `whisper`,
+`web_search`, `retrieval`, `embedding`, `chroma`, `runtime`, `coordination`
+and `ai`.
 
 ### Personality Configuration
 
@@ -396,69 +276,14 @@ Copy `shin_ai/data/stickers_template.py` to `shin_ai/data/stickers.py` and map s
 
 ## Project Structure
 
-```
-ShinAI/
-├── main.py                 # Entry point
-├── config.yaml.example     # YAML Configuration template
-├── shin_ai/
-│   ├── bot.py             # Bot initialization
-│   ├── config.py          # Configuration loading
-│   ├── core/              # Core functionality
-│   │   ├── client.py      # Pyrogram client
-│   │   ├── handler.py     # Admission-to-response orchestration
-│   │   ├── interaction_scheduler.py
-│   │   ├── lifecycle.py
-│   │   ├── prompt_builder.py
-│   │   ├── provider_router.py
-│   │   ├── response_policy.py
-│   │   ├── action_executor.py
-│   │   └── state.py
-│   ├── coordination/      # SQLite/in-memory shared state backends
-│   ├── data/              # Data templates
-│   │   ├── personality_template.py
-│   │   ├── stickers_template.py
-│   │   └── loader.py
-│   ├── handlers/          # Message handlers
-│   │   ├── common.py
-│   │   ├── telegram_chat.py
-│   │   ├── discord_chat.py
-│   │   ├── whatsapp_chat.py
-│   │   └── stats.py
-│   ├── providers/         # AI providers
-│   │   ├── gemini.py
-│   │   ├── gemini_keys.py
-│   │   ├── manual.py
-│   │   ├── openai_compatible.py
-│   │   ├── registry.py
-│   │   └── tool_loop.py
-│   ├── services/          # Business logic
-│   │   ├── audio_transcriber.py
-│   │   ├── embeddings.py
-│   │   ├── media.py
-│   │   ├── social.py
-│   │   └── replies.py
-│   ├── stylers/           # Style learning
-│   │   ├── style_indexer.py
-│   │   └── style_retriever.py
-│   └── utils/             # Utilities
-│       ├── action_tools.py
-│       ├── context_manager.py
-│       ├── db.py
-│       ├── logger_config.py
-│       ├── memory.py
-│       ├── memory_lookup.py
-│       ├── memory_lookup_filters.py
-│       ├── memory_time.py
-│       ├── rate_limit.py
-│       └── web_search.py
-└── data/                  # Runtime data (gitignored)
-    ├── gemini_keys.json
-    ├── gemini_stats.json
-    ├── bot_replies.json
-    └── coordination.sqlite3
-```
+`main.py` loads settings and hands off to `shin_ai/app.py`, which builds the
+platform clients, registers handlers and owns startup and shutdown. Under
+`shin_ai/`: `platforms/` wraps each chat SDK behind one adapter, `handlers/`
+turns platform events into unified messages, `core/` owns the interaction
+pipeline, `providers/` speaks to the models, `services/` and `utils/` hold the
+bounded stateful pieces, and `coordination/` is the cross-instance state.
 
-For component responsibilities and extension rules, see
+For component responsibilities, the startup sequence and extension rules, see
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Operations and Testing
