@@ -4,24 +4,36 @@ on:
   push:
   pull_request:
 
+env:
+  PYTHON_VERSION: "3.13"
+
 jobs:
-  fast-tests:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      # Ruff needs no project dependencies, so lint reports before the slow job.
+      - run: python -m pip install "ruff>=0.11,<1"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install --upgrade pip
-      # Unit tests intentionally avoid heavyweight bot/model SDK imports.
-      - run: >-
-          python -m pip install
-          "PyYAML>=6,<7"
-          "pytest>=8,<10"
-          "pytest-asyncio>=0.24,<2"
-          "pytest-cov>=6,<8"
-          "pytest-timeout>=2.3,<3"
-          "hypothesis>=6.120,<7"
-      - run: python -m pip install --no-deps -e .
+      # Installs exactly what the Dockerfile installs, so a dependency that
+      # resolves here resolves in the image. requirements.txt only adds the
+      # PyTorch CPU wheel index that pyproject cannot express.
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install -e ".[test]"
       - run: python -m pytest
