@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from shin_ai.services.embeddings import get_embedding_service
-from shin_ai.utils.db import client
+from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
 
@@ -19,7 +19,7 @@ def _get_memory_collection():
     """Return the chat memories collection, creating it on first use."""
     global _memory_collection
     if _memory_collection is None:
-        _memory_collection = client.get_or_create_collection("chat_memories")
+        _memory_collection = get_chroma_client().get_or_create_collection("chat_memories")
     return _memory_collection
 
 

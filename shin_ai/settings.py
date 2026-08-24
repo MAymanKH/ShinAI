@@ -60,7 +60,13 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True, slots=True)
 class ChromaSettings:
+    mode: str
     path: Path
+    host: str
+    port: int
+    ssl: bool
+    tenant: str
+    database: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,10 +393,24 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     )
 
     chroma_raw = raw.get("chroma") or {}
+    chroma_mode = str(chroma_raw.get("mode", "embedded")).strip().lower()
+    if chroma_mode not in {"embedded", "server"}:
+        raise ValueError("chroma.mode must be 'embedded' or 'server'.")
     chroma_path = Path(str(chroma_raw.get("path", "chroma_db")))
     if not chroma_path.is_absolute():
         chroma_path = project_root / chroma_path
-    chroma = ChromaSettings(path=chroma_path)
+    chroma_host = str(chroma_raw.get("host", "127.0.0.1")).strip()
+    if not chroma_host:
+        raise ValueError("chroma.host cannot be empty.")
+    chroma = ChromaSettings(
+        mode=chroma_mode,
+        path=chroma_path,
+        host=chroma_host,
+        port=_positive_int(chroma_raw.get("port"), name="chroma.port", default=8000),
+        ssl=bool(chroma_raw.get("ssl", False)),
+        tenant=str(chroma_raw.get("tenant", "default_tenant")),
+        database=str(chroma_raw.get("database", "default_database")),
+    )
 
     whisper_raw = raw.get("whisper") or {}
     whisper = WhisperSettings(

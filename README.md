@@ -209,7 +209,13 @@ embedding:
   max_concurrency: 1
   batch_size: 16
 chroma:
-  path: chroma_db # Use a different embedded path for each concurrent process
+  mode: embedded # Use server mode when concurrent processes share long-term memory
+  path: chroma_db
+  host: 127.0.0.1
+  port: 8000
+  ssl: false
+  tenant: default_tenant
+  database: default_database
 style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
 
 # Runtime bounds prevent traffic bursts from creating unlimited tasks or retained media.

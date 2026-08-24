@@ -13,4 +13,5 @@ def test_suite_always_uses_the_example_configuration() -> None:
     assert parsed.runtime.media_max_items == 5
     assert parsed.runtime.media_max_total_bytes == 20_000_000
     assert parsed.chroma.path == settings.PROJECT_ROOT / "chroma_db"
+    assert parsed.chroma.mode == "embedded"
     assert parsed.ai.primary in parsed.ai.providers

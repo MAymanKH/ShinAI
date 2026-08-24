@@ -89,9 +89,17 @@ embedding:
   max_concurrency: 1
   batch_size: 16
 
-# Embedded Chroma is process-local. Give concurrent bot processes different paths.
+# Embedded mode is for one process. Concurrent bot processes that must share
+# long-term memory should connect to the same separately-running Chroma server.
 chroma:
+  mode: embedded  # embedded or server
   path: chroma_db
+  # Server-mode connection settings (ignored in embedded mode):
+  host: 127.0.0.1
+  port: 8000
+  ssl: false
+  tenant: default_tenant
+  database: default_database
 
 # --- Runtime bounds ---
 # These limits keep bursts from creating an unbounded number of tasks or retaining media in RAM.

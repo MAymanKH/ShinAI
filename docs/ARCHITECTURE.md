@@ -51,11 +51,11 @@ fingerprint of the bot credential. Gemini state is scoped by a fingerprint of
 the actual API key, so different key labels do not change coordination behavior.
 The key material itself is never written to SQLite.
 
-Chroma long-term memory is separate from the coordination database. The current
-code uses an embedded `PersistentClient`; do not point two Python processes at
-the same directory. Configure a distinct `chroma.path` in each instance. If
-shared long-term memory becomes a requirement, add a server-backed Chroma client
-before sharing it across processes.
+Chroma long-term memory is separate from the coordination database. Embedded
+mode uses a process-local `PersistentClient`; never point two processes at the
+same embedded directory. Server mode uses `HttpClient`, allowing any number of
+bot processes to share one memory corpus safely. SQLite continues to coordinate
+events, rate limits, replies, and Gemini health in either Chroma mode.
 
 ## Adding functionality
 

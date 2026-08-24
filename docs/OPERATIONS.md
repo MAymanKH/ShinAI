@@ -21,7 +21,7 @@ The directory must be writable by both service users. SQLite creates `-wal` and
 `-shm` files next to the database, so sharing only the main file is insufficient.
 Keep it on the server's local filesystem rather than a network filesystem.
 
-Give the embedded vector store a different path in each instance's config:
+For isolated memory, give each embedded vector store a different path:
 
 ```yaml
 # Instance A
@@ -31,10 +31,24 @@ chroma:
 # Instance B uses /srv/shinai/instance-b/chroma_db instead.
 ```
 
-These embedded stores are independent, so long-term memories are not replicated
-between instances. Do not point them at one shared directory. A future need for
-one shared memory corpus should use Chroma's server/client mode rather than
-concurrent embedded writers.
+These embedded stores are independent. Do not point them at one shared directory.
+When instances should share one long-term memory corpus, run one Chroma server
+and configure every bot process with the same connection and database:
+
+```yaml
+chroma:
+  mode: server
+  host: 127.0.0.1
+  port: 8000
+  ssl: false
+  tenant: default_tenant
+  database: default_database
+```
+
+This is independent of SQLite: Chroma owns vector memory, while SQLite owns
+short atomic coordination records. Instances with different platform credentials
+are also compatible with server mode; use different Chroma databases only when
+their long-term memories must remain isolated.
 
 Credential handling is automatic:
 
@@ -130,7 +144,8 @@ use the same configured log path and rotation settings.
    `lifecycle.ready`, trigger, provider, tool, and response events.
 4. Confirm the configured SQLite path is absolute and both service users can
    create files in its directory.
-5. Confirm the two instances use different embedded `chroma.path` values.
+5. Confirm the instances either use different embedded `chroma.path` values or
+   the same healthy server-mode Chroma database.
 6. Start the second instance and verify shared-key `/gstats` health and that one
    incoming platform event produces one response.
 7. Watch each process's RSS through at least one Whisper load/idle-exit cycle.

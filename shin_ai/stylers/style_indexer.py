@@ -6,7 +6,7 @@ from pyrogram import Client
 
 from shin_ai.config import EMBEDDING_BATCH_SIZE, STYLE_GROUP_ID, TELEGRAM_API_HASH, TELEGRAM_API_ID
 from shin_ai.services.embeddings import close_embedding_service, get_embedding_service
-from shin_ai.utils.db import client
+from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
 
 
@@ -26,7 +26,7 @@ async def main() -> None:
     if not STYLE_GROUP_ID:
         raise ValueError("style_group_id must be configured before running the style indexer")
 
-    collection = client.get_or_create_collection("style_group")
+    collection = get_chroma_client().get_or_create_collection("style_group")
     telegram = Client(
         "style_session",
         api_id=TELEGRAM_API_ID,

@@ -9,7 +9,7 @@ import re
 from shin_ai.data.loader import MEMBERS
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.embeddings import get_embedding_service
-from shin_ai.utils.db import client
+from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
 
 # --- SEMANTIC SOCIAL CONTEXT SETUP ---
@@ -21,7 +21,9 @@ def _get_social_collection():
     """Return the social context collection, creating it on first use."""
     global _social_collection
     if _social_collection is None:
-        _social_collection = client.get_or_create_collection("social_context_members")
+        _social_collection = get_chroma_client().get_or_create_collection(
+            "social_context_members"
+        )
     return _social_collection
 
 

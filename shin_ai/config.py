@@ -55,7 +55,13 @@ EMBEDDING_MAX_CONCURRENCY = _cfg.embedding.max_concurrency
 EMBEDDING_BATCH_SIZE = _cfg.embedding.batch_size
 
 # Embedded vector storage
+CHROMA_MODE = _cfg.chroma.mode
 CHROMA_PATH = _cfg.chroma.path
+CHROMA_HOST = _cfg.chroma.host
+CHROMA_PORT = _cfg.chroma.port
+CHROMA_SSL = _cfg.chroma.ssl
+CHROMA_TENANT = _cfg.chroma.tenant
+CHROMA_DATABASE = _cfg.chroma.database
 
 # Audio Transcription
 WHISPER_MODEL = _cfg.whisper.model

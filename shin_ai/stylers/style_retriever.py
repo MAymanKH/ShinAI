@@ -1,7 +1,7 @@
 import asyncio
 
 from shin_ai.services.embeddings import get_embedding_service
-from shin_ai.utils.db import client
+from shin_ai.utils.db import get_chroma_client
 
 # Lazy-initialized to avoid loading the model at import time
 _collection = None
@@ -10,7 +10,7 @@ _collection = None
 def _get_collection():
     global _collection
     if _collection is None:
-        _collection = client.get_or_create_collection("style_group")
+        _collection = get_chroma_client().get_or_create_collection("style_group")
     return _collection
 
 

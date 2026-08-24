@@ -50,6 +50,10 @@ def _default_resource_closers() -> tuple[ResourceCloser, ...]:
             _lazy_closer("shin_ai.providers.gemini", "close_gemini_clients"),
         ),
         (
+            "Chroma client",
+            _lazy_closer("shin_ai.utils.db", "close_chroma_client"),
+        ),
+        (
             "coordination store",
             _lazy_closer("shin_ai.coordination.runtime", "close_coordination_store"),
         ),
