@@ -24,8 +24,17 @@ platform:
 # Your primary user ID (Telegram or Discord) for admin-only commands
 admin_user_id: 123456789
 
-# --- Debug ---
-debug: false
+# --- Logging ---
+logging:
+  # INFO keeps the important interaction, tool, provider and lifecycle events.
+  # DEBUG adds detailed decisions and timings without dumping secrets or full prompts.
+  debug: false
+  # Set to null to log only to stdout (recommended when a process manager captures logs).
+  file: shinai_bot.log
+  max_bytes: 25000000
+  backup_count: 5
+  # Number of user/response characters shown in normal interaction log lines. Use 0 to hide content.
+  content_preview_chars: 120
 
 # --- Response Timing ---
 response:
@@ -49,8 +58,11 @@ whisper:
   language: auto
   # Max CPU threads for Whisper inference (keep low on shared/weak servers)
   cpu_threads: 2
-  # Max simultaneous voice message transcriptions (higher = faster but more CPU)
-  max_concurrent_transcriptions: 3
+  # One inference at a time is normally fastest overall on a shared CPU and avoids workspace growth.
+  max_concurrent_transcriptions: 1
+  # A child process lets the OS fully reclaim Whisper's native memory after it becomes idle.
+  process_isolation: true
+  idle_timeout_seconds: 600
 
 # --- Web Search (optional - fallback to duckduckgo if not configured) ---
 # firecrawl:
@@ -67,8 +79,35 @@ web_search:
 # style_group_id: "-1001234567890"
 
 # --- Embeddings ---
-# Used for RAG memory indexing, retrieval, and style learning
-embedding_model: intfloat/multilingual-e5-large
+# One shared, bounded service is used by memory, style, social context and time detection.
+embedding:
+  model: intfloat/multilingual-e5-large
+  max_concurrency: 1
+  batch_size: 16
+
+# --- Runtime bounds ---
+# These limits keep bursts from creating an unbounded number of tasks or retaining media in RAM.
+runtime:
+  max_concurrent_interactions: 24
+  max_pending_interactions: 256
+  per_chat_queue_size: 20
+  interaction_ttl_seconds: 300
+  shutdown_grace_seconds: 30
+  context:
+    max_chats: 2000
+    messages_per_chat: 50
+    ttl_seconds: 7200
+
+# --- Multi-instance coordination ---
+# Instances that may handle the same bot credentials or Gemini key pool MUST use the same
+# namespace and database_path. Independent bots should use different namespaces.
+coordination:
+  backend: sqlite                 # sqlite for shared instances; memory for isolated development
+  namespace: shinai-production   # short, human-readable coordination group name
+  database_path: data/coordination.sqlite3
+  lease_seconds: 240
+  event_dedup_ttl_seconds: 86400
+  cleanup_interval_seconds: 300
 
 # --- AI ---
 ai:

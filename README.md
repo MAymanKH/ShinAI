@@ -168,8 +168,13 @@ platform:
 # Administration User ID
 admin_user_id: 123456789    # Platform user ID (Telegram or Discord) allowed to run admin commands
 
-# Verbose Logging Toggle
-debug: false                # Set to true to enable detailed log outputs
+# Logging
+logging:
+  debug: false              # INFO normally; useful detailed events when true
+  file: shinai_bot.log      # Set to null when stdout is managed externally
+  max_bytes: 25000000
+  backup_count: 5
+  content_preview_chars: 120
 
 # Response Timings & Probability
 response:
@@ -184,7 +189,9 @@ whisper:
   model: large-v3-turbo     # Model size to load: tiny, base, small, medium, large-v2, large-v3-turbo
   language: auto            # Language code (e.g., 'ar', 'en') or 'auto' to auto-detect
   cpu_threads: 2            # Number of CPU threads dedicated to Whisper inference
-  max_concurrent_transcriptions: 3 # Max simultaneous voice message transcriptions
+  max_concurrent_transcriptions: 1 # Bound native inference workspaces
+  process_isolation: true           # Reclaim native memory by stopping the worker
+  idle_timeout_seconds: 600
 
 # Web Search Settings
 web_search:
@@ -193,8 +200,32 @@ web_search:
 #   api_key: "fc-your-key-here"                   # (Optional - fallback to duckduckgo if not configured)
 
 # Semantic Retrieval & Style Settings
-embedding_model: intfloat/multilingual-e5-large # Transformer model used for memories and style indexing
+embedding:
+  model: intfloat/multilingual-e5-large # Transformer used for memories and style indexing
+  max_concurrency: 1
+  batch_size: 16
 style_group_id: -1001234567890                  # (Optional) Telegram group ID from which to learn styles
+
+# Runtime bounds prevent traffic bursts from creating unlimited tasks or retained media.
+runtime:
+  max_concurrent_interactions: 24
+  max_pending_interactions: 256
+  per_chat_queue_size: 20
+  interaction_ttl_seconds: 300
+  shutdown_grace_seconds: 30
+  context:
+    max_chats: 2000
+    messages_per_chat: 50
+    ttl_seconds: 7200
+
+# Two instances coordinate when they use the same namespace and SQLite file.
+coordination:
+  backend: sqlite
+  namespace: shinai-production
+  database_path: data/coordination.sqlite3
+  lease_seconds: 240
+  event_dedup_ttl_seconds: 86400
+  cleanup_interval_seconds: 300
 
 # AI Providers Configuration
 ai:
