@@ -1,22 +1,26 @@
 import asyncio
 
-from pyrogram import idle
-
-from shin_ai.bot import load_handlers
 from shin_ai.config import DEBUG
-from shin_ai.core.lifecycle import shutdown_application
-from shin_ai.handlers.discord_chat import discord_platform
-from shin_ai.handlers.telegram_chat import telegram_platform
-from shin_ai.handlers.whatsapp_chat import whatsapp_platform
+from shin_ai.core.lifecycle import shutdown_application, wait_for_shutdown
 from shin_ai.services.social import index_social_context
 from shin_ai.utils.logger_config import logger, reconfigure_logger
 
 # Apply debug: true/false from config.yaml to the logger level
 reconfigure_logger(DEBUG)
-load_handlers()
 
 
 async def main():
+    # Pyrofork stores the current event loop when its Client is constructed.
+    # Load the client and decorated handlers only after asyncio.run() has created
+    # the application's loop, so startup and shutdown use the same loop.
+    from shin_ai.bot import load_handlers
+
+    load_handlers()
+
+    from shin_ai.handlers.discord_chat import discord_platform
+    from shin_ai.handlers.telegram_chat import telegram_platform
+    from shin_ai.handlers.whatsapp_chat import whatsapp_platform
+
     # Initialize the social context database
     try:
         await index_social_context()
@@ -61,7 +65,7 @@ async def main():
         )
 
     try:
-        await idle()
+        await wait_for_shutdown()
     finally:
         await shutdown_application(active_platforms)
 

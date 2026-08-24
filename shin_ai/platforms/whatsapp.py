@@ -447,7 +447,10 @@ class WhatsAppPlatform(PlatformAdapter):
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
-        self._connect_task = asyncio.create_task(asyncio.to_thread(self.client.connect))
+        self._connect_task = asyncio.create_task(
+            asyncio.to_thread(self.client.connect),
+            name="shinai-whatsapp-connection",
+        )
         await asyncio.sleep(0.1)
 
         if self._connect_task.done() and self._connect_task.exception():
@@ -456,15 +459,22 @@ class WhatsAppPlatform(PlatformAdapter):
         logger.info(f"WhatsApp Platform connect task started (session={self._session_name}).")
 
     async def stop(self) -> None:
-        try:
-            await self._run_sync(self.client.disconnect)
-        except Exception as e:
-            logger.error(f"Error while disconnecting WhatsApp client: {e}")
+        # Stop accepting callbacks before tearing down the native client.
+        self._loop = None
 
-        if self._connect_task and not self._connect_task.done():
-            self._connect_task.cancel()
+        try:
+            # Neonize's connect() is a blocking call which returns only after
+            # stop() cancels its Go context. disconnect() merely closes the
+            # websocket and leaves that worker alive.
+            stopper = getattr(self.client, "stop", None) or self.client.disconnect
+            await self._run_sync(stopper)
+        except Exception as e:
+            logger.error(f"Error while stopping WhatsApp client: {e}")
+
         if self._connect_task is not None:
-            await asyncio.gather(self._connect_task, return_exceptions=True)
+            results = await asyncio.gather(self._connect_task, return_exceptions=True)
+            if results and isinstance(results[0], Exception):
+                logger.debug("WhatsApp connection task ended with: %s", results[0])
             self._connect_task = None
 
         with self._cache_lock:

@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 
 from shin_ai.core.lifecycle import shutdown_application
 
@@ -53,5 +54,35 @@ def test_shutdown_uses_safe_order_and_continues_after_failures() -> None:
             "close:first",
             "close:second",
         ]
+
+    run(scenario())
+
+
+def test_cancelling_drain_still_closes_platforms_and_resources() -> None:
+    async def scenario() -> None:
+        events: list[str] = []
+        draining = asyncio.Event()
+
+        async def drain() -> None:
+            events.append("drain")
+            draining.set()
+            await asyncio.Event().wait()
+
+        async def close_resource() -> None:
+            events.append("close:resource")
+
+        task = asyncio.create_task(
+            shutdown_application(
+                [("platform", _Platform("platform", events))],
+                interaction_closer=drain,
+                resource_closers=(("resource", close_resource),),
+            )
+        )
+        await draining.wait()
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+        assert events == ["drain", "stop:platform", "close:resource"]
 
     run(scenario())

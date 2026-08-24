@@ -1,4 +1,6 @@
 import asyncio
+from collections import OrderedDict
+from threading import RLock
 
 import pytest
 
@@ -95,5 +97,47 @@ def test_whatsapp_forwards_composing_then_paused_presence() -> None:
 
         assert [entry[0] for entry in platform.client.actions] == ["jid:123", "jid:123"]
         assert platform.client.actions[0][1] != platform.client.actions[1][1]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.integration
+def test_whatsapp_stop_terminates_and_joins_connection_task() -> None:
+    async def scenario() -> None:
+        stopped = asyncio.Event()
+        events = []
+
+        class Client:
+            def stop(self) -> None:
+                events.append("stop")
+                stopped.set()
+
+            def disconnect(self) -> None:
+                raise AssertionError("disconnect() does not terminate connect()")
+
+        async def connection() -> None:
+            await stopped.wait()
+            events.append("connection-ended")
+
+        platform = WhatsAppPlatform.__new__(WhatsAppPlatform)
+        platform.client = Client()
+        platform._loop = asyncio.get_running_loop()
+        platform._connect_task = asyncio.create_task(connection())
+        platform._cache_lock = RLock()
+        platform._raw_message_cache = OrderedDict()
+        platform._unified_message_cache = OrderedDict()
+        platform._group_title_cache = OrderedDict()
+        platform._bot_user_cache = object()
+
+        async def run_sync(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+        platform._run_sync = run_sync
+
+        await platform.stop()
+
+        assert events == ["stop", "connection-ended"]
+        assert platform._connect_task is None
+        assert platform._loop is None
 
     asyncio.run(scenario())

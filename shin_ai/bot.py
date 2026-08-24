@@ -1,6 +1,5 @@
 import importlib
 
-from shin_ai.core.client import app
 from shin_ai.utils.logger_config import logger
 
 _HANDLER_MODULES = (
@@ -27,4 +26,4 @@ def load_handlers() -> None:
     )
 
 
-__all__ = ["app", "load_handlers"]
+__all__ = ["load_handlers"]

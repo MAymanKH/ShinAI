@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import signal
 from collections.abc import Awaitable, Callable, Sequence
 from importlib import import_module
 from typing import Any
@@ -11,6 +13,46 @@ from shin_ai.utils.logger_config import logger
 AsyncCloser = Callable[[], Awaitable[None]]
 PlatformEntry = tuple[str, Any]
 ResourceCloser = tuple[str, AsyncCloser]
+
+
+async def wait_for_shutdown() -> None:
+    """Wait for SIGINT/SIGTERM without letting a signal handler swallow Ctrl+C."""
+    loop = asyncio.get_running_loop()
+    stop_requested = asyncio.Event()
+    registered_signals: list[signal.Signals] = []
+
+    def request_shutdown(received_signal: signal.Signals) -> None:
+        if stop_requested.is_set():
+            return
+
+        logger.info(
+            "Stop signal received (%s); shutting down",
+            received_signal.name,
+            extra={"event_name": "lifecycle.signal"},
+        )
+        stop_requested.set()
+
+        # The first signal requests graceful shutdown. Restore the normal OS
+        # handlers immediately so a second Ctrl+C can still force termination.
+        for registered_signal in registered_signals:
+            loop.remove_signal_handler(registered_signal)
+
+    for shutdown_signal in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(
+                shutdown_signal,
+                request_shutdown,
+                shutdown_signal,
+            )
+        except (NotImplementedError, RuntimeError):
+            continue
+        registered_signals.append(shutdown_signal)
+
+    try:
+        await stop_requested.wait()
+    finally:
+        for registered_signal in registered_signals:
+            loop.remove_signal_handler(registered_signal)
 
 
 def _default_interaction_closer() -> AsyncCloser:
@@ -75,20 +117,25 @@ async def shutdown_application(
 ) -> None:
     """Drain work, stop ingress, then close every owned process resource."""
     logger.info("Draining interactions", extra={"event_name": "lifecycle.shutdown"})
-    await _close_component(
-        "interaction scheduler",
-        interaction_closer or _default_interaction_closer(),
-    )
-
-    logger.info("Stopping platforms", extra={"event_name": "lifecycle.shutdown"})
-    for platform_label, platform in reversed(active_platforms):
-        await _close_component(f"{platform_label} platform", platform.stop)
-
-    logger.info("Closing services", extra={"event_name": "lifecycle.shutdown"})
-    closers = resource_closers
-    if closers is None:
-        closers = _default_resource_closers()
-    for label, closer in closers:
-        await _close_component(label, closer)
-
-    logger.info("Shutdown complete", extra={"event_name": "lifecycle.stopped"})
+    try:
+        await _close_component(
+            "interaction scheduler",
+            interaction_closer or _default_interaction_closer(),
+        )
+    finally:
+        # Platform and service cleanup must still run if a second Ctrl+C cancels
+        # the graceful interaction drain.
+        logger.info("Stopping platforms", extra={"event_name": "lifecycle.shutdown"})
+        try:
+            for platform_label, platform in reversed(active_platforms):
+                await _close_component(f"{platform_label} platform", platform.stop)
+        finally:
+            logger.info("Closing services", extra={"event_name": "lifecycle.shutdown"})
+            try:
+                closers = resource_closers
+                if closers is None:
+                    closers = _default_resource_closers()
+                for label, closer in closers:
+                    await _close_component(label, closer)
+            finally:
+                logger.info("Shutdown complete", extra={"event_name": "lifecycle.stopped"})
