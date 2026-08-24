@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import Counter
 
@@ -11,6 +12,12 @@ from shin_ai.utils.memory import _get_memory_collection
 
 PAGE_SIZE = 20
 MAX_RECENT_ACTIVITY = 100
+
+# A full pass over the memory collection is expensive and the numbers it
+# produces are an admin overview, not a live counter. One short-lived cached
+# snapshot serves the whole browsing session.
+_ANALYTICS_CACHE_TTL_SECONDS = 60.0
+_analytics_cache: tuple[float, dict] | None = None
 
 
 def _safe_int(value, default=0):
@@ -83,7 +90,20 @@ def _build_chat_labels(metadatas):
     return chat_label_by_id
 
 
-def _load_analytics_data():
+async def load_analytics_data():
+    """Return a cached analytics snapshot, computing it off the event loop."""
+    global _analytics_cache
+
+    now = time.monotonic()
+    if _analytics_cache is not None and now - _analytics_cache[0] < _ANALYTICS_CACHE_TTL_SECONDS:
+        return _analytics_cache[1]
+
+    snapshot = await asyncio.to_thread(_compute_analytics_data)
+    _analytics_cache = (now, snapshot)
+    return snapshot
+
+
+def _compute_analytics_data():
     metadatas = []
     batch_size = 5000
     offset = 0
@@ -366,9 +386,7 @@ def _render_activity_view(analytics, requested_page: int):
     return text, keyboard
 
 
-def _render_view(view: str, page: int):
-    analytics = _load_analytics_data()
-
+def _render_view(analytics, view: str, page: int):
     if analytics["total_interactions"] == 0:
         return "No interaction data found in database.", _main_keyboard()
 
@@ -393,7 +411,8 @@ async def show_analytics(client: Client, msg: Message):
         return
 
     try:
-        report, keyboard = _render_view("main", 0)
+        analytics = await load_analytics_data()
+        report, keyboard = _render_view(analytics, "main", 0)
         await msg.reply(report, reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Error generating analytics: {e}", exc_info=True)
@@ -423,8 +442,8 @@ async def analytics_callback(client: Client, callback: CallbackQuery):
         page = 0
 
     try:
+        analytics = await load_analytics_data()
         if view in {"users", "chats", "activity"}:
-            analytics = _load_analytics_data()
             total_items = _view_item_count(analytics, view)
             max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
             if page < 0:
@@ -434,7 +453,7 @@ async def analytics_callback(client: Client, callback: CallbackQuery):
                 page = max_page
                 await callback.answer("No more results to show.")
 
-        text, keyboard = _render_view(view, page)
+        text, keyboard = _render_view(analytics, view, page)
         if not callback.message:
             await callback.answer("Unable to update this analytics message.", show_alert=True)
             return
