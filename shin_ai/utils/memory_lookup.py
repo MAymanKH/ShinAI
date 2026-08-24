@@ -8,6 +8,7 @@ with fine-grained filters
 import asyncio
 import json
 
+from shin_ai.config import LOOKUP_MAX_DISTANCE
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import _get_memory_collection
@@ -15,6 +16,10 @@ from shin_ai.utils.memory_lookup_filters import (
     build_filter_summary,
     build_memory_where_filter,
     sort_memory_results_by_timestamp,
+)
+from shin_ai.utils.similarity import (
+    select_mmr_indices_async,
+    within_distance,
 )
 
 
@@ -341,44 +346,6 @@ async def memory_lookup_tool(
         return json.dumps({"error": f"Memory lookup failed: {e!s}"}, ensure_ascii=False)
 
 
-def _mmr_indices(
-    query_emb: list,
-    embs_arr,
-    limit: int,
-    lambda_param: float = 0.65,
-) -> list[int]:
-    """
-    MMR selection returning selected indices (not docs), so callers can
-    zip docs and metadatas together after selection.
-    """
-    import numpy as np
-    from sklearn.metrics.pairwise import cosine_similarity
-
-    query_tensor = np.array(query_emb).reshape(1, -1)
-    sim_to_query = cosine_similarity(query_tensor, embs_arr)[0]
-    cand_sim_matrix = cosine_similarity(embs_arr)
-
-    selected: list[int] = []
-    available = list(range(len(embs_arr)))
-
-    while len(selected) < limit and available:
-        best_score = -float("inf")
-        best_idx = -1
-        for idx in available:
-            rel = sim_to_query[idx]
-            div = max(cand_sim_matrix[idx][s] for s in selected) if selected else 0.0
-            score = lambda_param * rel - (1.0 - lambda_param) * div
-            if score > best_score:
-                best_score = score
-                best_idx = idx
-        if best_idx != -1:
-            selected.append(best_idx)
-            available.remove(best_idx)
-        else:
-            break
-    return selected
-
-
 async def _lookup_with_keywords(
     keywords: str,
     where_filter: dict | None,
@@ -415,20 +382,17 @@ async def _lookup_with_keywords(
         if not docs:
             return []
 
-        # Step 2: Semantic re-rank with E5
+        # Step 2: Semantic re-rank with E5. Candidates came from a metadata
+        # filter rather than a vector query, so distances are computed here.
         query_emb = await get_embedding_service().encode(f"query: {keywords}")
         query_emb_list = query_emb.tolist()
-        query_arr = np.array(query_emb_list).reshape(1, -1)
-        embs_arr = np.array(embs)
+        embs_arr = np.asarray(embs, dtype=np.float64)
+        query_arr = np.asarray(query_emb_list, dtype=np.float64).reshape(-1)
+        distances = 1.0 - (embs_arr @ query_arr)
 
-        from sklearn.metrics.pairwise import cosine_similarity
-
-        similarities = cosine_similarity(query_arr, embs_arr)[0]
-
-        # Filter by generous threshold
         filtered: list[tuple[str, list, dict]] = []
-        for doc, emb, meta, sim in zip(docs, embs, metas, similarities, strict=False):
-            if sim > 0.3:
+        for doc, emb, meta, distance in zip(docs, embs, metas, distances, strict=False):
+            if distance <= LOOKUP_MAX_DISTANCE:
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:
@@ -437,7 +401,7 @@ async def _lookup_with_keywords(
             return sort_memory_results_by_timestamp([(d, m or {}) for d, m in pairs])
 
         f_docs, f_embs, f_metas = zip(*filtered, strict=False)
-        selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
+        selected_indices = await select_mmr_indices_async(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
         return sort_memory_results_by_timestamp(selected_pairs)
 
@@ -460,14 +424,14 @@ async def _lookup_with_keywords(
 
         filtered: list[tuple[str, list, dict]] = []
         for doc, dist, emb, meta in zip(docs, dists, embs, metas_raw, strict=False):
-            if dist < 1.5:
+            if within_distance(dist, LOOKUP_MAX_DISTANCE):
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:
             return []
 
         f_docs, f_embs, f_metas = zip(*filtered, strict=False)
-        selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
+        selected_indices = await select_mmr_indices_async(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
         return sort_memory_results_by_timestamp(selected_pairs)
 

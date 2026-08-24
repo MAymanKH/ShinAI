@@ -39,7 +39,7 @@ def test_semantic_lookup_converts_candidate_embeddings(monkeypatch) -> None:
     async def call_direct(function, *args, **kwargs):
         return function(*args, **kwargs)
 
-    def select_first(query, candidates, limit):
+    async def select_first(query, candidates, limit):
         assert query == [1.0, 0.0]
         assert candidates == ("array", ([1.0, 0.0], [0.0, 1.0]))
         assert limit == 1
@@ -48,7 +48,7 @@ def test_semantic_lookup_converts_candidate_embeddings(monkeypatch) -> None:
     monkeypatch.setattr(memory_lookup, "get_embedding_service", lambda: FakeEmbeddingService())
     monkeypatch.setattr(memory_lookup, "_get_memory_collection", lambda: FakeCollection())
     monkeypatch.setattr(memory_lookup.asyncio, "to_thread", call_direct)
-    monkeypatch.setattr(memory_lookup, "_mmr_indices", select_first)
+    monkeypatch.setattr(memory_lookup, "select_mmr_indices_async", select_first)
 
     result = asyncio.run(memory_lookup._lookup_with_keywords("query", None, 1))
 

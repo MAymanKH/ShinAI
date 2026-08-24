@@ -53,6 +53,11 @@ EMBEDDING_MODEL = _cfg.embedding_model
 EMBEDDING_MAX_CONCURRENCY = _cfg.embedding.max_concurrency
 EMBEDDING_BATCH_SIZE = _cfg.embedding.batch_size
 
+# Semantic retrieval relevance gates (cosine distance)
+MEMORY_MAX_DISTANCE = _cfg.retrieval.memory_max_distance
+SOCIAL_MAX_DISTANCE = _cfg.retrieval.social_max_distance
+LOOKUP_MAX_DISTANCE = _cfg.retrieval.lookup_max_distance
+
 # Embedded vector storage
 CHROMA_MODE = _cfg.chroma.mode
 CHROMA_PATH = _cfg.chroma.path

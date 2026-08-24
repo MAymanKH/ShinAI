@@ -75,10 +75,15 @@ class EmbeddingService:
         return self._model
 
     def _encode_sync(self, texts: str | Sequence[str]):
+        # Normalising is what makes cosine distance recoverable from the
+        # squared-L2 distance Chroma reports (see utils/similarity.py). E5
+        # already normalises; asking explicitly keeps that guarantee if the
+        # configured model is ever swapped for one that does not.
         return self._get_model().encode(
             texts,
             batch_size=self.batch_size,
             show_progress_bar=False,
+            normalize_embeddings=True,
         )
 
     async def encode(self, texts: str | Sequence[str]):

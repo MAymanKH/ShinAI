@@ -3,13 +3,12 @@ import time
 import uuid
 from datetime import datetime
 
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-
+from shin_ai.config import MEMORY_MAX_DISTANCE
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
+from shin_ai.utils.similarity import select_mmr_indices_async, within_distance
 
 # Lazy-initialized to avoid import-time side effects
 _memory_collection = None
@@ -83,14 +82,13 @@ async def save_memory(
         # Unique Memory ID
         mem_id = str(uuid.uuid4())
 
-        # Create embedding
-        # We specifically embed the interaction itself, ignoring the previous context prefix
-        # This ensures that searching for "What did I say?" matches the actual content, not the context noise.
-        # E5 requires "passage: " prefix for documents to be stored
-        # We include the timestamp and chat_title in the passage so it's nominally searchable.
-        searchable_text = (
-            f"passage: [{now_str}]{chat_prefix} User ({username}) said: {prompt}\nBot replied: {response}"
-        )
+        # Create embedding.
+        # Only the interaction itself is embedded. The timestamp/chat header is
+        # identical across every memory, so including it pulls all documents
+        # toward each other and measurably flattens retrieval separation --
+        # time and chat are filterable through metadata instead.
+        # E5 requires the "passage: " prefix for stored documents.
+        searchable_text = f"passage: User ({username}) said: {prompt}\nBot replied: {response}"
         # Off-thread to avoid blocking event loop
         embedding_tensor = await get_embedding_service().encode(searchable_text)
         embedding = embedding_tensor.tolist()
@@ -110,55 +108,37 @@ async def save_memory(
 # Memory Retrieval
 
 
-def _apply_mmr(
-    query_emb: list, candidate_docs: list, candidate_embs: list, limit: int, lambda_param: float = 0.65
-) -> list:
-    """
-    Maximal Marginal Relevance (MMR) for diverse retrieval.
-    Selects documents that are highly relevant but mutually diverse.
-    """
-    if not candidate_docs:
+def _filter_by_relevance(results: dict, max_cosine_distance: float) -> tuple[list, list]:
+    """Keep only candidates whose distance passes the relevance gate."""
+    if not results.get("documents"):
+        return [], []
+
+    documents = results["documents"][0]
+    distances = results["distances"][0]
+    embeddings = results["embeddings"][0]
+
+    kept_documents = []
+    kept_embeddings = []
+    for document, distance, embedding in zip(documents, distances, embeddings, strict=False):
+        if within_distance(distance, max_cosine_distance):
+            kept_documents.append(document)
+            kept_embeddings.append(embedding)
+
+    if len(documents) and not kept_documents:
+        logger.debug(
+            "All %d memory candidates failed the relevance gate (max_distance=%.3f)",
+            len(documents),
+            max_cosine_distance,
+        )
+    return kept_documents, kept_embeddings
+
+
+async def _rank_diverse(query_embedding: list, documents: list, embeddings: list, limit: int) -> list:
+    """Re-rank relevant candidates for diversity, off the event loop."""
+    if not documents:
         return []
-
-    query_tensor = np.array(query_emb).reshape(1, -1)
-    cand_tensor = np.array(candidate_embs)
-
-    # Calculate similarity between query and all candidates
-    sim_to_query = cosine_similarity(query_tensor, cand_tensor)[0]
-
-    selected_indices = []
-    available_indices = list(range(len(candidate_docs)))
-
-    # Pre-calculate similarity between all candidates for speed
-    cand_sim_matrix = cosine_similarity(cand_tensor)
-
-    while len(selected_indices) < limit and available_indices:
-        best_score = -float("inf")
-        best_idx = -1
-
-        for idx in available_indices:
-            rel_score = sim_to_query[idx]
-
-            # Diversity penalty: max similarity to already selected docs
-            if selected_indices:
-                div_score = max([cand_sim_matrix[idx][s_idx] for s_idx in selected_indices])
-            else:
-                div_score = 0.0
-
-            # MMR formula
-            mmr_score = lambda_param * rel_score - (1.0 - lambda_param) * div_score
-
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_idx = idx
-
-        if best_idx != -1:
-            selected_indices.append(best_idx)
-            available_indices.remove(best_idx)
-        else:
-            break
-
-    return [candidate_docs[i] for i in selected_indices]
+    indices = await select_mmr_indices_async(query_embedding, embeddings, limit)
+    return [documents[index] for index in indices]
 
 
 async def retrieve_memories(query: str, limit: int = 15):
@@ -194,24 +174,12 @@ async def retrieve_memories(query: str, limit: int = 15):
             include=["documents", "distances", "embeddings"],
         )
 
-        filtered_docs = []
-        filtered_embs = []
+        # A time-filtered search has already narrowed candidates by metadata, so
+        # relevance can be graded a little more loosely there.
+        max_distance = MEMORY_MAX_DISTANCE * (1.25 if where_filter else 1.0)
+        filtered_docs, filtered_embs = _filter_by_relevance(results, max_distance)
 
-        if results["documents"]:
-            docs = results["documents"][0]
-            dists = results["distances"][0]
-            embs = results["embeddings"][0]
-
-            # Use a more lenient threshold when time-filtering
-            threshold = 1.5 if where_filter else 1.3
-
-            for doc, dist, emb in zip(docs, dists, embs, strict=False):
-                if dist < threshold:
-                    filtered_docs.append(doc)
-                    filtered_embs.append(emb)
-
-        # Apply MMR Deduplication
-        final_memories = _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
+        final_memories = await _rank_diverse(query_emb, filtered_docs, filtered_embs, limit)
 
         # If time filter was applied but returned nothing, fall back to unfiltered
         if where_filter and not final_memories:
@@ -236,18 +204,8 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
             n_results=40,
             include=["documents", "distances", "embeddings"],
         )
-        filtered_docs = []
-        filtered_embs = []
-
-        if results["documents"]:
-            for doc, dist, emb in zip(
-                results["documents"][0], results["distances"][0], results["embeddings"][0], strict=False
-            ):
-                if dist < 1.3:
-                    filtered_docs.append(doc)
-                    filtered_embs.append(emb)
-
-        return _apply_mmr(query_emb, filtered_docs, filtered_embs, limit)
+        filtered_docs, filtered_embs = _filter_by_relevance(results, MEMORY_MAX_DISTANCE)
+        return await _rank_diverse(query_emb, filtered_docs, filtered_embs, limit)
     except Exception as e:
         logger.error("Failed to retrieve memories (unfiltered fallback): %s", e, exc_info=True)
         return []

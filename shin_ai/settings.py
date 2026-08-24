@@ -59,6 +59,21 @@ class EmbeddingSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RetrievalSettings:
+    """Relevance gates for semantic lookups, expressed as cosine distance.
+
+    Chroma collections run on squared-L2. For the unit-normalised embeddings
+    this project uses, cosine_distance == squared_l2 / 2 exactly, so these
+    thresholds are applied after converting the reported distance rather than
+    by re-indexing the collections into cosine space.
+    """
+
+    memory_max_distance: float
+    social_max_distance: float
+    lookup_max_distance: float
+
+
+@dataclass(frozen=True, slots=True)
 class ChromaSettings:
     mode: str
     path: Path
@@ -136,6 +151,7 @@ class ShinAISettings:
     web_search_timeout_seconds: float
     whisper: WhisperSettings
     embedding: EmbeddingSettings
+    retrieval: RetrievalSettings
     chroma: ChromaSettings
     runtime: RuntimeSettings
     coordination: CoordinationSettings
@@ -167,6 +183,13 @@ def _positive_float(value: Any, *, name: str, default: float) -> float:
     parsed = float(default if value is None else value)
     if parsed <= 0:
         raise ValueError(f"{name} must be greater than zero.")
+    return parsed
+
+
+def _cosine_distance(value: Any, *, name: str, default: float) -> float:
+    parsed = float(default if value is None else value)
+    if not 0.0 < parsed <= 2.0:
+        raise ValueError(f"{name} must be a cosine distance in (0, 2].")
     return parsed
 
 
@@ -373,6 +396,25 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         batch_size=_positive_int(embedding_raw.get("batch_size"), name="embedding.batch_size", default=16),
     )
 
+    retrieval_raw = raw.get("retrieval") or {}
+    retrieval = RetrievalSettings(
+        memory_max_distance=_cosine_distance(
+            retrieval_raw.get("memory_max_distance"),
+            name="retrieval.memory_max_distance",
+            default=0.16,
+        ),
+        social_max_distance=_cosine_distance(
+            retrieval_raw.get("social_max_distance"),
+            name="retrieval.social_max_distance",
+            default=0.12,
+        ),
+        lookup_max_distance=_cosine_distance(
+            retrieval_raw.get("lookup_max_distance"),
+            name="retrieval.lookup_max_distance",
+            default=0.16,
+        ),
+    )
+
     chroma_raw = raw.get("chroma") or {}
     chroma_mode = str(chroma_raw.get("mode", "embedded")).strip().lower()
     if chroma_mode not in {"embedded", "server"}:
@@ -493,6 +535,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         ),
         whisper=whisper,
         embedding=embedding,
+        retrieval=retrieval,
         chroma=chroma,
         runtime=runtime,
         coordination=coordination,

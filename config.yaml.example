@@ -85,6 +85,21 @@ web_search:
 
 # --- Embeddings ---
 # One shared, bounded service is used by memory, style, social context and time detection.
+# --- Semantic Retrieval Relevance ---
+# Maximum cosine distance a result may have and still count as relevant.
+# 0.0 = identical, 1.0 = unrelated. These gate what actually reaches the model.
+#
+# E5 embeddings have a compressed similarity range: two completely unrelated
+# messages still sit around 0.15-0.20 apart. Measured on real data, 0.16 keeps
+# roughly 70% of genuine matches while rejecting ~93% of unrelated ones.
+# Raise these to recall more (and admit more noise); lower them to be stricter.
+retrieval:
+  memory_max_distance: 0.16
+  # Member lore is injected into every prompt, so this one is deliberately tight.
+  social_max_distance: 0.12
+  # Gate for the explicit memory_lookup_tool.
+  lookup_max_distance: 0.16
+
 embedding:
   model: intfloat/multilingual-e5-large
   max_concurrency: 1

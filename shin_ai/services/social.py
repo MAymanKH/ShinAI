@@ -7,11 +7,13 @@ Manages semantic retrieval of member information for contextual responses.
 import asyncio
 import re
 
+from shin_ai.config import SOCIAL_MAX_DISTANCE
 from shin_ai.data.loader import MEMBERS
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
+from shin_ai.utils.similarity import within_distance
 
 # --- SEMANTIC SOCIAL CONTEXT SETUP ---
 # Lazy-initialized to avoid import-time side effects
@@ -200,7 +202,7 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
             dists = results["distances"][0]
 
             for i, member_id in enumerate(ids):
-                if dists[i] < 1.1:
+                if within_distance(dists[i], SOCIAL_MAX_DISTANCE):
                     active_keys.add(member_id)
 
     except Exception as e:
