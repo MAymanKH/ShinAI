@@ -133,9 +133,6 @@ class GeminiScheduler:
     def _key_health_key(self, key_name: str) -> str:
         return f"gemini:key-health:{self._key_id(key_name)}"
 
-    async def _is_key_disabled(self, key_name: str) -> bool:
-        return await self.store.get(self._key_health_key(key_name)) is not None
-
     async def pair_health(self, model: str, key_name: str) -> PairHealth:
         return PairHealth.decode(await self.store.get(self._pair_key("health", model, key_name)))
 
@@ -156,10 +153,20 @@ class GeminiScheduler:
         ordered = key_names[start:] + key_names[:start]
         now = self.clock()
 
+        state_keys = []
         for key_name in ordered:
-            if key_name in excluded or await self._is_key_disabled(key_name):
+            if key_name in excluded:
                 continue
-            health = await self.pair_health(model, key_name)
+            state_keys.append(self._key_health_key(key_name))
+            state_keys.append(self._pair_key("health", model, key_name))
+        state = await self.store.get_many(state_keys)
+
+        for key_name in ordered:
+            if key_name in excluded or self._key_health_key(key_name) in state:
+                continue
+            health = PairHealth.decode(
+                state.get(self._pair_key("health", model, key_name))
+            )
             if health.cooldown_until > now:
                 continue
 
@@ -247,13 +254,22 @@ class GeminiScheduler:
 
     async def health_snapshot(self) -> dict[str, Any]:
         now = self.clock()
+        state_keys = []
+        for key_name in self.keys:
+            state_keys.append(self._key_health_key(key_name))
+            for model in self.models:
+                state_keys.append(self._pair_key("health", model, key_name))
+        state = await self.store.get_many(state_keys)
+
         models: dict[str, Any] = {}
         for model in self.models:
             pairs = []
             available = 0
             for key_name in self.keys:
-                disabled = await self._is_key_disabled(key_name)
-                health = await self.pair_health(model, key_name)
+                disabled = self._key_health_key(key_name) in state
+                health = PairHealth.decode(
+                    state.get(self._pair_key("health", model, key_name))
+                )
                 eligible = not disabled and health.cooldown_until <= now
                 if eligible:
                     available += 1

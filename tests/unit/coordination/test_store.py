@@ -83,3 +83,28 @@ def test_delete_can_require_ownership() -> None:
 
     assert run(store.delete("lease", expected_value="other")) is False
     assert run(store.delete("lease", expected_value="owner")) is True
+
+
+def test_get_many_returns_only_live_requested_values() -> None:
+    clock = FakeClock()
+    store = InMemoryCoordinationStore("test", clock=clock)
+    run(store.set("live", "one", ttl_seconds=20))
+    run(store.set("expired", "two", ttl_seconds=5))
+    run(store.set("unrequested", "three"))
+    clock.advance(10)
+
+    assert run(store.get_many(["live", "expired", "missing"])) == {"live": "one"}
+
+
+def test_sqlite_get_many_handles_large_key_sets(tmp_path) -> None:
+    store = SQLiteCoordinationStore(tmp_path / "coordination.sqlite3", "test")
+    try:
+        for index in range(450):
+            run(store.set(f"key-{index}", str(index)))
+
+        values = run(store.get_many([f"key-{index}" for index in range(450)]))
+        assert len(values) == 450
+        assert values["key-0"] == "0"
+        assert values["key-449"] == "449"
+    finally:
+        run(store.close())

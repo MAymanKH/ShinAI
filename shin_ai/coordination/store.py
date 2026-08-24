@@ -30,6 +30,10 @@ class CoordinationStore(ABC):
         pass
 
     @abstractmethod
+    async def get_many(self, keys: list[str] | tuple[str, ...]) -> dict[str, str]:
+        """Return live values for the requested keys in one store round trip."""
+
+    @abstractmethod
     async def set(self, key: str, value: str, *, ttl_seconds: float | None = None) -> None:
         pass
 
@@ -79,6 +83,15 @@ class InMemoryCoordinationStore(CoordinationStore):
         async with self._lock:
             entry = self._live_entry(key)
             return entry[0] if entry else None
+
+    async def get_many(self, keys: list[str] | tuple[str, ...]) -> dict[str, str]:
+        async with self._lock:
+            values: dict[str, str] = {}
+            for key in keys:
+                entry = self._live_entry(key)
+                if entry is not None:
+                    values[key] = entry[0]
+            return values
 
     async def set(self, key: str, value: str, *, ttl_seconds: float | None = None) -> None:
         async with self._lock:
@@ -206,6 +219,31 @@ class SQLiteCoordinationStore(CoordinationStore):
 
     async def get(self, key: str) -> str | None:
         return await self._run(self._get_sync, key)
+
+    def _get_many_sync(self, keys: list[str] | tuple[str, ...]) -> dict[str, str]:
+        if not keys:
+            return {}
+
+        now = self._clock()
+        values: dict[str, str] = {}
+        with self._lock:
+            # Stay below SQLite's variable limit even for unusually large pools.
+            for offset in range(0, len(keys), 400):
+                chunk = keys[offset:offset + 400]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = self._connection.execute(
+                    f"""
+                    SELECT key, value FROM coordination_entries
+                    WHERE namespace = ? AND key IN ({placeholders})
+                      AND (expires_at IS NULL OR expires_at > ?)
+                    """,
+                    (self.namespace, *chunk, now),
+                ).fetchall()
+                values.update((str(key), str(value)) for key, value in rows)
+        return values
+
+    async def get_many(self, keys: list[str] | tuple[str, ...]) -> dict[str, str]:
+        return await self._run(self._get_many_sync, keys)
 
     def _set_sync(self, key: str, value: str, ttl_seconds: float | None) -> None:
         now = self._clock()
