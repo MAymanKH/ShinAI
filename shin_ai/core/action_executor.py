@@ -471,6 +471,17 @@ async def save_interaction_memory(
     if not messages and not completed_actions:
         return
 
+    # Anonymous / channel-posted senders have no from_user. Reading through it
+    # raised AttributeError inside the broad handler below, so the interaction
+    # was silently dropped and reported as a save failure.
+    if msg.from_user is None:
+        logger.debug(
+            "Not saving memory: message has no sender (chat=%s msg=%s)",
+            msg.chat.id,
+            msg.id,
+        )
+        return
+
     try:
         if memory_saver is None:
             from shin_ai.utils.memory import save_memory as memory_saver
