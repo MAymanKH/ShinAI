@@ -28,6 +28,7 @@ class DiscordPlatform(PlatformAdapter):
         self.token = token
         self._bot_user = None
         self._connect_task: asyncio.Task | None = None
+        self._typing_contexts: dict[str, object] = {}
 
     @property
     def platform_name(self) -> str:
@@ -82,6 +83,13 @@ class DiscordPlatform(PlatformAdapter):
         logger.info(f"Discord Platform started as {self.client.user}")
 
     async def stop(self) -> None:
+        typing_contexts = tuple(self._typing_contexts.values())
+        self._typing_contexts.clear()
+        if typing_contexts:
+            await asyncio.gather(
+                *(context.__aexit__(None, None, None) for context in typing_contexts),
+                return_exceptions=True,
+            )
         await self.client.close()
         connect_task = self._connect_task
         self._connect_task = None
@@ -119,9 +127,19 @@ class DiscordPlatform(PlatformAdapter):
             logger.error(f"Error reacting on Discord: {e}")
 
     async def send_chat_action(self, chat_id: int | str, action: str) -> None:
-        if action.lower() == "typing":
+        key = str(chat_id)
+        normalized = action.lower()
+        if normalized == "typing":
+            if key in self._typing_contexts:
+                return
             channel = self.client.get_channel(int(chat_id)) or await self.client.fetch_channel(int(chat_id))
-            await channel.typing()
+            context = channel.typing()
+            await context.__aenter__()
+            self._typing_contexts[key] = context
+        elif normalized in {"cancel", "stop", "paused"}:
+            context = self._typing_contexts.pop(key, None)
+            if context is not None:
+                await context.__aexit__(None, None, None)
 
     async def download_media(self, media: UnifiedMedia) -> bytes:
         if media.native_obj and isinstance(media.native_obj, discord.Attachment):

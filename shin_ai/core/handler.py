@@ -3,7 +3,6 @@ Core Handler Module
 
 Universal message handler logic for ShinAI, agnostic of platform.
 """
-import asyncio
 import hashlib
 import os
 import random
@@ -50,6 +49,7 @@ from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.media import prepare_prompt_and_media
 from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.social import get_social_context
+from shin_ai.services.typing import TypingSession, start_typing, stop_typing
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.utils.context_manager import get_recent_context_string
 from shin_ai.utils.logger_config import bind_log_context, logger
@@ -66,10 +66,6 @@ class _AdmittedInteraction:
 
 _interaction_scheduler: InteractionScheduler[_AdmittedInteraction] | None = None
 _shutting_down = False
-
-# Typing indicator management
-_active_typing: dict = {}
-_MAX_TYPING_SECONDS = 120.0
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Deduplicate and admit an interaction without retaining downloaded media."""
@@ -384,7 +380,7 @@ async def _execute_frozen_message(
     runtime_context: str,
     target_instructions: str,
 ):
-    typing_task = None
+    typing_session: TypingSession | None = None
     recent_context_section = _get_recent_context(platform.platform_name, msg)
 
     # Static system prompt — 100% cacheable, never changes
@@ -414,7 +410,7 @@ async def _execute_frozen_message(
         return
 
 
-    typing_task = _start_typing(platform, msg.chat.id)
+    typing_session = await start_typing(platform, msg.chat.id)
 
     try:
         answer, pending_actions = await call_ai_provider(
@@ -505,6 +501,11 @@ async def _execute_frozen_message(
                     )
                     sent_messages.extend(delivered)
 
+        # The visible response is complete. Stop typing before slower embedding
+        # and database persistence so background work cannot restart the indicator.
+        await stop_typing(typing_session)
+        typing_session = None
+
         await save_interaction_memory(
             platform=platform.platform_name,
             msg=msg,
@@ -514,8 +515,8 @@ async def _execute_frozen_message(
             reply_text=reply_text,
         )
     finally:
-        if typing_task:
-            await _stop_typing(platform, msg.chat.id, typing_task)
+        if typing_session is not None:
+            await stop_typing(typing_session)
 
 
 
@@ -658,50 +659,3 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     except Exception:
         pass
     return "RECENT CHAT ACTIVITY: None recorded yet."
-
-
-def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:
-    key = (platform.platform_name, str(chat_id))
-
-    # Cancel any existing typing task for this chat before starting a new one
-    existing = _active_typing.pop(key, None)
-    if existing and not existing.done():
-        existing.cancel()
-
-    start_time = time.monotonic()
-
-    async def _loop():
-        try:
-            while True:
-                if time.monotonic() - start_time > _MAX_TYPING_SECONDS:
-                    logger.debug("Typing indicator timed out for chat=%s after %.0fs", chat_id, _MAX_TYPING_SECONDS)
-                    break
-                await platform.send_chat_action(chat_id, "typing")
-                await asyncio.sleep(4.0)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.debug(f"Typing loop ended due to error: {e}")
-
-    task = asyncio.create_task(_loop())
-    _active_typing[key] = task
-    return task
-
-
-async def _stop_typing(platform: PlatformAdapter, chat_id: int | str, task: asyncio.Task):
-    key = (platform.platform_name, str(chat_id))
-
-    task.cancel()
-    try:
-        await task
-    except (asyncio.CancelledError, Exception):
-        pass
-
-    # Remove from active tracking
-    if key in _active_typing and _active_typing[key] is task:
-        del _active_typing[key]
-
-    try:
-        await platform.send_chat_action(chat_id, "cancel")
-    except Exception:
-        pass
