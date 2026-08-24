@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shinai-bot"
+version = "0.1.0"
+description = "A personality-driven multi-platform group chat bot"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<10",
+    "pytest-asyncio>=0.24,<2",
+    "pytest-cov>=6,<8",
+    "pytest-timeout>=2.3,<3",
+    "hypothesis>=6.120,<7",
+]
+dev = [
+    "shinai-bot[test]",
+    "ruff>=0.11,<1",
+]
+
+[tool.setuptools.packages.find]
+include = ["shin_ai*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+markers = [
+    "integration: uses temporary persistence or multiple components",
+    "memory: measures process memory and may be slower",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["shin_ai"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = ["E501"]
