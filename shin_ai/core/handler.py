@@ -645,8 +645,10 @@ async def _get_memory_section(prompt: str, msg: UnifiedMessage) -> str:
         retrieved_mems = await retrieve_memories(prompt)
         if retrieved_mems:
             return "PAST RELEVANT MEMORIES:\n" + "\n".join([f"- {m}" for m in retrieved_mems])
-    except Exception:
-        pass
+    except Exception as error:
+        # Memory is an enhancement, not a prerequisite for replying -- but a
+        # persistent vector-store outage should still be visible in the log.
+        logger.warning("Memory retrieval failed; replying without it: %s", error)
     return ""
 
 
@@ -655,6 +657,6 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
         context_str = get_recent_context_string(platform_name, msg.chat.id, msg.id)
         if context_str:
             return f"RECENT CHAT ACTIVITY:\n{context_str}"
-    except Exception:
-        pass
+    except Exception as error:
+        logger.warning("Short-term context unavailable: %s", error)
     return "RECENT CHAT ACTIVITY: None recorded yet."

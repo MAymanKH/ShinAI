@@ -57,7 +57,8 @@ def extract_context_info(message: WaMessageType) -> ContextInfoType | None:
         try:
             if top_ctx.ListFields():
                 return top_ctx
-        except Exception:
+        except AttributeError:
+            # Not a populated protobuf message; treat as absent.
             pass
 
     return None

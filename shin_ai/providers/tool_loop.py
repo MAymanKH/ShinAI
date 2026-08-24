@@ -380,5 +380,5 @@ async def _execute_tool_call(
         result_str, pending_action = await handler(args)
         return result_str, pending_action
 
-    logger.warning(f"{provider_name} requested unknown tool: {tool_name}")
+    logger.warning("%s requested unknown tool: %s", provider_name, tool_name)
     return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False), None

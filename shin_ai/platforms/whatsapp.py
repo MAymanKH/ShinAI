@@ -259,8 +259,10 @@ class WhatsAppPlatform(PlatformAdapter):
                 lid_local = extract_local_user_id(lid_full)
                 if lid_local:
                     tokens.add(lid_local.lower())
-        except Exception:
-            pass
+        except AttributeError as error:
+            # Older neonize builds expose no LID field; phone-JID tokens still
+            # cover mention detection on those.
+            logger.debug("WhatsApp LID unavailable for mention matching: %s", error)
 
         return tokens
 
@@ -290,7 +292,7 @@ class WhatsAppPlatform(PlatformAdapter):
                         self._group_title_cache[chat_id] = chat_title
                         self._trim_cache_if_needed()
                 except Exception as e:
-                    logger.debug(f"Failed to fetch group info for {chat_id}: {e}")
+                    logger.debug("Failed to fetch group info for %s: %s", chat_id, e)
 
         chat = UnifiedChat(
             id=chat_id,
@@ -399,7 +401,7 @@ class WhatsAppPlatform(PlatformAdapter):
         if self._connect_task.done() and self._connect_task.exception():
             raise self._connect_task.exception()
 
-        logger.info(f"WhatsApp Platform connect task started (session={self._session_name}).")
+        logger.info("WhatsApp Platform connect task started (session=%s).", self._session_name)
 
     async def stop(self) -> None:
         # Stop accepting callbacks before tearing down the native client.
@@ -412,7 +414,7 @@ class WhatsAppPlatform(PlatformAdapter):
             stopper = getattr(self.client, "stop", None) or self.client.disconnect
             await self._run_sync(stopper)
         except Exception as e:
-            logger.error(f"Error while stopping WhatsApp client: {e}")
+            logger.error("Error while stopping WhatsApp client: %s", e)
 
         if self._connect_task is not None:
             results = await asyncio.gather(self._connect_task, return_exceptions=True)
@@ -580,7 +582,9 @@ class WhatsAppPlatform(PlatformAdapter):
             raw_target = self.get_cached_raw_message(Jid2String(chat_jid), message_id)
             if not raw_target:
                 logger.warning(
-                    f"Cannot react on WhatsApp: missing cached target message {message_id} in chat {chat_id}"
+                    "Cannot react on WhatsApp: missing cached target message %s in chat %s",
+                    message_id,
+                    chat_id,
                 )
                 return
 

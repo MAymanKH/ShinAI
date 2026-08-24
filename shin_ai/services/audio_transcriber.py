@@ -164,7 +164,9 @@ class WhisperProcessManager:
         if connection is not None:
             try:
                 connection.close()
-            except Exception:
+            except OSError:
+                # Already closed, or the worker died first. Either way the pipe
+                # is unusable and the worker is being replaced.
                 pass
         if process is not None:
             if terminate and process.is_alive():

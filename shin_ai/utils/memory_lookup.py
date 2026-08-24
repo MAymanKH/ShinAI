@@ -116,7 +116,7 @@ async def _fetch_surrounding_interactions(
             )
         return surrounding
     except Exception as e:
-        logger.error(f"Failed to fetch surrounding interactions: {e}", exc_info=True)
+        logger.error("Failed to fetch surrounding interactions: %s", e, exc_info=True)
         return []
 
 
@@ -249,7 +249,7 @@ async def _fetch_context_chunk(
                 )
             result["surrounding_interactions"] = surrounding
     except Exception as e:
-        logger.error(f"Failed to fetch batch surrounding context: {e}", exc_info=True)
+        logger.error("Failed to fetch batch surrounding context: %s", e, exc_info=True)
         for result in results:
             result.setdefault("surrounding_interactions", [])
 
@@ -342,7 +342,7 @@ async def memory_lookup_tool(
         )
 
     except Exception as e:
-        logger.error(f"Memory lookup tool failed: {e}", exc_info=True)
+        logger.error("Memory lookup tool failed: %s", e, exc_info=True)
         return json.dumps({"error": f"Memory lookup failed: {e!s}"}, ensure_ascii=False)
 
 

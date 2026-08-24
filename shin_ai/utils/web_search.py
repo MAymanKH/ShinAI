@@ -120,7 +120,7 @@ async def search_web_tool(query: str) -> str:
     # If the search limit was already hit, immediately return the exhaustion
     # error without doing any work.  This prevents the LLM from looping.
     if web_search_exhausted.get():
-        logger.warning(f"Web search already exhausted, rejecting query: '{query}'")
+        logger.warning("Web search already exhausted, rejecting query: '%s'", query)
         return _format_error_as_result(
             query,
             "STOP: You have already exhausted all available web searches for this request. "
@@ -138,7 +138,7 @@ async def search_web_tool(query: str) -> str:
     remaining_time = get_settings().web_search_timeout_seconds - (now - start_time)
     if remaining_time <= 0:
         web_search_exhausted.set(True)
-        logger.warning(f"Web search time limit exceeded before executing query: '{query}'")
+        logger.warning("Web search time limit exceeded before executing query: '%s'", query)
         return _format_error_as_result(
             query,
             "STOP: Web search time limit exceeded. Do NOT call search_web_tool again. Respond using search results already gathered.",
@@ -149,7 +149,7 @@ async def search_web_tool(query: str) -> str:
     web_search_count.set(current_count)
     if current_count > 3:
         web_search_exhausted.set(True)
-        logger.warning(f"Web search limit reached (count: {current_count}) for query: '{query}'")
+        logger.warning("Web search limit reached (count: %s) for query: '%s'", current_count, query)
         return _format_error_as_result(
             query,
             "STOP: Web search limit reached (max 3). Do NOT call search_web_tool again. Respond using search results already gathered.",
@@ -182,7 +182,7 @@ async def search_web_tool(query: str) -> str:
         if cfg.firecrawl and cfg.firecrawl.api_key:
             firecrawl_key = cfg.firecrawl.api_key
     except Exception as e:
-        logger.warning(f"Could not load Firecrawl configuration: {e}")
+        logger.warning("Could not load Firecrawl configuration: %s", e)
 
     if firecrawl_key:
         now_time = time.time()
@@ -200,10 +200,10 @@ async def search_web_tool(query: str) -> str:
                     if len(_search_cache) >= _MAX_CACHE_SIZE:
                         _search_cache.popitem(last=False)
                     _search_cache[clean_query] = (time.time(), output_json)
-                logger.info(f"Web search for query '{query}' completed successfully using Firecrawl.")
+                logger.info("Web search for query '%s' completed successfully using Firecrawl.", query)
                 return output_json
             except Exception as e:
-                logger.warning(f"Firecrawl search failed, falling back to DuckDuckGo: {e}")
+                logger.warning("Firecrawl search failed, falling back to DuckDuckGo: %s", e)
 
     async def _do_search(deadline: float):
         results_list = await asyncio.to_thread(lambda q: list(DDGS().text(q, max_results=3)), query)
@@ -262,7 +262,7 @@ async def search_web_tool(query: str) -> str:
     remaining_time = get_settings().web_search_timeout_seconds - (now - start_time)
     if remaining_time <= 0:
         web_search_exhausted.set(True)
-        logger.warning(f"Web search time limit exceeded before executing DuckDuckGo query: '{query}'")
+        logger.warning("Web search time limit exceeded before executing DuckDuckGo query: '%s'", query)
         return _format_error_as_result(
             query,
             "STOP: Web search time limit exceeded. Do NOT call search_web_tool again. Respond using search results already gathered.",
@@ -275,10 +275,10 @@ async def search_web_tool(query: str) -> str:
             f"Executing web search query '{query}' using DuckDuckGo (remaining time: {remaining_time:.1f}s)."
         )
         res = await asyncio.wait_for(_do_search(search_deadline), timeout=remaining_time)
-        logger.info(f"Web search for query '{query}' completed successfully using DuckDuckGo.")
+        logger.info("Web search for query '%s' completed successfully using DuckDuckGo.", query)
         return res
     except TimeoutError:
-        logger.warning(f"Web search timed out (overall limit: 30s) for query: '{query}'")
+        logger.warning("Web search timed out (overall limit: 30s) for query: '%s'", query)
         return _format_error_as_result(
             query,
             f"Web search overall time limit of {get_settings().web_search_timeout_seconds:.0f} seconds exceeded for this request. Please construct your final response using the search results already provided.",

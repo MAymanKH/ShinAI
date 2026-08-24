@@ -75,7 +75,7 @@ class DiscordPlatform(PlatformAdapter):
             await asyncio.gather(self._connect_task, return_exceptions=True)
             self._connect_task = None
             raise
-        logger.info(f"Discord Platform started as {self.client.user}")
+        logger.info("Discord Platform started as %s", self.client.user)
 
     async def stop(self) -> None:
         typing_contexts = tuple(self._typing_contexts.values())
@@ -120,7 +120,7 @@ class DiscordPlatform(PlatformAdapter):
             msg = await channel.fetch_message(int(message_id))
             await msg.add_reaction(reaction)
         except Exception as e:
-            logger.error(f"Error reacting on Discord: {e}")
+            logger.error("Error reacting on Discord: %s", e)
 
     async def send_chat_action(self, chat_id: int | str, action: str) -> None:
         key = str(chat_id)
@@ -150,7 +150,7 @@ class DiscordPlatform(PlatformAdapter):
         except discord.NotFound:
             return None
         except Exception as e:
-            logger.error(f"Error getting Discord message: {e}")
+            logger.error("Error getting Discord message: %s", e)
             return None
 
     async def get_user_by_username(self, username: str) -> UnifiedUser | None:

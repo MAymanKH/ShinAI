@@ -30,10 +30,10 @@ def _load_module_with_fallback(module_name: str) -> Any:
     # Determine which file to load
     if primary_path.exists():
         target_path = primary_path
-        logger.debug(f"Loading {module_name} from primary file")
+        logger.debug("Loading %s from primary file", module_name)
     elif template_path.exists():
         target_path = template_path
-        logger.info(f"Loading {module_name} from template (primary not found)")
+        logger.info("Loading %s from template (primary not found)", module_name)
     else:
         raise FileNotFoundError(
             f"Neither {primary_path} nor {template_path} exists. "

@@ -89,13 +89,13 @@ class TelegramPlatform(PlatformAdapter):
                 if resp.is_success:
                     logger.info("Telegram webhook cleared for long polling (Bot API fallback).")
                 else:
-                    logger.warning(f"Telegram Bot API deleteWebhook failed: HTTP {resp.status_code}")
+                    logger.warning("Telegram Bot API deleteWebhook failed: HTTP %s", resp.status_code)
             else:
                 logger.warning("Skipping webhook clear because the Telegram bot token is empty.")
         except Exception as e:
-            logger.warning(f"Unable to clear Telegram webhook: {e}")
+            logger.warning("Unable to clear Telegram webhook: %s", e)
 
-        logger.info(f"Telegram Platform started as @{me.username or 'unknown'} ({me.id}).")
+        logger.info("Telegram Platform started as @%s (%s).", me.username or "unknown", me.id)
 
     async def stop(self) -> None:
         await self.client.stop()
@@ -153,7 +153,7 @@ class TelegramPlatform(PlatformAdapter):
             if msg:
                 return self.to_unified_message(msg)
         except Exception as e:
-            logger.error(f"Error getting message on Telegram: {e}")
+            logger.error("Error getting message on Telegram: %s", e)
         return None
 
     async def get_user_by_username(self, username: str) -> UnifiedUser | None:

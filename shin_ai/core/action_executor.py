@@ -79,18 +79,15 @@ async def execute_text_messages(
             )
             try:
                 await platform.send_chat_action(msg.chat.id, "typing")
-            except Exception:
-                pass
+            except Exception as error:
+                # Cosmetic only; never let a presence hiccup drop the message.
+                logger.debug("Could not refresh typing indicator: %s", error)
             await asyncio.sleep(delay)
 
         reply_to_id = None
         if tag_target is not None:
             candidate = tag_target
-            if (
-                platform.uses_integer_message_ids
-                and isinstance(candidate, str)
-                and candidate.isdigit()
-            ):
+            if platform.uses_integer_message_ids and isinstance(candidate, str) and candidate.isdigit():
                 candidate = int(candidate)
             reply_to_id = _normalize_reply_target(platform, candidate)
             if reply_to_id is None:
@@ -150,7 +147,7 @@ async def execute_text_messages(
                     reply_to_id=reply_to_id,
                 )
         except Exception as e:
-            logger.error(f"Text reply failed: {e}")
+            logger.error("Text reply failed: %s", e)
     return sent_messages
 
 
@@ -227,7 +224,7 @@ async def _execute_reaction(
         )
         return True
     except Exception as e:
-        logger.error(f"Reaction failed on {platform.platform_name}: {e}")
+        logger.error("Reaction failed on %s: %s", platform.platform_name, e)
         return False
 
 
@@ -247,7 +244,7 @@ async def _execute_sticker(
         return False
 
     if not platform.supports_stickers:
-        logger.info(f"Platform {platform.platform_name} doesn't support stickers. Dropping.")
+        logger.info("Platform %s doesn't support stickers. Dropping.", platform.platform_name)
         return False
 
     # Some adapters expect a prefixed identifier; normalise if the model omitted it.
@@ -286,7 +283,7 @@ async def _execute_sticker(
             )
             return True
     except Exception as e:
-        logger.error(f"Sticker failed: {e}")
+        logger.error("Sticker failed: %s", e)
     return False
 
 
@@ -389,8 +386,12 @@ async def _resolve_mod_target(
             t_msg = await platform.get_message(msg.chat.id, target_message_id)
             if t_msg and t_msg.from_user and not t_msg.from_user.is_self:
                 return t_msg.from_user
-        except Exception:
-            pass
+        except Exception as error:
+            logger.debug(
+                "Could not resolve moderation target from message %s: %s",
+                target_message_id,
+                error,
+            )
 
     for ent in msg.entities + msg.caption_entities:
         if ent.type in ("MENTION", "TEXT_MENTION"):
@@ -460,7 +461,7 @@ async def _record_outgoing_context(
             media_type=media_type,
         )
     except Exception as e:
-        logger.debug(f"Failed to record outgoing context: {e}")
+        logger.debug("Failed to record outgoing context: %s", e)
 
 
 async def save_interaction_memory(
@@ -529,7 +530,7 @@ async def save_interaction_memory(
             chat_title=msg.chat.title or "Private Chat",
         )
     except Exception as e:
-        logger.error(f"Failed to save long-term memory: {e}")
+        logger.error("Failed to save long-term memory: %s", e)
 
 
 # ---------------------------------------------------------------------------

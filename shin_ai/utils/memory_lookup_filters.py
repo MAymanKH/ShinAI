@@ -18,7 +18,7 @@ def parse_iso_to_epoch(iso_str: str) -> int | None:
         except ValueError:
             continue
 
-    logger.warning(f"Could not parse time string: {iso_str!r}")
+    logger.warning("Could not parse time string: %r", iso_str)
     return None
 
 

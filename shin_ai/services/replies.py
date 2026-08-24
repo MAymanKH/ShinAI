@@ -309,7 +309,7 @@ async def get_reply_chain(msg: UnifiedMessage, platform: PlatformAdapter = None)
             try:
                 parent = await platform.get_message(msg.chat.id, parent_id)
             except Exception as e:
-                logger.warning(f"Failed to fetch parent message {parent_id} for reply chain: {e}")
+                logger.warning("Failed to fetch parent message %s for reply chain: %s", parent_id, e)
                 break
 
         # If we still don't have the parent message, we can't go deeper

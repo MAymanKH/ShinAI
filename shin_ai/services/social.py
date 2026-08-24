@@ -127,7 +127,7 @@ async def index_social_context() -> None:
             documents=documents,
             metadatas=metadatas,
         )
-        logger.info(f"Indexed {len(ids)} members for social context.")
+        logger.info("Indexed %s members for social context.", len(ids))
 
 
 async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") -> str:
@@ -206,7 +206,7 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
                     active_keys.add(member_id)
 
     except Exception as e:
-        logger.error(f"Semantic context search failed: {e}")
+        logger.error("Semantic context search failed: %s", e)
 
     if not active_keys:
         return ""

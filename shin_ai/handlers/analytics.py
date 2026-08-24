@@ -120,7 +120,7 @@ def _compute_analytics_data():
                 break
             offset += batch_size
         except Exception as e:
-            logger.error(f"Error loading analytics data batch at offset {offset}: {e}")
+            logger.error("Error loading analytics data batch at offset %s: %s", offset, e)
             break
 
     if not metadatas:
@@ -417,7 +417,7 @@ def register(client) -> None:
             report, keyboard = _render_view(analytics, "main", 0)
             await msg.reply(report, reply_markup=keyboard)
         except Exception as e:
-            logger.error(f"Error generating analytics: {e}", exc_info=True)
+            logger.error("Error generating analytics: %s", e, exc_info=True)
             await msg.reply("An error occurred while generating analytics.")
 
     @client.on_callback_query(filters.regex(r"^analytics:"))
@@ -461,5 +461,5 @@ def register(client) -> None:
             await callback.message.edit_text(text, reply_markup=keyboard)
             await callback.answer()
         except Exception as e:
-            logger.error(f"Error processing analytics callback: {e}", exc_info=True)
+            logger.error("Error processing analytics callback: %s", e, exc_info=True)
             await callback.answer("Failed to load analytics view.", show_alert=True)
