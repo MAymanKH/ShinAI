@@ -8,6 +8,7 @@ import inspect
 
 from google import genai
 
+from shin_ai.config import COORDINATION_LEASE_SECONDS
 from shin_ai.providers.gemini_keys import (
     API_KEYS_MAP,
     MODELS_LIST,
@@ -56,6 +57,7 @@ def get_gemini_scheduler() -> GeminiScheduler:
             API_KEYS_MAP,
             MODELS_LIST,
             get_coordination_store(),
+            reservation_seconds=COORDINATION_LEASE_SECONDS,
         )
     return _gemini_scheduler
 
