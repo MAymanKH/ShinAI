@@ -461,7 +461,8 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     )
 
 
-def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> ShinAISettings:
+def load_settings(path: Path | None = None) -> ShinAISettings:
+    path = path or DEFAULT_CONFIG_PATH
     if not path.exists():
         raise FileNotFoundError(
             f"config.yaml not found at {path}. Copy config.yaml.example to config.yaml and edit it."
