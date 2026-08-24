@@ -22,6 +22,10 @@ class DiscordPlatform(PlatformAdapter):
     def supports_stickers(self) -> bool:
         return False
 
+    @property
+    def coordination_scope(self) -> str:
+        return f"discord:{self.credential_fingerprint(self.token)}"
+
     async def get_bot_user(self) -> UnifiedUser:
         if self._bot_user:
             return self._bot_user

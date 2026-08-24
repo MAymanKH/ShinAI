@@ -99,8 +99,10 @@ runtime:
     ttl_seconds: 7200
 
 # --- Multi-instance coordination ---
-# Instances that may handle the same bot credentials or Gemini key pool MUST use the same
-# namespace and database_path. Independent bots should use different namespaces.
+# Instances that share a Gemini key pool MUST use the same namespace and the same absolute
+# database_path. Platform credentials are fingerprinted separately, so instances with the
+# same Telegram/Discord/WhatsApp account deduplicate events while different accounts do not.
+# Use an absolute path when the two Python environments have different working directories.
 coordination:
   backend: sqlite                 # sqlite for shared instances; memory for isolated development
   namespace: shinai-production   # short, human-readable coordination group name

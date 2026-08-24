@@ -1,3 +1,4 @@
+import hashlib
 from abc import ABC, abstractmethod
 from typing import Optional, List, Tuple
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedMedia
@@ -21,6 +22,20 @@ class PlatformAdapter(ABC):
     def supports_member_restrictions(self) -> bool:
         """Whether the platform supports per-user mute/unmute operations."""
         return True
+
+    @property
+    def coordination_scope(self) -> str:
+        """Stable, non-secret identity used to coordinate duplicate events.
+
+        Credential-backed adapters should override this with a credential or
+        account fingerprint. The platform-only fallback keeps custom adapters
+        compatible and is appropriate for one bot account.
+        """
+        return self.platform_name
+
+    @staticmethod
+    def credential_fingerprint(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
     @abstractmethod
     async def get_bot_user(self) -> UnifiedUser:

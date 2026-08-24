@@ -6,7 +6,7 @@ Tracks bot replies for reply chain detection.
 import asyncio
 import json
 
-from shin_ai.config import DATA_DIR
+from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR
 from shin_ai.utils.logger_config import logger
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
@@ -23,15 +23,17 @@ _flush_task: asyncio.Task | None = None
 
 
 def set_next_message_watch(platform: str, chat_id: int | str):
-    _next_message_watch[_reply_key(platform, chat_id)] = True
+    key = _reply_key(platform, chat_id)
+    if key not in _next_message_watch:
+        while len(_next_message_watch) >= CONTEXT_MAX_CHATS:
+            oldest_chat = next(iter(_next_message_watch))
+            _next_message_watch.pop(oldest_chat, None)
+    _next_message_watch[key] = True
 
 
 def check_and_clear_next_message_watch(platform: str, chat_id: int | str) -> bool:
     key = _reply_key(platform, chat_id)
-    if _next_message_watch.get(key):
-        _next_message_watch[key] = False
-        return True
-    return False
+    return _next_message_watch.pop(key, False)
 
 
 def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
@@ -67,6 +69,17 @@ def _load_cache_from_disk() -> dict[str, list[str]]:
             _replies_cache = json.load(f)
     except Exception:
         _replies_cache = {}
+
+    if not isinstance(_replies_cache, dict):
+        _replies_cache = {}
+    while len(_replies_cache) > CONTEXT_MAX_CHATS:
+        oldest_chat = next(iter(_replies_cache))
+        _replies_cache.pop(oldest_chat, None)
+    for chat_id, reply_ids in tuple(_replies_cache.items()):
+        if not isinstance(reply_ids, list):
+            _replies_cache.pop(chat_id, None)
+        elif len(reply_ids) > 100:
+            _replies_cache[chat_id] = reply_ids[-100:]
 
     return _replies_cache
 
@@ -116,6 +129,9 @@ async def save_reply(chat_id: int | str, message_id: int | str, platform: str | 
     scoped_chat_id = _reply_key(platform, chat_id) if platform else str(chat_id)
 
     if scoped_chat_id not in _replies_cache:
+        while len(_replies_cache) >= CONTEXT_MAX_CHATS:
+            oldest_chat = next(iter(_replies_cache))
+            _replies_cache.pop(oldest_chat, None)
         _replies_cache[scoped_chat_id] = []
 
     _replies_cache[scoped_chat_id].append(str(message_id))

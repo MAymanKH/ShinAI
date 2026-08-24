@@ -12,6 +12,7 @@ from shin_ai.utils.logger_config import logger
 class TelegramPlatform(PlatformAdapter):
     def __init__(self, client: Client):
         self.client = client
+        self._bot_user = None
 
     @property
     def platform_name(self) -> str:
@@ -21,20 +22,33 @@ class TelegramPlatform(PlatformAdapter):
     def supports_stickers(self) -> bool:
         return True
 
+    @property
+    def coordination_scope(self) -> str:
+        return f"telegram:{self.credential_fingerprint(TELEGRAM_BOT_TOKEN or 'default')}"
+
     async def get_bot_user(self) -> UnifiedUser:
+        if self._bot_user:
+            return self._bot_user
         me = await self.client.get_me()
-        return UnifiedUser(
+        self._bot_user = UnifiedUser(
             id=me.id,
             username=me.username,
             first_name=me.first_name or "",
             is_self=True
         )
+        return self._bot_user
 
     async def start(self) -> None:
         logger.info("Starting Telegram client...")
         await self.client.start()
 
         me = await self.client.get_me()
+        self._bot_user = UnifiedUser(
+            id=me.id,
+            username=me.username,
+            first_name=me.first_name or "",
+            is_self=True,
+        )
 
         if not getattr(me, "is_bot", False):
             raise RuntimeError(

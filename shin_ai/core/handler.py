@@ -4,14 +4,19 @@ Core Handler Module
 Universal message handler logic for ShinAI, agnostic of platform.
 """
 import asyncio
+import hashlib
+import os
 import random
 import re as _re
 import time
 import unicodedata as _ud
+from dataclasses import dataclass
 
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.core import state
+from shin_ai.core.interaction_scheduler import InteractionScheduler
+from shin_ai.core.request_context import reset_request_context
 from shin_ai.core.prompt_builder import (
     get_static_system_prompt,
     build_user_prompt,
@@ -27,11 +32,20 @@ from shin_ai.config import (
     AI_PROVIDER_MAX_RETRIES,
     AI_PROVIDER_TIMEOUT_SECONDS,
     GLOBAL_AI_TIMEOUT_SECONDS,
+    GROUP_MAX_RESPONSES_PER_WINDOW,
+    GROUP_RATE_LIMIT_WINDOW_SECONDS,
+    INTERACTION_TTL_SECONDS,
     MAX_REPLY_DELAY_SECONDS,
+    MAX_CONCURRENT_INTERACTIONS,
+    MAX_PENDING_INTERACTIONS,
     MIN_REPLY_DELAY_SECONDS,
+    PER_CHAT_QUEUE_SIZE,
+    SHUTDOWN_GRACE_SECONDS,
+    EVENT_DEDUP_TTL_SECONDS,
 )
+from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.utils.logger_config import logger
-from shin_ai.utils.rate_limit import check_rate_limit, check_group_rate_limit
+from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
 from shin_ai.providers.gemini import gemini_api
@@ -44,59 +58,154 @@ from shin_ai.services.audio_transcriber import transcribe_audio
 from shin_ai.data.loader import PERSONALITY
 
 
-_chat_queues: dict = {}
-_chat_tasks: dict = {}
-_CHAT_QUEUE_MAX_SIZE = 20
+@dataclass(frozen=True, slots=True)
+class _AdmittedInteraction:
+    platform: PlatformAdapter
+    message: UnifiedMessage
+
+
+_interaction_scheduler: InteractionScheduler[_AdmittedInteraction] | None = None
+_shutting_down = False
 
 # Typing indicator management
 _active_typing: dict = {}
 _MAX_TYPING_SECONDS = 120.0
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
-    """Main message handler for AI-powered responses across any platform."""
-    if state.IS_CHECKING_KEYS:
+    """Deduplicate and admit an interaction without retaining downloaded media."""
+    if state.IS_CHECKING_KEYS or _shutting_down:
         return
 
-    # Per-user rate limit check
-    if msg.from_user and not check_rate_limit(msg.from_user.id):
-        return
-
-    # Group rate limit check: prevent a single busy chat from burning API quota
-    if msg.chat.type != "PRIVATE" and not check_group_rate_limit(platform.platform_name, msg.chat.id):
+    claimed, claim = await _claim_event(platform, msg)
+    if not claimed:
         logger.debug(
-            "[%s] Group rate limit hit — chat=%s (allowed %d/%ds)",
-            platform.platform_name, msg.chat.id,
-            3, 10,
+            "[%s] Duplicate event ignored — chat=%s msg=%s",
+            platform.platform_name,
+            msg.chat.id,
+            msg.id,
         )
         return
 
-    prompt, media_list = await _prepare_prompt_and_media(platform, msg)
-    recent_context_section = _get_recent_context(platform.platform_name, msg)
+    _log_interaction_trigger(platform, msg)
+    delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
+    result = await _get_interaction_scheduler().submit(
+        (platform.coordination_scope, str(msg.chat.id)),
+        _AdmittedInteraction(platform, msg),
+        delay_seconds=delay,
+    )
+    if not result.accepted:
+        if claim is not None:
+            key, owner = claim
+            try:
+                await get_coordination_store().delete(key, expected_value=owner)
+            except Exception as error:
+                logger.warning("Failed to release rejected event claim: %s", error)
+        logger.warning(
+            "[%s] Interaction rejected — chat=%s msg=%s reason=%s pending=%d",
+            platform.platform_name,
+            msg.chat.id,
+            msg.id,
+            result.reason,
+            _get_interaction_scheduler().pending_count,
+        )
+    elif result.delay_applied > 0.1:
+        logger.info(
+            "[%s] Reply queued — chat=%s msg=%s delay=%.2fs",
+            platform.platform_name,
+            msg.chat.id,
+            msg.id,
+            result.delay_applied,
+        )
 
-    if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
-        return
 
-    style_examples = _get_style_examples(prompt)
-    reply_text = await _get_reply_chain_text(platform, msg)
-    runtime_context = await _build_runtime_context(platform, msg)
-    memory_section = await _get_memory_section(prompt, msg)
-    social_context_section = await get_social_context(msg, reply_text)
+async def _claim_event(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+) -> tuple[bool, tuple[str, str] | None]:
+    raw_key = f"{platform.coordination_scope}|{msg.chat.id}|{msg.id}"
+    digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    key = f"event:{digest}"
+    owner = f"{os.getpid()}:{time.monotonic_ns()}"
+    try:
+        claimed = await get_coordination_store().claim(
+            key,
+            owner,
+            ttl_seconds=EVENT_DEDUP_TTL_SECONDS,
+        )
+        return claimed, (key, owner) if claimed else None
+    except Exception as error:
+        logger.warning("Event deduplication unavailable; continuing: %s", error)
+        return True, None
 
-    # Trigger log always visible in production
+
+def _get_interaction_scheduler() -> InteractionScheduler[_AdmittedInteraction]:
+    global _interaction_scheduler
+    if _interaction_scheduler is None:
+        _interaction_scheduler = InteractionScheduler(
+            _process_admitted_interaction,
+            max_concurrent=MAX_CONCURRENT_INTERACTIONS,
+            max_pending=MAX_PENDING_INTERACTIONS,
+            per_chat_limit=PER_CHAT_QUEUE_SIZE,
+            job_ttl_seconds=INTERACTION_TTL_SECONDS,
+            on_error=_log_interaction_error,
+            on_drop=_log_interaction_drop,
+        )
+    return _interaction_scheduler
+
+
+async def shutdown_interaction_scheduler() -> None:
+    global _interaction_scheduler, _shutting_down
+    _shutting_down = True
+    scheduler = _interaction_scheduler
+    if scheduler is not None:
+        await scheduler.close(grace_seconds=SHUTDOWN_GRACE_SECONDS)
+    _interaction_scheduler = None
+
+
+def _log_interaction_error(payload: _AdmittedInteraction, error: BaseException) -> None:
+    msg = payload.message
+    logger.error(
+        "[%s] Interaction failed — chat=%s msg=%s: %s",
+        payload.platform.platform_name,
+        msg.chat.id,
+        msg.id,
+        error,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+
+
+def _log_interaction_drop(payload: _AdmittedInteraction, reason: str) -> None:
+    msg = payload.message
+    logger.warning(
+        "[%s] Interaction dropped — chat=%s msg=%s reason=%s",
+        payload.platform.platform_name,
+        msg.chat.id,
+        msg.id,
+        reason,
+    )
+
+
+def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> None:
     user_name = (
         (msg.from_user.username or msg.from_user.first_name)
         if msg.from_user else "unknown"
     )
     user_id = msg.from_user.id if msg.from_user else "?"
-    text_preview = (msg.text or msg.caption or "").replace("\n", " ")[:100]
+    full_text = msg.text or msg.caption or ""
+    text_preview = full_text.replace("\n", " ")[:100]
     media_hint = ""
-    if msg.photo:      media_hint = " [photo]"
-    elif msg.voice:    media_hint = " [voice]"
-    elif msg.audio:    media_hint = " [audio]"
-    elif msg.video:    media_hint = " [video]"
-    elif msg.sticker:  media_hint = " [sticker]"
-    elif msg.document: media_hint = " [document]"
-    interaction = _get_interaction_type(msg)
+    if msg.photo:
+        media_hint = " [photo]"
+    elif msg.voice:
+        media_hint = " [voice]"
+    elif msg.audio:
+        media_hint = " [audio]"
+    elif msg.video:
+        media_hint = " [video]"
+    elif msg.sticker:
+        media_hint = " [sticker]"
+    elif msg.document:
+        media_hint = " [document]"
     logger.info(
         "[%s] Triggered — chat=%s (%s) | user=%s (%s) | %s%s | text=\"%s%s\"",
         platform.platform_name,
@@ -104,25 +213,67 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
         msg.chat.title or msg.chat.type,
         user_name,
         user_id,
-        interaction.split("(")[0].strip(),
+        _get_interaction_type(msg).split("(")[0].strip(),
         media_hint,
         text_preview,
-        "..." if len(msg.text or msg.caption or "") > 100 else "",
+        "..." if len(full_text) > 100 else "",
     )
-    # ─────────────────────────────────────────────────────────────────────────
 
-    _enqueue_frozen_message(
-        platform=platform,
-        msg=msg,
-        prompt=prompt,
-        media_list=media_list,
-        reply_text=reply_text,
-        style_examples=style_examples,
-        social_context_section=social_context_section,
-        memory_section=memory_section,
-        runtime_context=runtime_context,
-        target_instructions=_build_target_instructions(msg),
-    )
+
+async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
+    platform = payload.platform
+    msg = payload.message
+    reset_request_context()
+    try:
+        if state.IS_CHECKING_KEYS:
+            return
+        if msg.from_user and not await check_rate_limit_shared(
+            platform.platform_name,
+            msg.from_user.id,
+            coordination_scope=platform.coordination_scope,
+        ):
+            logger.debug(
+                "[%s] User rate limit hit — chat=%s user=%s",
+                platform.platform_name,
+                msg.chat.id,
+                msg.from_user.id,
+            )
+            return
+        if msg.chat.type != "PRIVATE" and not await check_group_rate_limit_shared(
+            platform.platform_name,
+            msg.chat.id,
+            coordination_scope=platform.coordination_scope,
+        ):
+            logger.debug(
+                "[%s] Group rate limit hit — chat=%s (allowed %d/%.0fs)",
+                platform.platform_name,
+                msg.chat.id,
+                GROUP_MAX_RESPONSES_PER_WINDOW,
+                GROUP_RATE_LIMIT_WINDOW_SECONDS,
+            )
+            return
+
+        prompt, media_list = await _prepare_prompt_and_media(platform, msg)
+        recent_context_section = _get_recent_context(platform.platform_name, msg)
+
+        if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
+            return
+
+        reply_text = await _get_reply_chain_text(platform, msg)
+        await _execute_frozen_message(
+            platform=platform,
+            msg=msg,
+            prompt=prompt,
+            media_list=media_list,
+            reply_text=reply_text,
+            style_examples=_get_style_examples(prompt),
+            social_context_section=await get_social_context(msg, reply_text),
+            memory_section=await _get_memory_section(prompt, msg),
+            runtime_context=await _build_runtime_context(platform, msg),
+            target_instructions=_build_target_instructions(msg),
+        )
+    finally:
+        reset_request_context()
 
 
 async def _prepare_prompt_and_media(
@@ -285,73 +436,6 @@ def _build_target_instructions(msg: UnifiedMessage) -> str:
         reply_msg=msg.reply_to_message,
     )
 
-
-
-def _enqueue_frozen_message(
-    platform: PlatformAdapter,
-    msg: UnifiedMessage,
-    prompt: str,
-    media_list: list[dict],
-    reply_text: str,
-    style_examples: str,
-    social_context_section: str,
-    memory_section: str,
-    runtime_context: str,
-    target_instructions: str,
-) -> None:
-    key = (platform.platform_name, msg.chat.id)
-    if key not in _chat_queues:
-        _chat_queues[key] = []
-
-    queue = _chat_queues[key]
-    if len(queue) >= _CHAT_QUEUE_MAX_SIZE:
-        dropped = queue.pop(0)
-        logger.warning(
-            "[%s] Chat queue overflow (max %d) — dropping oldest message (chat=%s msg=%s)",
-            platform.platform_name, _CHAT_QUEUE_MAX_SIZE,
-            msg.chat.id, dropped["msg"].id,
-        )
-
-    queue.append({
-        "platform": platform,
-        "msg": msg,
-        "prompt": prompt,
-        "media_list": media_list,
-        "reply_text": reply_text,
-        "style_examples": style_examples,
-        "social_context_section": social_context_section,
-        "memory_section": memory_section,
-        "runtime_context": runtime_context,
-        "target_instructions": target_instructions,
-    })
-
-    if key not in _chat_tasks or _chat_tasks[key].done():
-        delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
-        if delay > 0.1:
-            logger.info(
-                "[%s] Reply queued for chat %s — waiting %.2fs before sending",
-                platform.platform_name, msg.chat.id, delay,
-            )
-        _chat_tasks[key] = asyncio.create_task(_delayed_queue_processor(key, delay))
-
-
-async def _delayed_queue_processor(key, delay: float):
-    await asyncio.sleep(delay)
-    while True:
-        queue = _chat_queues.get(key)
-        if not queue:
-            await asyncio.sleep(0)
-            queue = _chat_queues.get(key)
-            if not queue:
-                _chat_queues.pop(key, None)
-                _chat_tasks.pop(key, None)
-                return
-
-        task_args = queue.pop(0)
-        try:
-            await _execute_frozen_message(**task_args)
-        except Exception as e:
-            logger.error("Failed to execute frozen message in queue: %s", e, exc_info=True)
 
 
 async def _execute_frozen_message(

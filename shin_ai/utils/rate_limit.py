@@ -2,6 +2,8 @@
 Rate limiting utilities for ShinAI.
 """
 import time
+from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.coordination.store import CoordinationStore
 from shin_ai.config import (
     ADMIN_USER_ID,
     GROUP_MAX_RESPONSES_PER_WINDOW,
@@ -95,6 +97,43 @@ def check_group_rate_limit(platform_name: str, chat_id: int | str) -> bool:
 
     timestamps.append(now)
     return True
+
+
+async def check_rate_limit_shared(
+    platform_name: str,
+    user_id: int | str,
+    *,
+    coordination_scope: str,
+    store: CoordinationStore | None = None,
+) -> bool:
+    """Atomically enforce the user cooldown across cooperating instances."""
+    key = f"rate:user:{coordination_scope}:{platform_name}:{user_id}"
+    try:
+        backend = store or get_coordination_store()
+        return await backend.claim(key, "used", ttl_seconds=COOLDOWN_SECONDS)
+    except Exception:
+        # Coordination failure should reduce protection, not take the bot down.
+        return check_rate_limit(f"{coordination_scope}:{platform_name}:{user_id}")
+
+
+async def check_group_rate_limit_shared(
+    platform_name: str,
+    chat_id: int | str,
+    *,
+    coordination_scope: str,
+    store: CoordinationStore | None = None,
+    now: float | None = None,
+) -> bool:
+    """Enforce a compact fixed-window group quota across bot instances."""
+    current_time = time.time() if now is None else now
+    bucket = int(current_time / GROUP_WINDOW_SECONDS)
+    key = f"rate:group:{coordination_scope}:{platform_name}:{chat_id}:{bucket}"
+    try:
+        backend = store or get_coordination_store()
+        count = await backend.increment(key, ttl_seconds=GROUP_WINDOW_SECONDS * 2)
+        return count <= GROUP_MAX_RESPONSES
+    except Exception:
+        return check_group_rate_limit(platform_name, chat_id)
 
 
 _last_gstats_time = 0.0

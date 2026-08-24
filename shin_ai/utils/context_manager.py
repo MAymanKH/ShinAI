@@ -1,11 +1,80 @@
-from collections import deque, defaultdict
-import time
-from datetime import datetime
-from shin_ai.platforms.models import UnifiedMessage, UnifiedMedia, UnifiedUser
+"""Bounded, process-local short-term conversation context."""
 
-# Store last 50 messages per chat
-# Map f"{platform}_{chat_id}" -> deque of message dicts
-_context_buffer = defaultdict(lambda: deque(maxlen=50))
+from __future__ import annotations
+
+import time
+from collections import OrderedDict, deque
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+
+from shin_ai.config import CONTEXT_MAX_CHATS, CONTEXT_MESSAGES_PER_CHAT, CONTEXT_TTL_SECONDS
+from shin_ai.platforms.models import UnifiedMessage, UnifiedUser
+
+
+@dataclass(slots=True)
+class _ChatContext:
+    messages: deque[dict]
+    last_access: float
+
+
+class ContextBuffer:
+    """LRU/TTL bounded message history keyed by platform and chat."""
+
+    def __init__(
+        self,
+        *,
+        max_chats: int,
+        messages_per_chat: int,
+        ttl_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.max_chats = max_chats
+        self.messages_per_chat = messages_per_chat
+        self.ttl_seconds = ttl_seconds
+        self._clock = clock
+        self._chats: OrderedDict[str, _ChatContext] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._chats)
+
+    def _prune(self, now: float) -> None:
+        while self._chats:
+            first_key = next(iter(self._chats))
+            if now - self._chats[first_key].last_access <= self.ttl_seconds:
+                break
+            self._chats.popitem(last=False)
+        while len(self._chats) > self.max_chats:
+            self._chats.popitem(last=False)
+
+    def append(self, chat_key: str, entry: dict) -> None:
+        now = self._clock()
+        self._prune(now)
+        context = self._chats.get(chat_key)
+        if context is None:
+            context = _ChatContext(deque(maxlen=self.messages_per_chat), now)
+            self._chats[chat_key] = context
+        context.messages.append(entry)
+        context.last_access = now
+        self._chats.move_to_end(chat_key)
+        self._prune(now)
+
+    def snapshot(self, chat_key: str) -> list[dict]:
+        now = self._clock()
+        self._prune(now)
+        context = self._chats.get(chat_key)
+        if context is None:
+            return []
+        context.last_access = now
+        self._chats.move_to_end(chat_key)
+        return list(context.messages)
+
+
+_context_buffer = ContextBuffer(
+    max_chats=CONTEXT_MAX_CHATS,
+    messages_per_chat=CONTEXT_MESSAGES_PER_CHAT,
+    ttl_seconds=CONTEXT_TTL_SECONDS,
+)
 
 
 def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
@@ -18,71 +87,59 @@ def _normalize_chat_id(platform: str, chat_id: int | str) -> str:
         user, server = lowered.split("@", 1)
         user = user.split(":", 1)[0]
         return f"{user}@{server}"
-
     return lowered.split(":", 1)[0]
 
 
 def _get_chat_key(platform: str, chat_id: int | str) -> str:
-    normalized_chat_id = _normalize_chat_id(platform, chat_id)
-    return f"{platform}_{normalized_chat_id}"
+    return f"{platform}_{_normalize_chat_id(platform, chat_id)}"
 
-def add_message_to_context(msg: UnifiedMessage):
-    """
-    Adds a message to the short-term context buffer.
-    """
+
+def add_message_to_context(msg: UnifiedMessage) -> None:
     if not msg.chat or not msg.from_user:
         return
 
     user_name = msg.from_user.first_name
     if msg.from_user.username:
         user_name += f" (@{msg.from_user.username})"
-    
-    replied_to_id = None
-    replied_to_user = None
-    
-    if msg.reply_to_message:
-        replied_to_id = msg.reply_to_message.id
-        if msg.reply_to_message.from_user:
-            replied_to_user = msg.reply_to_message.from_user.first_name
 
-    # Determine media type
+    replied_to_id = msg.reply_to_message.id if msg.reply_to_message else None
+    replied_to_user = (
+        msg.reply_to_message.from_user.first_name
+        if msg.reply_to_message and msg.reply_to_message.from_user
+        else None
+    )
+
     media_type = None
     if msg.photo:
-        media_type = "photo"
-        text_content = msg.caption or "[Photo]"
+        media_type, text_content = "photo", msg.caption or "[Photo]"
     elif msg.sticker:
         emoji = msg.sticker.emoji or ""
-        media_type = f"sticker {emoji}".strip()
-        text_content = f"[Sticker {emoji}]"
+        media_type, text_content = f"sticker {emoji}".strip(), f"[Sticker {emoji}]"
     elif msg.video:
-        media_type = "video"
-        text_content = msg.caption or "[Video]"
+        media_type, text_content = "video", msg.caption or "[Video]"
     elif msg.animation:
-        media_type = "animation"
-        text_content = msg.caption or "[GIF/Animation]"
+        media_type, text_content = "animation", msg.caption or "[GIF/Animation]"
     elif msg.voice:
-        media_type = "voice"
-        text_content = "[Voice Message]"
+        media_type, text_content = "voice", "[Voice Message]"
     elif msg.audio:
-        media_type = "audio"
-        text_content = "[Audio]"
+        media_type, text_content = "audio", "[Audio]"
     else:
         text_content = msg.text or msg.caption or "[Other Media]"
 
-    entry = {
-        "platform": msg.platform,
-        "msg_id": msg.id,
-        "user_id": msg.from_user.id,
-        "user_name": user_name,
-        "text": text_content,
-        "media_type": media_type,
-        "reply_to_id": replied_to_id,
-        "reply_to_user": replied_to_user,
-        "timestamp": msg.date or time.time()
-    }
-    
-    chat_key = _get_chat_key(msg.platform, msg.chat.id)
-    _context_buffer[chat_key].append(entry)
+    _context_buffer.append(
+        _get_chat_key(msg.platform, msg.chat.id),
+        {
+            "platform": msg.platform,
+            "msg_id": msg.id,
+            "user_id": msg.from_user.id,
+            "user_name": user_name,
+            "text": text_content,
+            "media_type": media_type,
+            "reply_to_id": replied_to_id,
+            "reply_to_user": replied_to_user,
+            "timestamp": msg.date or time.time(),
+        },
+    )
 
 
 def add_bot_message_to_context(
@@ -97,133 +154,98 @@ def add_bot_message_to_context(
     media_type: str | None = None,
     timestamp: float | None = None,
 ) -> None:
-    """
-    Adds an outgoing bot message to the short-term context buffer.
-    """
     if not bot_user:
         return
 
     user_name = bot_user.first_name or "Bot"
     if bot_user.username:
         user_name += f" (@{bot_user.username})"
-
     if media_type and not text:
-        if media_type.startswith("sticker"):
-            text_content = "[Sticker]"
-        elif media_type == "photo":
-            text_content = "[Photo]"
-        else:
-            text_content = "[Media]"
+        text_content = "[Sticker]" if media_type.startswith("sticker") else (
+            "[Photo]" if media_type == "photo" else "[Media]"
+        )
     else:
         text_content = text or ""
 
-    entry = {
-        "platform": platform,
-        "msg_id": msg_id,
-        "user_id": bot_user.id,
-        "user_name": user_name,
-        "text": text_content,
-        "media_type": media_type,
-        "reply_to_id": reply_to_id,
-        "reply_to_user": reply_to_user,
-        "timestamp": timestamp or time.time(),
-    }
+    _context_buffer.append(
+        _get_chat_key(platform, chat_id),
+        {
+            "platform": platform,
+            "msg_id": msg_id,
+            "user_id": bot_user.id,
+            "user_name": user_name,
+            "text": text_content,
+            "media_type": media_type,
+            "reply_to_id": reply_to_id,
+            "reply_to_user": reply_to_user,
+            "timestamp": timestamp or time.time(),
+        },
+    )
 
-    chat_key = _get_chat_key(platform, chat_id)
-    _context_buffer[chat_key].append(entry)
 
-def get_recent_context_string(platform: str, chat_id: int | str, current_msg_id: int | str = None) -> str:
-    """
-    Returns a formatted string of the recent conversation history.
-    Excludes the current message if provided (to avoid duplication in prompt).
-    Each message is tagged with its actual message ID (id:XXXXX)
-    so the AI can directly reference them for targeting.
-    """
-    chat_key = _get_chat_key(platform, chat_id)
-    if chat_key not in _context_buffer:
-        return ""
-
+def get_recent_context_string(
+    platform: str,
+    chat_id: int | str,
+    current_msg_id: int | str | None = None,
+) -> str:
+    messages = _context_buffer.snapshot(_get_chat_key(platform, chat_id))
     lines = []
-    # Snapshot to list for stable iteration order (deque order can shift
-    # if messages arrive between snapshot and iteration — this snapshot
-    # ensures the final string is deterministic for a given chat state).
-    msgs = list(_context_buffer[chat_key])
-    
-    for m in msgs:
-        if current_msg_id and str(m["msg_id"]) == str(current_msg_id):
+    for message in messages:
+        if current_msg_id is not None and str(message["msg_id"]) == str(current_msg_id):
             continue
-            
-        # Format Timestamp
         try:
-            ts = m["timestamp"]
-            dt_obj = datetime.fromtimestamp(ts)
-            time_str = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
-        except:
-            time_str = "Unknown Time"
-
-        # Format: [Time] [User Name] (id:XXXXX): Message
-        prefix = f"[{time_str}] [{m['user_name']}]"
-        if m['reply_to_user']:
-            prefix = f"[{time_str}] [{m['user_name']} (replying to {m['reply_to_user']})]"
-        
-        # Embed the actual message ID
-        prefix += f" (id:{m['msg_id']})"
-            
-        lines.append(f"{prefix}: {m['text']}")
-    
+            time_string = datetime.fromtimestamp(message["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+        except (OSError, OverflowError, TypeError, ValueError):
+            time_string = "Unknown Time"
+        user_label = message["user_name"]
+        if message["reply_to_user"]:
+            user_label += f" (replying to {message['reply_to_user']})"
+        lines.append(f"[{time_string}] [{user_label}] (id:{message['msg_id']}): {message['text']}")
     return "\n".join(lines)
 
-def get_recent_media_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
-    """
-    Returns a list of recent messages that contain photos or stickers.
-    Limited to max_count most recent media messages.
-    
-    Returns list of dicts with: msg_id, user_name, media_type, timestamp
-    """
-    chat_key = _get_chat_key(platform, chat_id)
-    if chat_key not in _context_buffer:
-        return []
-    
-    media_messages = []
-    # Iterate in reverse to get most recent first
-    for m in reversed(list(_context_buffer[chat_key])):
-        if m.get("media_type") and m["media_type"] in ["photo"] or (m.get("media_type") and m["media_type"].startswith("sticker")):
-            media_messages.append({
-                "msg_id": m["msg_id"],
-                "user_name": m["user_name"],
-                "media_type": m["media_type"],
-                "timestamp": m["timestamp"]
-            })
-            
-            if len(media_messages) >= max_count:
+
+def _recent_media(
+    platform: str,
+    chat_id: int | str,
+    *,
+    allowed: Callable[[str | None], bool],
+    max_count: int,
+) -> list[dict]:
+    result = []
+    for message in reversed(_context_buffer.snapshot(_get_chat_key(platform, chat_id))):
+        if allowed(message.get("media_type")):
+            result.append(
+                {
+                    "msg_id": message["msg_id"],
+                    "user_name": message["user_name"],
+                    "media_type": message["media_type"],
+                    "timestamp": message["timestamp"],
+                }
+            )
+            if len(result) >= max_count:
                 break
+    return result
 
-    return media_messages
+
+def get_recent_media_messages(
+    platform: str, chat_id: int | str, max_count: int = 10
+) -> list[dict]:
+    return _recent_media(
+        platform,
+        chat_id,
+        allowed=lambda media_type: media_type == "photo" or bool(
+            media_type and media_type.startswith("sticker")
+        ),
+        max_count=max_count,
+    )
 
 
-def get_recent_audio_messages(platform: str, chat_id: int | str, max_count: int = 10) -> list[dict]:
-    """
-    Returns a list of recent messages that contain voice messages or audio files.
-    Limited to max_count most recent audio messages.
-
-    Returns list of dicts with: msg_id, user_name, media_type, timestamp
-    """
-    chat_key = _get_chat_key(platform, chat_id)
-    if chat_key not in _context_buffer:
-        return []
-
-    audio_messages = []
-    # Iterate in reverse to get most recent first
-    for m in reversed(list(_context_buffer[chat_key])):
-        if m.get("media_type") in ("voice", "audio"):
-            audio_messages.append({
-                "msg_id": m["msg_id"],
-                "user_name": m["user_name"],
-                "media_type": m["media_type"],
-                "timestamp": m["timestamp"]
-            })
-
-            if len(audio_messages) >= max_count:
-                break
-
-    return audio_messages
+def get_recent_audio_messages(
+    platform: str, chat_id: int | str, max_count: int = 10
+) -> list[dict]:
+    return _recent_media(
+        platform,
+        chat_id,
+        allowed=lambda media_type: media_type in {"voice", "audio"},
+        max_count=max_count,
+    )

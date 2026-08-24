@@ -77,6 +77,15 @@ class WhatsAppPlatform(PlatformAdapter):
         return False
 
     @property
+    def coordination_scope(self) -> str:
+        me = self.client.me
+        if me and me.JID.ListFields():
+            identity = self._normalize_jid_identity(Jid2String(me.JID))
+        else:
+            identity = self._session_name
+        return f"whatsapp:{self.credential_fingerprint(identity)}"
+
+    @property
     def event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         return self._loop
 

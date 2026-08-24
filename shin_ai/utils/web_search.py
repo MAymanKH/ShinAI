@@ -1,5 +1,4 @@
 import asyncio
-import contextvars
 import json
 import re
 import time
@@ -9,14 +8,12 @@ import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 from shin_ai.config import WEB_SEARCH_TIMEOUT_SECONDS
+from shin_ai.core.request_context import (
+    web_search_count,
+    web_search_exhausted,
+    web_search_start_time,
+)
 from shin_ai.utils.logger_config import logger
-
-# Request-scoped search counter. Since each user request runs in its own asyncio Task,
-# a ContextVar naturally tracks requests independently.
-web_search_count = contextvars.ContextVar("web_search_count", default=0)
-web_search_start_time = contextvars.ContextVar("web_search_start_time", default=0.0)
-web_search_exhausted = contextvars.ContextVar("web_search_exhausted", default=False)
-
 
 def is_web_search_exhausted() -> bool:
     """Check if web search has been exhausted for the current request context."""
@@ -217,12 +214,12 @@ async def search_web_tool(query: str) -> str:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
-        async with httpx.AsyncClient(verify=False, headers=headers) as client:
+        async with httpx.AsyncClient(headers=headers) as client:
             tasks = []
             for res in results_list:
                 url = res.get('href')
                 if url:
-                    remaining = time.time() - deadline
+                    remaining = deadline - time.time()
                     if remaining < 2.0:
                         logger.warning("Search scraping aborted — less than 2s remaining in time budget.")
                         break
