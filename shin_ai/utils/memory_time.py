@@ -2,10 +2,10 @@ import asyncio
 from datetime import datetime, timedelta
 
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
+from shin_ai.utils.similarity import cosine_similarities
 
 # Time buckets: each bucket has a timedelta and example phrases in multiple languages/dialects.
 # "dynamic_today" means "from midnight to now" and is computed at query time.
@@ -365,12 +365,10 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     now = datetime.now().astimezone()
 
     query_emb_tensor = await get_embedding_service().encode(f"query: {query}")
-    query_emb = query_emb_tensor.reshape(1, -1)
-
-    time_similarities = cosine_similarity(query_emb, _time_example_embeddings)[0]
+    time_similarities = cosine_similarities(query_emb_tensor, _time_example_embeddings)
     max_time_sim = float(np.max(time_similarities))
 
-    no_time_similarities = cosine_similarity(query_emb, _no_time_embeddings)[0]
+    no_time_similarities = cosine_similarities(query_emb_tensor, _no_time_embeddings)
     max_no_time_sim = float(np.max(no_time_similarities))
 
     if (

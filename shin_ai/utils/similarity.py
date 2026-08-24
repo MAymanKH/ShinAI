@@ -30,6 +30,24 @@ def within_distance(distance: float, max_cosine_distance: float) -> bool:
     return cosine_distance_from_chroma(distance) <= max_cosine_distance
 
 
+def cosine_similarities(query_embedding: Any, matrix: Any) -> Any:
+    """Cosine similarity between one vector and each row of ``matrix``.
+
+    For unit-normalised embeddings this is a plain dot product; the vectors are
+    normalised defensively so the result stays correct regardless.
+    """
+    import numpy as np
+
+    rows = np.asarray(matrix, dtype=np.float64)
+    query = np.asarray(query_embedding, dtype=np.float64).reshape(-1)
+    if rows.ndim != 2 or 0 in rows.shape:
+        return np.zeros(0, dtype=np.float64)
+
+    rows = rows / np.clip(np.linalg.norm(rows, axis=1, keepdims=True), 1e-12, None)
+    query = query / max(float(np.linalg.norm(query)), 1e-12)
+    return rows @ query
+
+
 def select_mmr_indices(
     query_embedding: Any,
     candidate_embeddings: Any,

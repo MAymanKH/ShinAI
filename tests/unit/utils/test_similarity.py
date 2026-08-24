@@ -5,6 +5,7 @@ import pytest
 
 from shin_ai.utils.similarity import (
     cosine_distance_from_chroma,
+    cosine_similarities,
     select_mmr_indices,
     select_mmr_indices_async,
     within_distance,
@@ -101,3 +102,16 @@ class TestMMR:
         candidates = [[0.8, 0.6, 0.0], [0.79, 0.61, 0.0], [0.75, 0.0, 0.66]]
         expected = select_mmr_indices(query, candidates, 2)
         assert asyncio.run(select_mmr_indices_async(query, candidates, 2)) == expected
+
+
+class TestCosineSimilarities:
+    def test_matches_hand_computed_values(self) -> None:
+        similarities = cosine_similarities([1.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]])
+        assert list(similarities) == pytest.approx([1.0, 0.0, -1.0])
+
+    def test_normalises_unnormalised_rows(self) -> None:
+        similarities = cosine_similarities([5.0, 0.0], [[3.0, 0.0], [0.0, 9.0]])
+        assert list(similarities) == pytest.approx([1.0, 0.0])
+
+    def test_empty_matrix_returns_empty(self) -> None:
+        assert len(cosine_similarities([1.0, 0.0], [])) == 0

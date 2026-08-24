@@ -20,7 +20,6 @@ opentelemetry-exporter-otlp-proto-grpc==1.40.0
 torch==2.12.1+cpu
 sentence-transformers>=5.7,<6
 numpy>=1.26,<3
-scikit-learn>=1.6,<2
 
 # AI Providers
 google-genai>=2.17,<3
