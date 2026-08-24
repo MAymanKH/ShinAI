@@ -4,7 +4,6 @@ import asyncio
 from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
-from typing import Any
 
 from shin_ai.data.loader import DATA_DIR
 from shin_ai.platforms.base import PlatformAdapter
@@ -42,14 +41,12 @@ from shin_ai.platforms.whatsapp_runtime import (
     ParticipantChange,
     SendResponseType,
     WaMessage,
-    WaMessageType,
     build_jid,
 )
 from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
-WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class WhatsAppPlatform(PlatformAdapter):
@@ -83,7 +80,7 @@ class WhatsAppPlatform(PlatformAdapter):
     def coordination_scope(self) -> str:
         me = self.client.me
         if me and me.JID.ListFields():
-            identity = self._normalize_jid_identity(Jid2String(me.JID))
+            identity = normalize_jid_identity(Jid2String(me.JID))
         else:
             identity = self._session_name
         return f"whatsapp:{self.credential_fingerprint(identity)}"
@@ -104,26 +101,6 @@ class WhatsAppPlatform(PlatformAdapter):
             while len(self._group_title_cache) > self._cache_limit:
                 self._group_title_cache.popitem(last=False)
 
-    def _jid_to_user_id(self, jid: JIDType) -> str:
-        return jid_to_user_id(jid)
-
-    def _jid_to_username(self, jid: JIDType) -> str:
-        return jid_to_username(jid)
-
-    def _normalize_message_timestamp(self, raw_timestamp: int | float | None) -> float:
-        return normalize_message_timestamp(raw_timestamp)
-
-    def _media_id(self, message_id: int | str, media_type: str) -> str:
-        from shin_ai.platforms.whatsapp_helpers import media_id
-
-        return media_id(message_id, media_type)
-
-    def _normalize_jid_identity(self, jid_value: str) -> str:
-        return normalize_jid_identity(jid_value)
-
-    def _extract_local_user_id(self, jid_value: str) -> str:
-        return extract_local_user_id(jid_value)
-
     def _chat_id_to_jid(self, chat_id: int | str) -> JIDType:
         chat = str(chat_id)
         if "@" in chat:
@@ -140,24 +117,6 @@ class WhatsAppPlatform(PlatformAdapter):
             return build_jid(raw_user, server)
         return build_jid(user, "s.whatsapp.net")
 
-    def _unwrap_message(self, message: WaMessageType) -> WaMessageType:
-        return unwrap_message(message)
-
-    def _extract_context_info(self, message: WaMessageType) -> ContextInfoType | None:
-        return extract_context_info(message)
-
-    def _extract_text_and_caption(self, message: WaMessageType) -> tuple[str | None, str | None]:
-        return extract_text_and_caption(message)
-
-    def _apply_media(
-        self,
-        unified_msg: UnifiedMessage,
-        message: WaMessageType,
-        download_message: WaMessageType = None,
-        message_id: int | str | None = None,
-    ) -> None:
-        apply_media(unified_msg, message, download_message, message_id)
-
     def _build_quoted_message(
         self, context_info: ContextInfoType, chat: UnifiedChat
     ) -> UnifiedMessage | None:
@@ -167,12 +126,12 @@ class WhatsAppPlatform(PlatformAdapter):
             return None
 
         participant = context_info.participant or ""
-        participant_id = self._normalize_jid_identity(participant)
-        participant_user = self._extract_local_user_id(participant)
+        participant_id = normalize_jid_identity(participant)
+        participant_user = extract_local_user_id(participant)
         display_name = participant_user or participant_id or "unknown"
 
         bot_tokens = self._collect_bot_identity_tokens()
-        participant_tokens = self._collect_mentioned_identity_tokens([participant]) if participant else set()
+        participant_tokens = collect_mentioned_identity_tokens([participant]) if participant else set()
 
         quoted_user = UnifiedUser(
             id=participant_id or display_name,
@@ -181,8 +140,8 @@ class WhatsAppPlatform(PlatformAdapter):
             is_self=bool(bot_tokens & participant_tokens),
         )
 
-        quoted_body = self._unwrap_message(context_info.quotedMessage)
-        quoted_text, quoted_caption = self._extract_text_and_caption(quoted_body)
+        quoted_body = unwrap_message(context_info.quotedMessage)
+        quoted_text, quoted_caption = extract_text_and_caption(quoted_body)
 
         quoted = UnifiedMessage(
             platform=self.platform_name,
@@ -194,30 +153,13 @@ class WhatsAppPlatform(PlatformAdapter):
             date=0.0,
             native_msg=context_info.quotedMessage,
         )
-        self._apply_media(
+        apply_media(
             quoted,
             quoted_body,
             context_info.quotedMessage,
             message_id=str(context_info.stanzaID),
         )
         return quoted
-
-    def _build_entities_from_context(
-        self,
-        context_info: ContextInfoType | None,
-        source_text: str,
-    ):
-        from shin_ai.platforms.whatsapp_message import build_entities_from_context
-
-        return build_entities_from_context(context_info, source_text)
-
-    def _build_text_caption_entities(
-        self,
-        context_info: ContextInfoType | None,
-        text: str | None,
-        caption: str | None,
-    ):
-        return build_text_caption_entities(context_info, text, caption)
 
     def _cache_message(self, unified: UnifiedMessage, event_msg: MessageEventType) -> None:
         cache_key = (str(unified.chat.id), str(unified.id))
@@ -228,22 +170,9 @@ class WhatsAppPlatform(PlatformAdapter):
             self._unified_message_cache.move_to_end(cache_key)
         self._trim_cache_if_needed()
 
-    def _is_same_chat_identity(self, first_chat_id: str, second_chat_id: str) -> bool:
-        from shin_ai.platforms.whatsapp_helpers import is_same_chat_identity
-
-        return is_same_chat_identity(first_chat_id, second_chat_id)
-
-    def _find_cache_key(
-        self,
-        cache_map: OrderedDict[tuple[str, str], Any],
-        chat_id: int | str,
-        message_id: int | str,
-    ) -> tuple[str, str] | None:
-        return find_cache_key(cache_map, chat_id, message_id)
-
     def _get_cached_unified_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         with self._cache_lock:
-            cache_key = self._find_cache_key(self._unified_message_cache, chat_id, message_id)
+            cache_key = find_cache_key(self._unified_message_cache, chat_id, message_id)
             if not cache_key:
                 return None
             self._unified_message_cache.move_to_end(cache_key)
@@ -251,7 +180,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
     def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> MessageEventType | None:
         with self._cache_lock:
-            cache_key = self._find_cache_key(self._raw_message_cache, chat_id, message_id)
+            cache_key = find_cache_key(self._raw_message_cache, chat_id, message_id)
             if not cache_key:
                 return None
             self._raw_message_cache.move_to_end(cache_key)
@@ -285,11 +214,11 @@ class WhatsAppPlatform(PlatformAdapter):
             if full_jid:
                 tokens.add(full_jid.lower())
 
-            normalized = self._normalize_jid_identity(full_jid)
+            normalized = normalize_jid_identity(full_jid)
             if normalized:
                 tokens.add(normalized.lower())
 
-            local = self._extract_local_user_id(full_jid)
+            local = extract_local_user_id(full_jid)
             if local:
                 tokens.add(local.lower())
 
@@ -309,20 +238,17 @@ class WhatsAppPlatform(PlatformAdapter):
                 if lid_full:
                     tokens.add(lid_full.lower())
 
-                lid_normalized = self._normalize_jid_identity(lid_full)
+                lid_normalized = normalize_jid_identity(lid_full)
                 if lid_normalized:
                     tokens.add(lid_normalized.lower())
 
-                lid_local = self._extract_local_user_id(lid_full)
+                lid_local = extract_local_user_id(lid_full)
                 if lid_local:
                     tokens.add(lid_local.lower())
         except Exception:
             pass
 
         return tokens
-
-    def _collect_mentioned_identity_tokens(self, mentioned_jid_list: list[str]) -> set[str]:
-        return collect_mentioned_identity_tokens(mentioned_jid_list)
 
     async def to_unified_message(self, event_msg: MessageEventType) -> UnifiedMessage:
         source = event_msg.Info.MessageSource
@@ -334,7 +260,7 @@ class WhatsAppPlatform(PlatformAdapter):
             sender_jid = self.client.me.JID
 
         raw_chat_id = Jid2String(chat_jid)
-        chat_id = self._normalize_jid_identity(raw_chat_id) or raw_chat_id
+        chat_id = normalize_jid_identity(raw_chat_id) or raw_chat_id
         chat_type = "GROUP" if (chat_jid.Server == "g.us" or bool(source.IsGroup)) else "PRIVATE"
 
         chat_title = None
@@ -358,8 +284,8 @@ class WhatsAppPlatform(PlatformAdapter):
             type=chat_type,
         )
 
-        sender_id = self._jid_to_user_id(sender_jid)
-        sender_username = self._jid_to_username(sender_jid)
+        sender_id = jid_to_user_id(sender_jid)
+        sender_username = jid_to_username(sender_jid)
         sender_name = event_msg.Info.Pushname or sender_username or sender_id
 
         from_user = UnifiedUser(
@@ -369,8 +295,8 @@ class WhatsAppPlatform(PlatformAdapter):
             is_self=bool(source.IsFromMe),
         )
 
-        body = self._unwrap_message(event_msg.Message)
-        text, caption = self._extract_text_and_caption(body)
+        body = unwrap_message(event_msg.Message)
+        text, caption = extract_text_and_caption(body)
 
         unified_msg = UnifiedMessage(
             platform=self.platform_name,
@@ -379,18 +305,18 @@ class WhatsAppPlatform(PlatformAdapter):
             from_user=from_user,
             text=text,
             caption=caption,
-            date=self._normalize_message_timestamp(event_msg.Info.Timestamp),
+            date=normalize_message_timestamp(event_msg.Info.Timestamp),
             native_msg=event_msg,
         )
 
-        self._apply_media(
+        apply_media(
             unified_msg,
             body,
             event_msg.Message,
             message_id=str(event_msg.Info.ID),
         )
 
-        context_info = self._extract_context_info(body)
+        context_info = extract_context_info(body)
         source_text = text or caption or ""
 
         if context_info and context_info.stanzaID:
@@ -407,13 +333,13 @@ class WhatsAppPlatform(PlatformAdapter):
             (
                 unified_msg.entities,
                 unified_msg.caption_entities,
-            ) = self._build_text_caption_entities(context_info, text, caption)
+            ) = build_text_caption_entities(context_info, text, caption)
 
             raw_mentioned = list(context_info.mentionedJID)
 
             if raw_mentioned:
                 bot_tokens = self._collect_bot_identity_tokens()
-                mention_tokens = self._collect_mentioned_identity_tokens(raw_mentioned)
+                mention_tokens = collect_mentioned_identity_tokens(raw_mentioned)
                 overlap = bot_tokens & mention_tokens
                 if overlap:
                     unified_msg.mentioned = True
@@ -434,8 +360,8 @@ class WhatsAppPlatform(PlatformAdapter):
 
         me = self.client.me
         if me and me.JID.ListFields():
-            user_id = self._jid_to_user_id(me.JID)
-            username = self._jid_to_username(me.JID)
+            user_id = jid_to_user_id(me.JID)
+            username = jid_to_username(me.JID)
             first_name = me.PushName or username or user_id
             self._bot_user_cache = UnifiedUser(
                 id=user_id,
@@ -515,7 +441,7 @@ class WhatsAppPlatform(PlatformAdapter):
         if not sender_jid.ListFields() and source.SenderAlt.ListFields():
             sender_jid = source.SenderAlt
 
-        participant = self._normalize_jid_identity(Jid2String(sender_jid))
+        participant = normalize_jid_identity(Jid2String(sender_jid))
         if not raw_quoted.Info.ID or not participant or not raw_quoted.Message.ListFields():
             raise ValueError("WhatsApp quoted message is missing its ID, sender, or payload")
 
@@ -580,6 +506,9 @@ class WhatsAppPlatform(PlatformAdapter):
         if local_path.is_file():
             return str(local_path)
 
+        # Created on demand rather than at import: importing an adapter should
+        # not touch the filesystem.
+        WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
         data_dir_path = WHATSAPP_STICKERS_DIR / source
         if data_dir_path.is_file():
             return str(data_dir_path)
