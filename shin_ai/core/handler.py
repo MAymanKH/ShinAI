@@ -9,7 +9,6 @@ import os
 import random
 import re as _re
 import time
-import unicodedata as _ud
 from dataclasses import dataclass
 
 from shin_ai.platforms.models import UnifiedMessage
@@ -18,6 +17,10 @@ from shin_ai.core import state
 from shin_ai.core.interaction_scheduler import InteractionScheduler
 from shin_ai.core.provider_router import call_ai_provider
 from shin_ai.core.request_context import reset_request_context
+from shin_ai.core.response_policy import (
+    is_trivial_message,
+    parse_model_response,
+)
 from shin_ai.core.prompt_builder import (
     get_static_system_prompt,
     build_user_prompt,
@@ -28,7 +31,6 @@ from shin_ai.core.action_executor import (
     execute_text_messages,
     execute_pending_actions,
     save_interaction_memory,
-    split_reply_messages,
 )
 from shin_ai.config import (
     GROUP_MAX_RESPONSES_PER_WINDOW,
@@ -400,7 +402,8 @@ async def _execute_frozen_message(
         target_instructions=target_instructions,
     )
 
-    if await _should_skip_queued_reply(msg, prompt, recent_context_section):
+    if is_trivial_message(msg):
+        logger.debug("Skip classifier: trivial message, skipping")
         logger.info(
             "[%s] Skipped reply — chat=%s msg=%s (trivial/laugh/sticker) | text=\"%s\"",
             msg.chat.type,
@@ -443,55 +446,31 @@ async def _execute_frozen_message(
         )
         sent_messages: list[str] = []
 
-        # Determine whether the AI chose to skip text output.
-        # Robust detection: match a standalone [SKIP] token at the very start
-        # or very end of the answer, ignoring stray backticks, brackets,
-        # whitespace and trailing punctuation. This catches variants like
-        # "[SKIP]", "[SKIP].", "`[SKIP]`", "[skip]", "SKIP", etc. that the
-        # old exact-match check silently let through and sent to the user.
-        skip_text = False
-        if answer:
-            detected, remaining = _extract_skip_token(answer)
-            if detected:
-                if pending_actions:
-                    logger.info(
-                        "[%s] AI chose to skip text after tool action(s) — chat=%s user=%s | trigger=\"%s\"",
-                        platform.platform_name,
-                        msg.chat.id,
-                        msg.from_user.id if msg.from_user else "?",
-                        (prompt or "").replace("\n", " ")[:80],
-                    )
-                else:
-                    logger.info(
-                        "[%s] AI chose to skip — chat=%s user=%s | trigger=\"%s\"",
-                        platform.platform_name,
-                        msg.chat.id,
-                        msg.from_user.id if msg.from_user else "?",
-                        (prompt or "").replace("\n", " ")[:80],
-                    )
-                skip_text = True
-                answer = remaining
+        response = parse_model_response(answer or "", has_actions=bool(pending_actions))
+        if response.skips_all_text:
+            logger.info(
+                "AI chose to skip text%s — trigger=\"%s\"",
+                " after tool action(s)" if pending_actions else "",
+                (prompt or "").replace("\n", " ")[:80],
+                extra={"event_name": "response.skipped"},
+            )
+        elif response.skip_token_found:
+            logger.debug("Stripped [SKIP] control token from combined text response")
 
-        if not skip_text:
-            # Split text on '---' for multi-message support and extract any
-            # per-message [REPLY_TO:id] tags so each part can reply to a
-            # different message in the chat (including an older message).
-            text_messages = split_reply_messages(answer)
+        if response.filtered_meta_messages:
+            logger.debug(
+                "Filtered %d action meta-commentary message(s)",
+                response.filtered_meta_messages,
+            )
 
-            # When tool actions were executed, filter out meta-commentary
-            # that the AI sometimes produces alongside tool calls, e.g.
-            # "(No further action needed as the sticker was sent)."
-            if pending_actions and text_messages:
-                text_messages = _filter_action_meta_commentary(text_messages)
-
-            # Send text messages
-            if text_messages:
-                sent_messages.extend(await execute_text_messages(
-                    platform=platform,
-                    msg=msg,
-                    messages=text_messages,
-                    default_reply_to_id=msg.id,
-                ))
+        if response.messages:
+            delivered = await execute_text_messages(
+                platform=platform,
+                msg=msg,
+                messages=list(response.messages),
+                default_reply_to_id=msg.id,
+            )
+            sent_messages.extend(delivered)
 
         if action_result.errors:
             error_context = "\n".join(f"- {err}" for err in action_result.errors)
@@ -513,13 +492,18 @@ async def _execute_frozen_message(
             )
 
             if error_answer and error_answer.strip():
-                error_messages = split_reply_messages(error_answer)
-                sent_messages.extend(await execute_text_messages(
-                    platform=platform,
-                    msg=msg,
-                    messages=error_messages,
-                    default_reply_to_id=msg.id,
-                ))
+                error_response = parse_model_response(
+                    error_answer,
+                    has_actions=False,
+                )
+                if error_response.messages:
+                    delivered = await execute_text_messages(
+                        platform=platform,
+                        msg=msg,
+                        messages=list(error_response.messages),
+                        default_reply_to_id=msg.id,
+                    )
+                    sent_messages.extend(delivered)
 
         await save_interaction_memory(
             platform=platform.platform_name,
@@ -674,132 +658,6 @@ def _get_recent_context(platform_name: str, msg: UnifiedMessage) -> str:
     except Exception:
         pass
     return "RECENT CHAT ACTIVITY: None recorded yet."
-
-
-# Matches a standalone [SKIP] token at the very start or end of the response,
-# tolerating backticks, optional brackets and surrounding punctuation
-# (e.g. "[SKIP]", "[SKIP].", "`[SKIP]`", "[skip]", "SKIP").
-# A trailing word boundary / leading lookbehind prevent matching embedded
-# words like "skipping" or "don't skip" in the middle of a sentence.
-_SKIP_TOKEN_AFTER = _re.compile(
-    r"(?<![A-Za-z])`?\[?SKIP\]?,?`?[.,!?\s]*$", _re.IGNORECASE
-)
-_SKIP_TOKEN_BEFORE = _re.compile(
-    r"^[.,!?\s]*`?\[?SKIP\b\]?,?`?", _re.IGNORECASE
-)
-
-
-def _extract_skip_token(answer: str) -> tuple[bool, str]:
-    """Detect a [SKIP] decision in the model output.
-
-    Returns (skip_detected, remaining_text). The token is matched at the
-    very start or very end of the trimmed answer; any surrounding text is
-    returned as the remainder so a combined `[SKIP] + comment` response
-    still sends its real message.
-    """
-    text = (answer or "").strip()
-    if not text:
-        return False, ""
-
-    match = _SKIP_TOKEN_AFTER.search(text)
-    if match:
-        remainder = text[: match.start()].strip()
-    else:
-        match = _SKIP_TOKEN_BEFORE.match(text)
-        if not match:
-            return False, text
-        remainder = text[match.end():].strip()
-
-    # If stripping the token leaves only separators/punctuation, treat the
-    # whole answer as a skip decision.
-    if not remainder or all(ch in "-–—`[].,!? \n" for ch in remainder):
-        return True, ""
-    return True, remainder
-
-
-_TRIVIAL_LAUGH_PATTERN = _re.compile(
-    r"^[هح\s]+$"          # Arabic laughing (ههههه / ححح)
-    r"|^h[ha]+$"           # English laughing (haha, hahaha)
-    r"|^lo+l+$"            # lol, looool
-    r"|^lma+o+$"           # lmao
-    r"|^x+d+$"             # xD, xxdd
-    r"|^😂+$|^🤣+$|^😭+$"  # Pure laughing/crying emoji strings
-    r"|^ك+$",              # ككككك (Arabic laughing)
-    _re.IGNORECASE,
-)
-
-
-def _is_trivial_message(msg: UnifiedMessage) -> bool:
-    """Fast-path check for messages that are meaningless to respond to."""
-    text = (msg.text or msg.caption or "").strip()
-
-    # Sticker with no meaningful text
-    if msg.sticker and not text:
-        return True
-
-    if not text:
-        return False
-
-    # Pure emoji strings (no letters/digits)
-    if all(
-        _ud.category(ch).startswith(("So", "Sk", "Sm"))  # Symbol categories
-        or _ud.category(ch) == "Zs"                       # Spaces
-        or ch in "\ufe0f\u200d"                           # Variation selectors / ZWJ
-        for ch in text
-    ):
-        return True
-
-    # Common laughing / low-content patterns
-    cleaned = _re.sub(r"[\s.,!?]+", "", text)
-    if cleaned and _TRIVIAL_LAUGH_PATTERN.match(cleaned):
-        return True
-
-    return False
-
-
-async def _should_skip_queued_reply(
-    msg: UnifiedMessage,
-    prompt: str,
-    recent_context_section: str,
-) -> bool:
-    # Fast-path: trivial messages (stickers, emoji, laughing) never need a reply
-    if _is_trivial_message(msg):
-        logger.debug("Skip classifier: trivial message, skipping")
-        return True
-
-    return False
-
-# Patterns that catch AI meta-commentary about tool actions just executed.
-# These are messages like "(No further action needed as the sticker was sent)."
-# that the model sometimes emits after calling send_sticker / send_reaction.
-_ACTION_META_COMMENTARY_PATTERN = _re.compile(
-    r"^\s*\(?("
-    r"no\s+(further|additional)\s+(action|response|message|reply)"
-    r"|sticker\s+(was|has been)\s+sent"
-    r"|reaction\s+(was|has been)\s+(sent|added|applied)"
-    r"|already\s+(sent|reacted|responded)"
-    r"|nothing\s+(else|more)\s+(to|needed)"
-    r"|action\s+(completed|done|taken)"
-    r"|that'?s?\s+(all|it)\b"
-    r")\b",
-    _re.IGNORECASE,
-)
-
-
-def _filter_action_meta_commentary(messages: list[str]) -> list[str]:
-    """Remove AI meta-commentary about tool actions from the text messages.
-
-    When the AI calls send_sticker or send_reaction, it sometimes also
-    produces a text message like "(No further action needed as the sticker
-    was sent)." — these should never be sent to the user.
-    """
-    filtered = []
-    for text, tag_target in messages:
-        if _ACTION_META_COMMENTARY_PATTERN.search(text):
-            logger.debug("Filtered action meta-commentary: %r", text[:100])
-            continue
-        filtered.append((text, tag_target))
-    return filtered
 
 
 def _start_typing(platform: PlatformAdapter, chat_id: int | str) -> asyncio.Task:

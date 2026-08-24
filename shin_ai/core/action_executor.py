@@ -9,7 +9,6 @@ Actions arrive as:
 """
 import asyncio
 import random
-import re
 from dataclasses import dataclass
 
 from shin_ai.platforms.base import PlatformAdapter
@@ -45,8 +44,8 @@ async def execute_text_messages(
     """Send the plain-text messages produced by the AI (split from '---').
 
     `messages` is a list of (text, tag_target) pairs as returned by
-    `split_reply_messages` (older callers may still pass bare strings — those
-    are treated as having no tag).
+    `response_policy.split_reply_messages` (older callers may still pass bare
+    strings — those are treated as having no tag).
 
     Per-message reply targeting: any message may have been decorated by the
     model with a leading `[REPLY_TO:message_id]` tag to reply to ANY message
@@ -494,59 +493,6 @@ async def save_interaction_memory(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
-
-# Matches an optional [REPLY_TO:message_id] tag at the very start of a text
-# message, tolerating whitespace / quoting / bracket variants the model may
-# emit, e.g. "[REPLY_TO:1234]", "[REPLY_TO: 1234]", "[reply_to:1234]",
-# "`[REPLY_TO:1234]`". Message IDs on Telegram/Discord are numeric; on
-# WhatsApp they are hex-ish strings (e.g. 3EB0..., ABCD1234).
-_REPLY_TO_TAG_PATTERN = re.compile(
-    r"^\s*`*\[?\s*REPLY_TO\s*[:=]\s*([A-Za-z0-9_\-]+)\s*\]?,?`*\s*[:.\-]*[ \t]*\n?",
-    re.IGNORECASE,
-)
-
-
-def _parse_reply_to_tag(text: str) -> tuple[str | None, str]:
-    """Extract a leading [REPLY_TO:message_id] tag from a message part.
-
-    Returns (target_id_or_None, remaining_text). The remaining text is
-    stripped of the tag so an accidental tag from the model is never leaked
-    to the chat when parsing is enabled. When no tag is present, returns
-    (None, text) unchanged.
-    """
-    match = _REPLY_TO_TAG_PATTERN.match(text or "")
-    if not match:
-        return None, text
-
-    target = match.group(1)
-    remainder = text[match.end():].strip()
-    if not remainder:
-        # A message containing ONLY a reply tag has no content — treat the tag
-        # as absent so the model's (likely accidental) empty message is dropped
-        # and the fallback reply target applies instead.
-        return None, text
-    return target, remainder
-
-
-def split_reply_messages(answer: str) -> list[tuple[str, str | None]]:
-    """Split a raw AI answer on '---' and extract per-part [REPLY_TO] tags.
-
-    Returns a list of (clean_text, tag_target_or_None) tuples, one per
-    non-empty message part. The target is returned in its raw string form
-    (as captured from the tag); platform-specific normalization happens at
-    send time via _normalize_reply_target.
-    """
-    parts: list[tuple[str, str | None]] = []
-
-    for part in (answer or "").split("---"):
-        part = part.strip()
-        if not part:
-            continue
-        target, clean_text = _parse_reply_to_tag(part)
-        parts.append((clean_text, target))
-
-    return parts
-
 
 def _normalize_reply_target(
     platform: PlatformAdapter,
