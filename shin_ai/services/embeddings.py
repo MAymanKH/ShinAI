@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from shin_ai.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MAX_CONCURRENCY, EMBEDDING_MODEL
+from shin_ai.services.native_work import NativeWorkLimiter
 from shin_ai.utils.logger_config import logger
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -46,7 +47,10 @@ class EmbeddingService:
         self._offload = offload
         self._model = None
         self._model_lock = threading.Lock()
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._limiter = NativeWorkLimiter(
+            max_concurrency,
+            task_name="shinai-embedding-inference",
+        )
 
     @property
     def loaded(self) -> bool:
@@ -78,13 +82,16 @@ class EmbeddingService:
         )
 
     async def encode(self, texts: str | Sequence[str]):
-        async with self._semaphore:
+        async def run(commit):
+            commit()
             return await self._offload(self._encode_sync, texts)
 
+        return await self._limiter.run(run)
+
     async def close(self) -> None:
-        async with self._semaphore:
-            with self._model_lock:
-                self._model = None
+        await self._limiter.close()
+        with self._model_lock:
+            self._model = None
         gc.collect()
 
 

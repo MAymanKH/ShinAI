@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from shin_ai.services.embeddings import EmbeddingService
 
 
@@ -49,5 +51,43 @@ def test_embedding_service_loads_once_and_bounds_inference() -> None:
 
         await service.close()
         assert not service.loaded
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_inference_keeps_its_slot_until_native_work_finishes() -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def offload(function, *args):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                started.set()
+                await release.wait()
+            return function(*args)
+
+        service = EmbeddingService(
+            "fake",
+            max_concurrency=1,
+            model_factory=lambda _name: _FakeModel(),
+            offload=offload,
+        )
+        first = asyncio.create_task(service.encode("first"))
+        await started.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        second = asyncio.create_task(service.encode("second"))
+        await asyncio.sleep(0)
+        assert calls == 1
+        assert service._limiter.active_count == 1
+
+        release.set()
+        assert await second == "second"
+        await service.close()
 
     asyncio.run(scenario())

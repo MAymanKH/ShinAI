@@ -8,6 +8,7 @@ import gc
 import multiprocessing
 import tempfile
 import threading
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -23,6 +24,7 @@ from shin_ai.config import (
     WHISPER_PROCESS_ISOLATION,
     WHISPER_TIMEOUT_SECONDS,
 )
+from shin_ai.services.native_work import NativeWorkLimiter
 from shin_ai.utils.logger_config import logger
 
 _MIME_SUFFIXES = {
@@ -38,6 +40,10 @@ _MIME_SUFFIXES = {
     "audio/webm": ".webm",
     "audio/x-m4a": ".m4a",
 }
+
+
+class _TranscriptionCancelled(Exception):
+    pass
 
 
 def _file_suffix(mime_type: str) -> str:
@@ -209,7 +215,12 @@ class WhisperProcessManager:
             self.idle_timeout_seconds,
         )
 
-    def transcribe(self, audio_bytes: bytes, mime_type: str) -> str:
+    def transcribe(
+        self,
+        audio_bytes: bytes,
+        mime_type: str,
+        cancel_event: threading.Event | None = None,
+    ) -> str:
         with self._lock:
             for attempt in range(2):
                 self._start_worker()
@@ -218,11 +229,18 @@ class WhisperProcessManager:
                     self._connection.send(
                         ("transcribe", request_id, audio_bytes, mime_type)
                     )
-                    if not self._connection.poll(self.timeout_seconds):
-                        self._discard_worker(terminate=True)
-                        raise TimeoutError(
-                            f"Whisper exceeded {self.timeout_seconds:.0f}s timeout"
-                        )
+                    deadline = time.monotonic() + self.timeout_seconds
+                    while not self._connection.poll(
+                        min(0.1, max(0.0, deadline - time.monotonic()))
+                    ):
+                        if cancel_event is not None and cancel_event.is_set():
+                            self._discard_worker(terminate=True)
+                            raise _TranscriptionCancelled
+                        if time.monotonic() >= deadline:
+                            self._discard_worker(terminate=True)
+                            raise TimeoutError(
+                                f"Whisper exceeded {self.timeout_seconds:.0f}s timeout"
+                            )
                     response = self._connection.recv()
                 except (BrokenPipeError, EOFError, OSError):
                     self._discard_worker(terminate=True)
@@ -257,8 +275,9 @@ class WhisperProcessManager:
 
 _in_process_model = None
 _in_process_model_lock = threading.Lock()
-_transcription_semaphore = asyncio.Semaphore(
-    1 if WHISPER_PROCESS_ISOLATION else WHISPER_MAX_CONCURRENT
+_transcription_limiter = NativeWorkLimiter(
+    1 if WHISPER_PROCESS_ISOLATION else WHISPER_MAX_CONCURRENT,
+    task_name="shinai-audio-transcription",
 )
 _process_manager = WhisperProcessManager(
     model_name=WHISPER_MODEL or "large-v3-turbo",
@@ -301,7 +320,9 @@ async def transcribe_audio_source(
     mime_type: str = "audio/ogg",
 ) -> str:
     """Download and transcribe inside one slot to bound retained audio bytes."""
-    async with _transcription_semaphore:
+    cancel_event = threading.Event()
+
+    async def run(commit) -> str:
         try:
             audio_bytes = await loader()
             if not audio_bytes:
@@ -314,16 +335,23 @@ async def transcribe_audio_source(
                     WHISPER_MAX_FILE_BYTES,
                 )
                 return ""
+            commit()
             if WHISPER_PROCESS_ISOLATION:
                 return await asyncio.to_thread(
                     _process_manager.transcribe,
                     audio_bytes,
                     mime_type,
+                    cancel_event,
                 )
             return await asyncio.to_thread(_transcribe_in_process, audio_bytes, mime_type)
+        except _TranscriptionCancelled:
+            logger.debug("Whisper transcription cancelled")
+            return ""
         except Exception as error:
             logger.error("Whisper transcription failed: %s", error, exc_info=True)
             return ""
+
+    return await _transcription_limiter.run(run, on_cancel=cancel_event.set)
 
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
@@ -335,6 +363,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
 
 async def close_audio_transcriber() -> None:
     global _in_process_model
+    await _transcription_limiter.close()
     await asyncio.to_thread(_process_manager.close)
     with _in_process_model_lock:
         _in_process_model = None
