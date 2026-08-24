@@ -1,11 +1,12 @@
 import discord
-from shin_ai.platforms.discord import DiscordPlatform
+
+from shin_ai.config import DEBUG, DISCORD_BOT_TOKEN, DISCORD_CONFIGURED, DISCORD_ENABLED
+from shin_ai.core import state
 from shin_ai.core.handler import process_message
+from shin_ai.handlers.common import should_record_context, should_respond_to_message
+from shin_ai.platforms.discord import DiscordPlatform
 from shin_ai.utils.context_manager import add_message_to_context
 from shin_ai.utils.logger_config import logger
-from shin_ai.handlers.common import should_record_context, should_respond_to_message
-from shin_ai.core import state
-from shin_ai.config import DEBUG, DISCORD_BOT_TOKEN, DISCORD_CONFIGURED, DISCORD_ENABLED
 
 # Initialize Discord Platform
 discord_platform = None

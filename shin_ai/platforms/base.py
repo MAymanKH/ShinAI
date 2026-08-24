@@ -1,7 +1,8 @@
 import hashlib
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple
-from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedMedia
+
+from shin_ai.platforms.models import UnifiedMedia, UnifiedMessage, UnifiedUser
+
 
 class PlatformAdapter(ABC):
     """Abstract base class for all platform adapters."""
@@ -53,7 +54,7 @@ class PlatformAdapter(ABC):
         pass
 
     @abstractmethod
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
         """Sends a text message and returns its ID."""
         pass
 
@@ -62,7 +63,7 @@ class PlatformAdapter(ABC):
         return await self.send_message(message.chat.id, text, message.id)
 
     @abstractmethod
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
         """Sends a sticker and returns its message ID. If unsupported natively, should handle degradation."""
         pass
         
@@ -82,12 +83,12 @@ class PlatformAdapter(ABC):
         pass
         
     @abstractmethod
-    async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
+    async def get_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         """Fetches a specific message."""
         pass
         
     @abstractmethod
-    async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
+    async def get_user_by_username(self, username: str) -> UnifiedUser | None:
         """Resolves a username to a UnifiedUser."""
         pass
         

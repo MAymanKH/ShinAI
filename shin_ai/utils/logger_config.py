@@ -13,19 +13,18 @@ from pathlib import Path
 
 from shin_ai.config import DEBUG, LOG_BACKUP_COUNT, LOG_FILE, LOG_MAX_BYTES
 
-
 warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
-_log_context: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+_log_context: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
     "shinai_log_context",
-    default={},
+    default=None,
 )
 
 
 @contextmanager
 def bind_log_context(**fields):
     """Attach stable identifiers to all logs emitted in the current task."""
-    current = _log_context.get()
+    current = _log_context.get() or {}
     merged = {**current, **{key: str(value) for key, value in fields.items() if value is not None}}
     token = _log_context.set(merged)
     try:
@@ -46,7 +45,7 @@ class ApplicationLogFilter(logging.Filter):
         ):
             return False
 
-        context = _log_context.get()
+        context = _log_context.get() or {}
         record.event_name = getattr(record, "event_name", "-")
         ordered = (
             ("rid", context.get("interaction_id")),

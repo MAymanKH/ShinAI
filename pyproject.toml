@@ -52,4 +52,9 @@ line-length = 110
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # Arabic examples and deliberate typographic punctuation are user-facing content.
+    "RUF001",
+    "RUF002",
+]

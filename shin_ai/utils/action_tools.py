@@ -30,7 +30,6 @@ import json
 
 from shin_ai.utils.logger_config import logger
 
-
 # send_reaction
 SEND_REACTION_TOOL_SCHEMA = {
     "type": "function",

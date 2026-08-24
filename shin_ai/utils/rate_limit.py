@@ -2,13 +2,14 @@
 Rate limiting utilities for ShinAI.
 """
 import time
-from shin_ai.coordination.runtime import get_coordination_store
-from shin_ai.coordination.store import CoordinationStore
+
 from shin_ai.config import (
     ADMIN_USER_ID,
     GROUP_MAX_RESPONSES_PER_WINDOW,
     GROUP_RATE_LIMIT_WINDOW_SECONDS,
 )
+from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.coordination.store import CoordinationStore
 
 # user_id -> last_request_time
 _last_used: dict[int | str, float] = {}

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from shin_ai.platforms.models import UnifiedMessage
 
-
 ResponseMessage = tuple[str, str | None]
 
 

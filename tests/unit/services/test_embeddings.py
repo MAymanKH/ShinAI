@@ -1,4 +1,5 @@
 import asyncio
+
 from shin_ai.services.embeddings import EmbeddingService
 
 

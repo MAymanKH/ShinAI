@@ -7,7 +7,6 @@ with fine-grained filters
 
 import asyncio
 import json
-from typing import Optional
 
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
@@ -18,11 +17,12 @@ from shin_ai.utils.memory_lookup_filters import (
     sort_memory_results_by_timestamp,
 )
 
+
 async def _fetch_surrounding_interactions(
-    platform: Optional[str],
-    chat_id: Optional[str],
-    chat_title: Optional[str],
-    user_id: Optional[str],
+    platform: str | None,
+    chat_id: str | None,
+    chat_title: str | None,
+    user_id: str | None,
     target_timestamp: int,
     window_seconds: int = 86400,
     num_surrounding: int = 3,
@@ -67,7 +67,7 @@ async def _fetch_surrounding_interactions(
         metas = results.get("metadatas") or []
 
         candidates = []
-        for doc, meta in zip(docs, metas):
+        for doc, meta in zip(docs, metas, strict=False):
             if not meta:
                 continue
             candidates.append({
@@ -140,7 +140,7 @@ async def _batch_fetch_surrounding(
     tasks = []
     max_queries = 5
 
-    for key, group_results in groups.items():
+    for _key, group_results in groups.items():
         if len(tasks) >= max_queries:
             break
 
@@ -196,7 +196,7 @@ async def _fetch_context_chunk(
         metas = chunk_results.get("metadatas") or []
 
         candidates = []
-        for doc, meta in zip(docs, metas):
+        for doc, meta in zip(docs, metas, strict=False):
             if not meta:
                 continue
             candidates.append({
@@ -243,12 +243,12 @@ async def _fetch_context_chunk(
 
 # Core lookup function
 async def memory_lookup_tool(
-    keywords: Optional[str] = None,
-    usernames: Optional[list[str]] = None,
-    chat_titles: Optional[list[str]] = None,
-    platform: Optional[str] = None,
-    time_start: Optional[str] = None,
-    time_end: Optional[str] = None,
+    keywords: str | None = None,
+    usernames: list[str] | None = None,
+    chat_titles: list[str] | None = None,
+    platform: str | None = None,
+    time_start: str | None = None,
+    time_end: str | None = None,
     limit: int = 30,
 ) -> str:
     """
@@ -314,7 +314,7 @@ async def memory_lookup_tool(
 
     except Exception as e:
         logger.error(f"Memory lookup tool failed: {e}", exc_info=True)
-        return json.dumps({"error": f"Memory lookup failed: {str(e)}"}, ensure_ascii=False)
+        return json.dumps({"error": f"Memory lookup failed: {e!s}"}, ensure_ascii=False)
 
 
 def _mmr_indices(
@@ -357,7 +357,7 @@ def _mmr_indices(
 
 async def _lookup_with_keywords(
     keywords: str,
-    where_filter: Optional[dict],
+    where_filter: dict | None,
     limit: int,
 ) -> list[dict]:
     """
@@ -402,16 +402,16 @@ async def _lookup_with_keywords(
 
         # Filter by generous threshold
         filtered: list[tuple[str, list, dict]] = []
-        for doc, emb, meta, sim in zip(docs, embs, metas, similarities):
+        for doc, emb, meta, sim in zip(docs, embs, metas, similarities, strict=False):
             if sim > 0.3:
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:
             # Fall back: all metadata-matched docs, sorted by time
-            pairs = list(zip(docs[:limit], metas[:limit]))
+            pairs = list(zip(docs[:limit], metas[:limit], strict=False))
             return sort_memory_results_by_timestamp([(d, m or {}) for d, m in pairs])
 
-        f_docs, f_embs, f_metas = zip(*filtered)
+        f_docs, f_embs, f_metas = zip(*filtered, strict=False)
         selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
         return sort_memory_results_by_timestamp(selected_pairs)
@@ -434,21 +434,21 @@ async def _lookup_with_keywords(
         metas_raw = results.get("metadatas", [[]])[0]
 
         filtered: list[tuple[str, list, dict]] = []
-        for doc, dist, emb, meta in zip(docs, dists, embs, metas_raw):
+        for doc, dist, emb, meta in zip(docs, dists, embs, metas_raw, strict=False):
             if dist < 1.5:
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:
             return []
 
-        f_docs, f_embs, f_metas = zip(*filtered)
+        f_docs, f_embs, f_metas = zip(*filtered, strict=False)
         selected_indices = _mmr_indices(query_emb_list, np.array(f_embs), limit)
         selected_pairs = [(f_docs[i], f_metas[i]) for i in selected_indices]
         return sort_memory_results_by_timestamp(selected_pairs)
 
 
 async def _lookup_metadata_only(
-    where_filter: Optional[dict],
+    where_filter: dict | None,
     limit: int,
 ) -> list[dict]:
     """Retrieve memories using only metadata filters, sorted newest-to-oldest."""
@@ -464,7 +464,7 @@ async def _lookup_metadata_only(
         )
         docs = results.get("documents") or []
         metas = results.get("metadatas") or [{}] * len(docs)
-        pairs = [(doc, meta or {}) for doc, meta in zip(docs, metas)]
+        pairs = [(doc, meta or {}) for doc, meta in zip(docs, metas, strict=False)]
         return sort_memory_results_by_timestamp(pairs)
     except Exception as e:
         logger.error("ChromaDB metadata-only get() failed: %s", e, exc_info=True)

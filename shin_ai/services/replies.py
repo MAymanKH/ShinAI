@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 
 from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR, REPLY_STATE_TTL_SECONDS
 from shin_ai.coordination.runtime import get_coordination_store
-from shin_ai.utils.logger_config import logger
-from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.utils.logger_config import logger
 
 if TYPE_CHECKING:
     from shin_ai.coordination.store import CoordinationStore
@@ -115,7 +115,7 @@ def _load_cache_from_disk() -> dict[str, list[str]]:
         return _replies_cache
 
     try:
-        with open(REPLIES_FILE, "r") as f:
+        with open(REPLIES_FILE) as f:
             _replies_cache = json.load(f)
     except Exception:
         _replies_cache = {}

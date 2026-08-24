@@ -8,7 +8,6 @@ from typing import Any
 
 from shin_ai.utils.logger_config import logger
 
-
 AsyncCloser = Callable[[], Awaitable[None]]
 PlatformEntry = tuple[str, Any]
 ResourceCloser = tuple[str, AsyncCloser]

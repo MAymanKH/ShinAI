@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 
 def _load_neonize_symbols():
@@ -21,8 +21,10 @@ def _load_neonize_symbols():
     try:
         from neonize import NewClient
         from neonize.proto import Neonize_pb2 as neonize_proto
-        from neonize.proto.Neonize_pb2 import JID, Message as MessageEvent
-        from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo, Message as WaMessage
+        from neonize.proto.Neonize_pb2 import JID
+        from neonize.proto.Neonize_pb2 import Message as MessageEvent
+        from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo
+        from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import Message as WaMessage
         from neonize.utils import Jid2String, build_jid
         from neonize.utils.enum import ChatPresence, ChatPresenceMedia, ParticipantChange
 
@@ -59,8 +61,11 @@ def _load_neonize_symbols():
 ) = _load_neonize_symbols()
 
 if TYPE_CHECKING:
-    from neonize.proto.Neonize_pb2 import JID as JIDType, Message as MessageEventType, SendResponse as SendResponseType
-    from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo as ContextInfoType, Message as WaMessageType
+    from neonize.proto.Neonize_pb2 import JID as JIDType
+    from neonize.proto.Neonize_pb2 import Message as MessageEventType
+    from neonize.proto.Neonize_pb2 import SendResponse as SendResponseType
+    from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import ContextInfo as ContextInfoType
+    from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import Message as WaMessageType
 else:
     # Runtime aliases must be concrete classes (not typing.Any), because Neonize
     # uses these in decorators and isinstance-style checks.

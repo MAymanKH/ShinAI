@@ -1,13 +1,18 @@
-from typing import Optional, List
-import asyncio
 import httpx
 from pyrogram import Client, enums
-from pyrogram.types import Message, ChatPermissions
+from pyrogram.types import ChatPermissions, Message
 
-from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedChat, UnifiedMedia, UnifiedMessageEntity
-from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.config import TELEGRAM_BOT_TOKEN
+from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.platforms.models import (
+    UnifiedChat,
+    UnifiedMedia,
+    UnifiedMessage,
+    UnifiedMessageEntity,
+    UnifiedUser,
+)
 from shin_ai.utils.logger_config import logger
+
 
 class TelegramPlatform(PlatformAdapter):
     def __init__(self, client: Client):
@@ -96,14 +101,14 @@ class TelegramPlatform(PlatformAdapter):
         await self.client.stop()
         logger.info("Telegram Platform stopped.")
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
         if reply_to_message_id:
             msg = await self.client.send_message(int(chat_id), text, reply_to_message_id=int(reply_to_message_id))
         else:
             msg = await self.client.send_message(int(chat_id), text)
         return msg.id
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
         if reply_to_message_id:
             msg = await self.client.send_sticker(int(chat_id), sticker_id, reply_to_message_id=int(reply_to_message_id))
         else:
@@ -134,7 +139,7 @@ class TelegramPlatform(PlatformAdapter):
             return file_stream.getvalue()
         return b""
 
-    async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
+    async def get_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         try:
             msg = await self.client.get_messages(int(chat_id), int(message_id))
             if msg:
@@ -143,7 +148,7 @@ class TelegramPlatform(PlatformAdapter):
             logger.error(f"Error getting message on Telegram: {e}")
         return None
 
-    async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
+    async def get_user_by_username(self, username: str) -> UnifiedUser | None:
         try:
             user = await self.client.get_users(username)
             if user:

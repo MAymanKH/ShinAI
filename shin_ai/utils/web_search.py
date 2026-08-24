@@ -7,6 +7,7 @@ from collections import OrderedDict
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
+
 from shin_ai.config import WEB_SEARCH_TIMEOUT_SECONDS
 from shin_ai.core.request_context import (
     web_search_count,
@@ -14,6 +15,7 @@ from shin_ai.core.request_context import (
     web_search_start_time,
 )
 from shin_ai.utils.logger_config import logger
+
 
 def is_web_search_exhausted() -> bool:
     """Check if web search has been exhausted for the current request context."""
@@ -65,7 +67,7 @@ def _format_error_as_result(query: str, err_msg: str) -> str:
         ]
     }, ensure_ascii=False)
 
-async def _do_firecrawl_search(query: str, api_key: str, timeout: float) -> str:
+async def _do_firecrawl_search(query: str, api_key: str, request_timeout: float) -> str:
     """
     Perform the search using Firecrawl /v2/search endpoint.
     Returns the JSON-formatted string on success.
@@ -83,7 +85,7 @@ async def _do_firecrawl_search(query: str, api_key: str, timeout: float) -> str:
             "formats": ["markdown"]
         }
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=request_timeout) as client:
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -266,7 +268,7 @@ async def search_web_tool(query: str) -> str:
         res = await asyncio.wait_for(_do_search(search_deadline), timeout=remaining_time)
         logger.info(f"Web search for query '{query}' completed successfully using DuckDuckGo.")
         return res
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(f"Web search timed out (overall limit: 30s) for query: '{query}'")
         return _format_error_as_result(
             query,

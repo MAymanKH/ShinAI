@@ -1,18 +1,18 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
+from shin_ai.config import DEBUG, TELEGRAM_CONFIGURED, TELEGRAM_ENABLED
+from shin_ai.core import state
 from shin_ai.core.client import app
-from shin_ai.platforms.telegram import TelegramPlatform
 from shin_ai.core.handler import process_message
-from shin_ai.utils.context_manager import add_message_to_context
-from shin_ai.utils.logger_config import logger
 from shin_ai.handlers.common import (
     is_supported_chat,
     should_record_context,
     should_respond_to_message,
 )
-from shin_ai.core import state
-from shin_ai.config import DEBUG, TELEGRAM_CONFIGURED, TELEGRAM_ENABLED
+from shin_ai.platforms.telegram import TelegramPlatform
+from shin_ai.utils.context_manager import add_message_to_context
+from shin_ai.utils.logger_config import logger
 
 # Single instance definition for the platform wrapper
 telegram_platform = None

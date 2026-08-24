@@ -1,7 +1,7 @@
 import asyncio
 
-from shin_ai.utils.db import client
 from shin_ai.services.embeddings import get_embedding_service
+from shin_ai.utils.db import client
 
 # Lazy-initialized to avoid loading the model at import time
 _collection = None

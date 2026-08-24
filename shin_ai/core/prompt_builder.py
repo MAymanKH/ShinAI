@@ -12,7 +12,6 @@ Architecture:
                    wrapped in XML tags, followed by the actual user message.
 """
 from datetime import datetime
-from typing import Optional
 
 from dateutil.tz import tzlocal
 
@@ -234,13 +233,13 @@ Current Date/Time: {timestamp}
 
 def build_runtime_context(
     *,
-    username: Optional[str],
+    username: str | None,
     full_name: str,
     user_id: int | str,
     user_status: str,
     reply_target_status: str,
     chat_type: str,
-    chat_title: Optional[str],
+    chat_title: str | None,
     chat_id: int | str,
     interaction_type: str,
 ) -> str:
@@ -276,7 +275,7 @@ INTERACTION TYPE: {interaction_type}"""
 def build_target_instructions(
     msg_id: int,
     sender_name: str,
-    reply_msg: Optional[object] = None,
+    reply_msg: object | None = None,
 ) -> str:
     """
     Build the available message-ID targets for tools (send_reaction /

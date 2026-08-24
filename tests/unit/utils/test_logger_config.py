@@ -1,4 +1,3 @@
-import logging
 import uuid
 
 from shin_ai.utils.logger_config import bind_log_context, setup_logger

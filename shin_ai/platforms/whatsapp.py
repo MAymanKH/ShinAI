@@ -4,8 +4,10 @@ import asyncio
 from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
-from typing import Any, Optional
+from typing import Any
 
+from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
+from shin_ai.data.loader import DATA_DIR
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
     UnifiedChat,
@@ -33,8 +35,8 @@ from shin_ai.platforms.whatsapp_runtime import (
     ChatPresence,
     ChatPresenceMedia,
     ContextInfoType,
-    JIDType,
     Jid2String,
+    JIDType,
     MessageEvent,
     MessageEventType,
     NewClient,
@@ -44,9 +46,8 @@ from shin_ai.platforms.whatsapp_runtime import (
     WaMessageType,
     build_jid,
 )
-from shin_ai.data.loader import DATA_DIR
-from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
 from shin_ai.utils.logger_config import logger
+
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
 WHATSAPP_STICKERS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -54,9 +55,9 @@ class WhatsAppPlatform(PlatformAdapter):
     def __init__(self, session_name: str):
         self.client = NewClient(session_name)
         self._session_name = session_name
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._connect_task: Optional[asyncio.Task] = None
-        self._bot_user_cache: Optional[UnifiedUser] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._connect_task: asyncio.Task | None = None
+        self._bot_user_cache: UnifiedUser | None = None
         self._cache_lock = RLock()
         self._raw_message_cache: OrderedDict[tuple[str, str], MessageEventType] = OrderedDict()
         self._unified_message_cache: OrderedDict[tuple[str, str], UnifiedMessage] = OrderedDict()
@@ -87,7 +88,7 @@ class WhatsAppPlatform(PlatformAdapter):
         return f"whatsapp:{self.credential_fingerprint(identity)}"
 
     @property
-    def event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
+    def event_loop(self) -> asyncio.AbstractEventLoop | None:
         return self._loop
 
     async def _run_sync(self, func, *args, **kwargs):
@@ -141,10 +142,10 @@ class WhatsAppPlatform(PlatformAdapter):
     def _unwrap_message(self, message: WaMessageType) -> WaMessageType:
         return unwrap_message(message)
 
-    def _extract_context_info(self, message: WaMessageType) -> Optional[ContextInfoType]:
+    def _extract_context_info(self, message: WaMessageType) -> ContextInfoType | None:
         return extract_context_info(message)
 
-    def _extract_text_and_caption(self, message: WaMessageType) -> tuple[Optional[str], Optional[str]]:
+    def _extract_text_and_caption(self, message: WaMessageType) -> tuple[str | None, str | None]:
         return extract_text_and_caption(message)
 
     def _apply_media(
@@ -156,7 +157,7 @@ class WhatsAppPlatform(PlatformAdapter):
     ) -> None:
         apply_media(unified_msg, message, download_message, message_id)
 
-    def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> Optional[UnifiedMessage]:
+    def _build_quoted_message(self, context_info: ContextInfoType, chat: UnifiedChat) -> UnifiedMessage | None:
         if not context_info.stanzaID:
             return None
         if not context_info.quotedMessage.ListFields():
@@ -200,7 +201,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
     def _build_entities_from_context(
         self,
-        context_info: Optional[ContextInfoType],
+        context_info: ContextInfoType | None,
         source_text: str,
     ):
         from shin_ai.platforms.whatsapp_message import build_entities_from_context
@@ -209,9 +210,9 @@ class WhatsAppPlatform(PlatformAdapter):
 
     def _build_text_caption_entities(
         self,
-        context_info: Optional[ContextInfoType],
-        text: Optional[str],
-        caption: Optional[str],
+        context_info: ContextInfoType | None,
+        text: str | None,
+        caption: str | None,
     ):
         return build_text_caption_entities(context_info, text, caption)
 
@@ -234,10 +235,10 @@ class WhatsAppPlatform(PlatformAdapter):
         cache_map: OrderedDict[tuple[str, str], Any],
         chat_id: int | str,
         message_id: int | str,
-    ) -> Optional[tuple[str, str]]:
+    ) -> tuple[str, str] | None:
         return find_cache_key(cache_map, chat_id, message_id)
 
-    def _get_cached_unified_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
+    def _get_cached_unified_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         with self._cache_lock:
             cache_key = self._find_cache_key(self._unified_message_cache, chat_id, message_id)
             if not cache_key:
@@ -245,7 +246,7 @@ class WhatsAppPlatform(PlatformAdapter):
             self._unified_message_cache.move_to_end(cache_key)
             return self._unified_message_cache.get(cache_key)
 
-    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> Optional[MessageEventType]:
+    def get_cached_raw_message(self, chat_id: int | str, message_id: int | str) -> MessageEventType | None:
         with self._cache_lock:
             cache_key = self._find_cache_key(self._raw_message_cache, chat_id, message_id)
             if not cache_key:
@@ -525,7 +526,7 @@ class WhatsAppPlatform(PlatformAdapter):
             return await self._send_quoted_message(raw_quoted, text)
         return await self.send_message(message.chat.id, text, message.id)
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
         raw_quoted = self.get_cached_raw_message(chat_id, str(reply_to_message_id)) if reply_to_message_id else None
 
@@ -536,7 +537,7 @@ class WhatsAppPlatform(PlatformAdapter):
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
 
-    def _resolve_sticker_source(self, sticker_id: str) -> Optional[str]:
+    def _resolve_sticker_source(self, sticker_id: str) -> str | None:
         """
         Resolve WhatsApp sticker source from AI sticker ID.
 
@@ -568,7 +569,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return None
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
         chat_jid = self._chat_id_to_jid(chat_id)
         sticker_source = self._resolve_sticker_source(sticker_id)
 
@@ -651,7 +652,7 @@ class WhatsAppPlatform(PlatformAdapter):
         data = await self._run_sync(self.client.download_any, wa_message)
         return data or b""
 
-    async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
+    async def get_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         cached = self._get_cached_unified_message(chat_id, message_id)
         if cached:
             return cached
@@ -679,7 +680,7 @@ class WhatsAppPlatform(PlatformAdapter):
 
         return None
 
-    async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
+    async def get_user_by_username(self, username: str) -> UnifiedUser | None:
         # WhatsApp doesn't expose a public @username. We interpret this as phone number.
         clean_input = username.strip().lstrip("@").split("@", 1)[0]
         clean = "".join(ch for ch in clean_input if ch.isdigit())

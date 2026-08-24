@@ -3,8 +3,7 @@ from collections.abc import Callable
 
 from shin_ai.config import RANDOM_TRIGGER_PROBABILITY
 from shin_ai.platforms.models import UnifiedMessage
-from shin_ai.services.replies import check_reply_chain, check_and_clear_next_message_watch
-
+from shin_ai.services.replies import check_and_clear_next_message_watch, check_reply_chain
 
 SUPPORTED_CHAT_TYPES = {"PRIVATE", "GROUP", "SUPERGROUP"}
 

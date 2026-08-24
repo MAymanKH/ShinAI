@@ -1,11 +1,13 @@
-import uuid
-import time
 import asyncio
-import numpy as np
+import time
+import uuid
 from datetime import datetime
+
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from shin_ai.utils.db import client
+
 from shin_ai.services.embeddings import get_embedding_service
+from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
 
@@ -185,7 +187,7 @@ async def retrieve_memories(query: str, limit: int = 15):
             # Use a more lenient threshold when time-filtering
             threshold = 1.5 if where_filter else 1.3
 
-            for doc, dist, emb in zip(docs, dists, embs):
+            for doc, dist, emb in zip(docs, dists, embs, strict=False):
                 if dist < threshold:
                     filtered_docs.append(doc)
                     filtered_embs.append(emb)
@@ -220,7 +222,7 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
         filtered_embs = []
         
         if results['documents']:
-            for doc, dist, emb in zip(results['documents'][0], results['distances'][0], results['embeddings'][0]):
+            for doc, dist, emb in zip(results['documents'][0], results['distances'][0], results['embeddings'][0], strict=False):
                 if dist < 1.3:
                     filtered_docs.append(doc)
                     filtered_embs.append(emb)

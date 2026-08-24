@@ -1,8 +1,8 @@
 from pyrogram import Client
 
 from shin_ai.config import (
-    TELEGRAM_API_ID,
     TELEGRAM_API_HASH,
+    TELEGRAM_API_ID,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CONFIGURED,
     TELEGRAM_ENABLED,

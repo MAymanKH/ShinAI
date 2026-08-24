@@ -17,7 +17,6 @@ from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.providers.registry import ProviderSettings, get_first_gemini_provider, get_provider_chain
 from shin_ai.utils.logger_config import logger
 
-
 ProviderExecutor = Callable[..., Awaitable[tuple[str, list[dict]]]]
 MediaDescriber = Callable[[str, list[dict]], Awaitable[str]]
 
@@ -99,7 +98,7 @@ async def call_ai_provider(
                     extra={"event_name": "provider.succeeded"},
                 )
                 return answer, pending_actions
-            except asyncio.TimeoutError as error:
+            except TimeoutError as error:
                 last_error = error
                 retry_prompt = provider_prompt
             except Exception as error:

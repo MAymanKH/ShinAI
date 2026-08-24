@@ -16,7 +16,6 @@ from pathlib import Path
 
 from shin_ai.settings import CoordinationSettings
 
-
 Clock = Callable[[], float]
 
 

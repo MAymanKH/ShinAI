@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from shin_ai.platforms.models import UnifiedMedia, UnifiedMessage, UnifiedMessageEntity, UnifiedUser
 from shin_ai.platforms.whatsapp_helpers import extract_local_user_id, media_id, normalize_jid_identity
 from shin_ai.platforms.whatsapp_runtime import ContextInfoType, WaMessageType
@@ -38,12 +36,12 @@ def unwrap_message(message: WaMessageType) -> WaMessageType:
     return current
 
 
-def extract_context_info(message: WaMessageType) -> Optional[ContextInfoType]:
+def extract_context_info(message: WaMessageType) -> ContextInfoType | None:
     # Scan every populated sub-message field for a contextInfo child.
     # This is intentionally exhaustive: instead of hardcoding a list of
     # known message types, we iterate over ALL fields the protobuf reports
     # as set, and check whether they contain a contextInfo with data.
-    for field_descriptor, value in message.ListFields():
+    for _field_descriptor, value in message.ListFields():
         if not hasattr(value, "contextInfo"):
             continue
         try:
@@ -65,9 +63,9 @@ def extract_context_info(message: WaMessageType) -> Optional[ContextInfoType]:
     return None
 
 
-def extract_text_and_caption(message: WaMessageType) -> tuple[Optional[str], Optional[str]]:
-    text: Optional[str] = None
-    caption: Optional[str] = None
+def extract_text_and_caption(message: WaMessageType) -> tuple[str | None, str | None]:
+    text: str | None = None
+    caption: str | None = None
 
     if message.conversation:
         text = message.conversation
@@ -149,7 +147,7 @@ def apply_media(
 
 
 def build_entities_from_context(
-    context_info: Optional[ContextInfoType],
+    context_info: ContextInfoType | None,
     source_text: str,
 ) -> list[UnifiedMessageEntity]:
     entities: list[UnifiedMessageEntity] = []
@@ -180,9 +178,9 @@ def build_entities_from_context(
 
 
 def build_text_caption_entities(
-    context_info: Optional[ContextInfoType],
-    text: Optional[str],
-    caption: Optional[str],
+    context_info: ContextInfoType | None,
+    text: str | None,
+    caption: str | None,
 ) -> tuple[list[UnifiedMessageEntity], list[UnifiedMessageEntity]]:
     text_entities = build_entities_from_context(context_info, text or "")
     caption_entities = build_entities_from_context(context_info, caption or "")

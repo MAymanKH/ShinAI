@@ -1,4 +1,3 @@
-import asyncio
 
 import pytest
 
@@ -19,7 +18,7 @@ class APIError(Exception):
         (APIError(503, "service unavailable"), GeminiFailureKind.TRANSIENT),
         (APIError(401, "invalid key"), GeminiFailureKind.AUTHENTICATION),
         (APIError(400, "bad request"), GeminiFailureKind.INVALID_REQUEST),
-        (asyncio.TimeoutError(), GeminiFailureKind.TIMEOUT),
+        (TimeoutError(), GeminiFailureKind.TIMEOUT),
         (RuntimeError("unknown transport problem"), GeminiFailureKind.UNKNOWN),
     ],
 )

@@ -1,10 +1,18 @@
-from typing import Optional
 import asyncio
+
 import discord
-from shin_ai.platforms.models import UnifiedMessage, UnifiedUser, UnifiedChat, UnifiedMedia, UnifiedMessageEntity
-from shin_ai.platforms.base import PlatformAdapter
+
 from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
+from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.platforms.models import (
+    UnifiedChat,
+    UnifiedMedia,
+    UnifiedMessage,
+    UnifiedMessageEntity,
+    UnifiedUser,
+)
 from shin_ai.utils.logger_config import logger
+
 
 class DiscordPlatform(PlatformAdapter):
     def __init__(self, token: str):
@@ -84,7 +92,7 @@ class DiscordPlatform(PlatformAdapter):
         self._bot_user = None
         logger.info("Discord Platform stopped.")
 
-    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_message(self, chat_id: int | str, text: str, reply_to_message_id: int | str | None = None) -> int | str:
         channel = self.client.get_channel(int(chat_id)) or await self.client.fetch_channel(int(chat_id))
         
         reference = None
@@ -97,7 +105,7 @@ class DiscordPlatform(PlatformAdapter):
         msg = await channel.send(content=text, reference=reference)
         return msg.id
 
-    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: Optional[int | str] = None) -> int | str:
+    async def send_sticker(self, chat_id: int | str, sticker_id: str, reply_to_message_id: int | str | None = None) -> int | str:
         # User requested to drop sticker support for discord
         logger.info("Stickers are dropped for discord, doing nothing.")
         return 0
@@ -120,7 +128,7 @@ class DiscordPlatform(PlatformAdapter):
             return await media.native_obj.read()
         return b""
 
-    async def get_message(self, chat_id: int | str, message_id: int | str) -> Optional[UnifiedMessage]:
+    async def get_message(self, chat_id: int | str, message_id: int | str) -> UnifiedMessage | None:
         try:
             channel = self.client.get_channel(int(chat_id)) or await self.client.fetch_channel(int(chat_id))
             msg = await channel.fetch_message(int(message_id))
@@ -131,7 +139,7 @@ class DiscordPlatform(PlatformAdapter):
             logger.error(f"Error getting Discord message: {e}")
             return None
 
-    async def get_user_by_username(self, username: str) -> Optional[UnifiedUser]:
+    async def get_user_by_username(self, username: str) -> UnifiedUser | None:
         username = username.lstrip("@").lower()
         for guild in self.client.guilds:
             member = guild.get_member_named(username)

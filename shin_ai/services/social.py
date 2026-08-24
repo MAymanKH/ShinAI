@@ -3,13 +3,14 @@ Social Context Service
 
 Manages semantic retrieval of member information for contextual responses.
 """
-import re
 import asyncio
+import re
+
+from shin_ai.data.loader import MEMBERS
 from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.db import client
 from shin_ai.utils.logger_config import logger
-from shin_ai.services.embeddings import get_embedding_service
-from shin_ai.data.loader import MEMBERS
 
 # --- SEMANTIC SOCIAL CONTEXT SETUP ---
 # Lazy-initialized to avoid import-time side effects
@@ -172,7 +173,8 @@ async def get_social_context(msg: UnifiedMessage, reply_chain_text: str = "") ->
     
     # Check all names/aliases for explicit mentions
     for key, data in MEMBERS.items():
-        if key in active_keys: continue
+        if key in active_keys:
+            continue
         for name in data['names']:
             if re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", combined_text.lower()):
                 active_keys.add(key)

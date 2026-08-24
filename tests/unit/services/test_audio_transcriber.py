@@ -2,8 +2,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from shin_ai.services.audio_transcriber import _file_suffix, _transcribe_with_model
 from shin_ai.services import audio_transcriber
+from shin_ai.services.audio_transcriber import _file_suffix, _transcribe_with_model
 
 
 class _Segment:

@@ -11,7 +11,6 @@ from typing import Any
 from shin_ai.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MAX_CONCURRENCY, EMBEDDING_MODEL
 from shin_ai.utils.logger_config import logger
 
-
 ModelFactory = Callable[[str], Any]
 Offload = Callable[..., Awaitable[Any]]
 

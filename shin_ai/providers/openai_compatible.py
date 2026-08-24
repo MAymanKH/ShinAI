@@ -29,7 +29,7 @@ _client_cache: dict[str, AsyncOpenAI] = {}
 _client_lock = asyncio.Lock()
 
 
-async def _get_semaphore(cfg: "ProviderConfig") -> asyncio.Semaphore | None:
+async def _get_semaphore(cfg: ProviderConfig) -> asyncio.Semaphore | None:
     """Return a per-provider semaphore if concurrency is configured, else None."""
     if cfg.concurrency is None:
         return None
@@ -40,7 +40,7 @@ async def _get_semaphore(cfg: "ProviderConfig") -> asyncio.Semaphore | None:
     return _semaphores[cfg.name]
 
 
-async def _get_client(cfg: "ProviderConfig") -> AsyncOpenAI:
+async def _get_client(cfg: ProviderConfig) -> AsyncOpenAI:
     """Return a cached AsyncOpenAI client for the provider, or create one."""
     key_digest = hashlib.sha256(cfg.api_key.encode("utf-8")).hexdigest()
     cache_key = f"{cfg.base_url}:{key_digest}"
@@ -76,7 +76,7 @@ async def close_openai_clients() -> None:
 
 
 async def openai_provider(
-    cfg: "ProviderConfig",
+    cfg: ProviderConfig,
     system_prompt: str,
     prompt: str,
     media_list: list[dict] | None = None,

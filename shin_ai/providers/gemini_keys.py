@@ -12,7 +12,6 @@ from datetime import datetime
 from shin_ai.config import DATA_DIR, GEMINI_MODELS
 from shin_ai.utils.logger_config import logger
 
-
 GEMINI_KEYS_FILE = DATA_DIR / "gemini_keys.json"
 MODELS_LIST = tuple(GEMINI_MODELS)
 

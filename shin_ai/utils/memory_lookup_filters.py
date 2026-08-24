@@ -1,10 +1,9 @@
 from datetime import datetime
-from typing import Optional
 
 from shin_ai.utils.logger_config import logger
 
 
-def parse_iso_to_epoch(iso_str: str) -> Optional[int]:
+def parse_iso_to_epoch(iso_str: str) -> int | None:
     """Parse an ISO-8601 datetime string to a Unix epoch integer."""
     try:
         dt = datetime.fromisoformat(iso_str)
@@ -24,12 +23,12 @@ def parse_iso_to_epoch(iso_str: str) -> Optional[int]:
 
 
 def build_memory_where_filter(
-    usernames: Optional[list[str]] = None,
-    chat_titles: Optional[list[str]] = None,
-    platform: Optional[str] = None,
-    time_start: Optional[str] = None,
-    time_end: Optional[str] = None,
-) -> Optional[dict]:
+    usernames: list[str] | None = None,
+    chat_titles: list[str] | None = None,
+    platform: str | None = None,
+    time_start: str | None = None,
+    time_end: str | None = None,
+) -> dict | None:
     where_clauses: list[dict] = []
 
     if usernames:
@@ -92,12 +91,12 @@ def sort_memory_results_by_timestamp(pairs: list[tuple[str, dict]]) -> list[dict
 
 
 def build_filter_summary(
-    keywords: Optional[str],
-    usernames: Optional[list[str]],
-    chat_titles: Optional[list[str]],
-    platform: Optional[str],
-    time_start: Optional[str],
-    time_end: Optional[str],
+    keywords: str | None,
+    usernames: list[str] | None,
+    chat_titles: list[str] | None,
+    platform: str | None,
+    time_start: str | None,
+    time_end: str | None,
 ) -> dict:
     """Build a human-readable summary of the applied filters."""
     summary = {}

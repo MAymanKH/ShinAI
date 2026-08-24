@@ -11,7 +11,6 @@ from collections.abc import Awaitable, Callable, Hashable
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-
 Payload = TypeVar("Payload")
 Handler = Callable[[Payload], Awaitable[None]]
 ErrorHandler = Callable[[Payload, BaseException], None]
@@ -207,7 +206,7 @@ class InteractionScheduler(Generic[Payload]):
                             await self._condition.wait()
                         else:
                             await asyncio.wait_for(self._condition.wait(), timeout=timeout)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
                 if not self._running or job is None:
                     continue
@@ -252,7 +251,7 @@ class InteractionScheduler(Generic[Payload]):
         self._accepting = False
         try:
             await asyncio.wait_for(self.wait_idle(), timeout=grace_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             for task in tuple(self._active_tasks):
                 task.cancel()
             if self._active_tasks:

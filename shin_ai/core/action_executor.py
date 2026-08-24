@@ -11,18 +11,17 @@ import asyncio
 import random
 from dataclasses import dataclass
 
-from shin_ai.platforms.base import PlatformAdapter
-from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.config import LOG_CONTENT_PREVIEW_CHARS
 from shin_ai.data.loader import (
     MEMBERS,
     TELEGRAM_STICKER_TO_DESCRIPTION,
     WHATSAPP_STICKER_TO_DESCRIPTION,
 )
+from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.replies import save_reply
-from shin_ai.config import LOG_CONTENT_PREVIEW_CHARS
-from shin_ai.utils.logger_config import logger
 from shin_ai.utils.context_manager import add_bot_message_to_context
-
+from shin_ai.utils.logger_config import logger
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -390,7 +389,7 @@ async def _resolve_mod_target(
 
 def _resolve_name_to_username(name: str, platform_name: str = "") -> str | None:
     """Resolve a display name / preferred name to the correct platform username."""
-    from shin_ai.services.social import resolve_username_to_key, get_platform_username_for_member
+    from shin_ai.services.social import get_platform_username_for_member, resolve_username_to_key
 
     name_clean = name.lower().strip().replace("@", "")
 

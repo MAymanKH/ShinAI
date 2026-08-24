@@ -1,9 +1,10 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
+
 from shin_ai.config import ADMIN_USER_ID
+from shin_ai.core.client import app
 from shin_ai.providers.gemini import get_gemini_stats_message
 from shin_ai.utils.rate_limit import check_gstats_rate_limit
-from shin_ai.core.client import app
 
 
 @app.on_message(filters.command("gstats"))

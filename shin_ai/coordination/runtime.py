@@ -9,7 +9,6 @@ from shin_ai.coordination.store import CoordinationStore, create_coordination_st
 from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
-
 _store: CoordinationStore | None = None
 _maintenance_task: asyncio.Task | None = None
 _lock = threading.Lock()

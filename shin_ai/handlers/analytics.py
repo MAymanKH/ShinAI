@@ -1,12 +1,13 @@
 import time
 from collections import Counter
-from pyrogram import filters, Client
-from pyrogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-from shin_ai.core.client import app
+from pyrogram import Client, filters
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
 from shin_ai.config import ADMIN_USER_ID
-from shin_ai.utils.memory import _get_memory_collection
+from shin_ai.core.client import app
 from shin_ai.utils.logger_config import logger
+from shin_ai.utils.memory import _get_memory_collection
 
 PAGE_SIZE = 20
 MAX_RECENT_ACTIVITY = 100
@@ -71,7 +72,7 @@ def _build_chat_labels(metadatas):
             chat_label_by_id[chat_key] = chat_title
             continue
 
-        if chat_key in private_usernames_by_chat and private_usernames_by_chat[chat_key]:
+        if private_usernames_by_chat.get(chat_key):
             top_username, _ = private_usernames_by_chat[chat_key].most_common(1)[0]
             chat_label_by_id[chat_key] = f"Private with {_format_username(top_username)}"
             continue

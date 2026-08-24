@@ -10,7 +10,6 @@ from shin_ai.services.audio_transcriber import transcribe_audio_source
 from shin_ai.utils.context_manager import get_recent_media_messages
 from shin_ai.utils.logger_config import logger
 
-
 Transcriber = Callable[[Callable[[], Awaitable[bytes]], str], Awaitable[str]]
 
 

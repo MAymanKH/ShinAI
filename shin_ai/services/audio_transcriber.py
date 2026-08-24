@@ -25,7 +25,6 @@ from shin_ai.config import (
 )
 from shin_ai.utils.logger_config import logger
 
-
 _MIME_SUFFIXES = {
     "audio/ogg": ".ogg",
     "audio/opus": ".opus",

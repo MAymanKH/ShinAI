@@ -2,7 +2,6 @@ import asyncio
 import base64
 import inspect
 import json
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -10,7 +9,6 @@ from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS, ACTION_TOOL_SCHEMAS
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_lookup import MEMORY_LOOKUP_TOOL_SCHEMA, memory_lookup_tool
 from shin_ai.utils.web_search import WEB_SEARCH_TOOL_SCHEMA, search_web_tool
-
 
 TRANSCRIBE_AUDIO_TOOL_SCHEMA = {
     "type": "function",
@@ -348,7 +346,7 @@ async def _execute_tool_call(
             return result, None
         except Exception as e:
             logger.error("Tool transcribe_audio failed: %s", e, exc_info=True)
-            return f"Error transcribing audio: {str(e)}", None
+            return f"Error transcribing audio: {e!s}", None
 
     if tool_name == "ask_gemini_about_image":
         question = args.get("question", "")
@@ -369,7 +367,7 @@ async def _execute_tool_call(
             return answer, None
         except Exception as e:
             logger.error(f"Failed to ask Gemini about image: {e}")
-            return f"Error querying Gemini about the image: {str(e)}", None
+            return f"Error querying Gemini about the image: {e!s}", None
 
     handler = ACTION_TOOL_HANDLERS.get(tool_name)
     if handler:

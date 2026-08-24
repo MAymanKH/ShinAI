@@ -24,7 +24,7 @@ class PairHealth:
     last_success_at: float | None = None
 
     @classmethod
-    def decode(cls, raw: str | None) -> "PairHealth":
+    def decode(cls, raw: str | None) -> PairHealth:
         if not raw:
             return cls()
         try:
@@ -54,7 +54,7 @@ class PairHealth:
 
 @dataclass(slots=True)
 class GeminiReservation:
-    scheduler: "GeminiScheduler"
+    scheduler: GeminiScheduler
     key_name: str
     api_key: str
     model: str

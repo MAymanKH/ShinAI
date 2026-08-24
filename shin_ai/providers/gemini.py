@@ -9,23 +9,24 @@ import inspect
 from google import genai
 
 from shin_ai.config import COORDINATION_LEASE_SECONDS
-from shin_ai.providers.gemini_keys import (
-    API_KEYS_MAP,
-    MODELS_LIST,
-    get_gemini_stats_message,
-)
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.providers.gemini_errors import (
     GeminiFailure,
     GeminiFailureKind,
     classify_gemini_error,
 )
+from shin_ai.providers.gemini_keys import (
+    API_KEYS_MAP,
+    MODELS_LIST,
+)
+from shin_ai.providers.gemini_keys import (
+    get_gemini_stats_message as get_gemini_stats_message,
+)
 from shin_ai.providers.gemini_scheduler import GeminiScheduler
-from shin_ai.utils.logger_config import logger
-from shin_ai.utils.web_search import search_web_tool
-from shin_ai.utils.memory_lookup import memory_lookup_tool
 from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS
-
+from shin_ai.utils.logger_config import logger
+from shin_ai.utils.memory_lookup import memory_lookup_tool
+from shin_ai.utils.web_search import search_web_tool
 
 # Injected into tool results for side-effect actions (reaction / sticker /
 # moderation) so the model never forgets it may answer with text OR [SKIP].
@@ -232,12 +233,12 @@ def _build_gemini_contents(prompt: str, media_list=None) -> list:
 
 
 def _build_gemini_config(system_prompt: str, model: str):
+    from shin_ai.providers.tool_loop import TRANSCRIBE_AUDIO_TOOL_SCHEMA
     from shin_ai.utils.action_tools import (
+        MODERATE_USER_TOOL_SCHEMA,
         SEND_REACTION_TOOL_SCHEMA,
         SEND_STICKER_TOOL_SCHEMA,
-        MODERATE_USER_TOOL_SCHEMA,
     )
-    from shin_ai.providers.tool_loop import TRANSCRIBE_AUDIO_TOOL_SCHEMA
 
     # Build Gemini-native tool declarations from the OpenAI schemas
     gemini_tools = [
@@ -370,7 +371,7 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
             return await _transcribe_chat_audio(platform, msg, "Gemini", message_id), None
         except Exception as e:
             logger.error("Tool transcribe_audio failed: %s", e, exc_info=True)
-            return f"Error transcribing audio: {str(e)}", None
+            return f"Error transcribing audio: {e!s}", None
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:

@@ -7,7 +7,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from shin_ai.services.embeddings import get_embedding_service
 from shin_ai.utils.logger_config import logger
 
-
 # Time buckets: each bucket has a timedelta and example phrases in multiple languages/dialects.
 # "dynamic_today" means "from midnight to now" and is computed at query time.
 TIME_BUCKETS = [
@@ -235,6 +234,6 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
 
 
 _all_examples_cache = []
-for idx, bucket in enumerate(TIME_BUCKETS):
+for _idx, bucket in enumerate(TIME_BUCKETS):
     for example in bucket["examples"]:
         _all_examples_cache.append(f"query: {example}")

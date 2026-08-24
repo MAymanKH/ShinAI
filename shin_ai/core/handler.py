@@ -11,50 +11,50 @@ import re as _re
 import time
 from dataclasses import dataclass
 
-from shin_ai.platforms.models import UnifiedMessage
-from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.config import (
+    EVENT_DEDUP_TTL_SECONDS,
+    GROUP_MAX_RESPONSES_PER_WINDOW,
+    GROUP_RATE_LIMIT_WINDOW_SECONDS,
+    INTERACTION_TTL_SECONDS,
+    LOG_CONTENT_PREVIEW_CHARS,
+    MAX_CONCURRENT_INTERACTIONS,
+    MAX_PENDING_INTERACTIONS,
+    MAX_REPLY_DELAY_SECONDS,
+    MIN_REPLY_DELAY_SECONDS,
+    PER_CHAT_QUEUE_SIZE,
+    SHUTDOWN_GRACE_SECONDS,
+)
+from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.core import state
+from shin_ai.core.action_executor import (
+    execute_pending_actions,
+    execute_text_messages,
+    save_interaction_memory,
+)
 from shin_ai.core.interaction_scheduler import InteractionScheduler
+from shin_ai.core.prompt_builder import (
+    build_runtime_context,
+    build_target_instructions,
+    build_user_prompt,
+    get_static_system_prompt,
+)
 from shin_ai.core.provider_router import call_ai_provider
 from shin_ai.core.request_context import reset_request_context
 from shin_ai.core.response_policy import (
     is_trivial_message,
     parse_model_response,
 )
-from shin_ai.core.prompt_builder import (
-    get_static_system_prompt,
-    build_user_prompt,
-    build_runtime_context,
-    build_target_instructions,
-)
-from shin_ai.core.action_executor import (
-    execute_text_messages,
-    execute_pending_actions,
-    save_interaction_memory,
-)
-from shin_ai.config import (
-    GROUP_MAX_RESPONSES_PER_WINDOW,
-    GROUP_RATE_LIMIT_WINDOW_SECONDS,
-    INTERACTION_TTL_SECONDS,
-    LOG_CONTENT_PREVIEW_CHARS,
-    MAX_REPLY_DELAY_SECONDS,
-    MAX_CONCURRENT_INTERACTIONS,
-    MAX_PENDING_INTERACTIONS,
-    MIN_REPLY_DELAY_SECONDS,
-    PER_CHAT_QUEUE_SIZE,
-    SHUTDOWN_GRACE_SECONDS,
-    EVENT_DEDUP_TTL_SECONDS,
-)
-from shin_ai.coordination.runtime import get_coordination_store
-from shin_ai.utils.logger_config import bind_log_context, logger
-from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
-from shin_ai.utils.memory import retrieve_memories
-from shin_ai.utils.context_manager import get_recent_context_string
-from shin_ai.stylers.style_retriever import get_style_examples
-from shin_ai.services.social import get_social_context
-from shin_ai.services.replies import get_reply_chain
-from shin_ai.services.media import prepare_prompt_and_media
 from shin_ai.data.loader import PERSONALITY
+from shin_ai.platforms.base import PlatformAdapter
+from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.services.media import prepare_prompt_and_media
+from shin_ai.services.replies import get_reply_chain
+from shin_ai.services.social import get_social_context
+from shin_ai.stylers.style_retriever import get_style_examples
+from shin_ai.utils.context_manager import get_recent_context_string
+from shin_ai.utils.logger_config import bind_log_context, logger
+from shin_ai.utils.memory import retrieve_memories
+from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
 
 
 @dataclass(frozen=True, slots=True)

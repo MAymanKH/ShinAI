@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any
 
-from shin_ai.platforms.whatsapp_runtime import JIDType, Jid2String
+from shin_ai.platforms.whatsapp_runtime import Jid2String, JIDType
 
 
 def normalize_jid_identity(jid_value: str) -> str:

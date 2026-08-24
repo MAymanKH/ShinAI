@@ -2,7 +2,6 @@
 
 import contextvars
 
-
 web_search_count = contextvars.ContextVar("web_search_count", default=0)
 web_search_start_time = contextvars.ContextVar("web_search_start_time", default=0.0)
 web_search_exhausted = contextvars.ContextVar("web_search_exhausted", default=False)
