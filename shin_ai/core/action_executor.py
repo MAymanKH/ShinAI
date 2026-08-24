@@ -10,6 +10,7 @@ Actions arrive as:
 import asyncio
 import random
 import re
+from dataclasses import dataclass
 
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
@@ -21,7 +22,6 @@ from shin_ai.data.loader import (
 from shin_ai.services.replies import save_reply
 from shin_ai.config import LOG_CONTENT_PREVIEW_CHARS
 from shin_ai.utils.logger_config import logger
-from shin_ai.utils.memory import save_memory
 from shin_ai.utils.context_manager import add_bot_message_to_context
 
 
@@ -29,15 +29,19 @@ from shin_ai.utils.context_manager import add_bot_message_to_context
 # Public API
 # ---------------------------------------------------------------------------
 
+
+@dataclass(frozen=True, slots=True)
+class ActionExecutionResult:
+    errors: list[str]
+    completed_actions: list[dict]
+
+
 async def execute_text_messages(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
     messages: list,
     default_reply_to_id: int | str,
-    original_prompt: str,
-    raw_answer: str,
-    reply_text: str = "",
-) -> None:
+) -> list[str]:
     """Send the plain-text messages produced by the AI (split from '---').
 
     `messages` is a list of (text, tag_target) pairs as returned by
@@ -63,15 +67,7 @@ async def execute_text_messages(
         (m, None) if isinstance(m, str) else m for m in messages
     ]
 
-    await _save_interaction_memory(
-        platform=platform.platform_name,
-        msg=msg,
-        messages=[text for text, _ in pairs],
-        pending_actions=[],
-        original_prompt=original_prompt,
-        raw_answer=raw_answer,
-        reply_text=reply_text,
-    )
+    sent_messages: list[str] = []
 
     for idx, (text, tag_target) in enumerate(pairs):
         if not text:
@@ -110,6 +106,7 @@ async def execute_text_messages(
             else:
                 sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
+                sent_messages.append(text)
                 preview = text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
                 logger.info(
                     "Responded — sent_id=%s reply_to=%s part=%d/%d text=\"%s%s\"",
@@ -136,6 +133,7 @@ async def execute_text_messages(
                 )
         except Exception as e:
             logger.error(f"Text reply failed: {e}")
+    return sent_messages
 
 
 async def execute_pending_actions(
@@ -143,49 +141,40 @@ async def execute_pending_actions(
     msg: UnifiedMessage,
     pending_actions: list[dict],
     default_reply_to_id: int | str,
-    original_prompt: str,
-    raw_answer: str,
-    reply_text: str = "",
-) -> list[str]:
+) -> ActionExecutionResult:
     """Execute action dicts queued during the AI's tool-calling loop.
 
     Each dict has a 'type' key: 'reaction', 'sticker', or 'moderation'.
-    Returns a list of error strings for any failed moderation actions so the
-    caller can pass them back to the AI for a natural error response.
+    Reports both failed moderation actions and actions that actually completed.
     """
     if not pending_actions:
-        return []
-
-    await _save_interaction_memory(
-        platform=platform.platform_name,
-        msg=msg,
-        messages=[],
-        pending_actions=pending_actions,
-        original_prompt=original_prompt,
-        raw_answer=raw_answer,
-        reply_text=reply_text,
-    )
+        return ActionExecutionResult([], [])
 
     mod_errors: list[str] = []
+    completed_actions: list[dict] = []
 
     for action in pending_actions:
         action_type = action.get("type")
 
         if action_type == "reaction":
-            await _execute_reaction(platform, msg, action)
+            if await _execute_reaction(platform, msg, action):
+                completed_actions.append(action)
 
         elif action_type == "sticker":
-            await _execute_sticker(platform, msg, action, default_reply_to_id)
+            if await _execute_sticker(platform, msg, action, default_reply_to_id):
+                completed_actions.append(action)
 
         elif action_type == "moderation":
             error = await _execute_mod_action(platform, msg, action)
             if error:
                 mod_errors.append(error)
+            else:
+                completed_actions.append(action)
 
         else:
             logger.warning("Unknown pending action type: %r", action_type)
 
-    return mod_errors
+    return ActionExecutionResult(mod_errors, completed_actions)
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +185,10 @@ async def _execute_reaction(
     platform: PlatformAdapter,
     msg: UnifiedMessage,
     action: dict,
-) -> None:
+) -> bool:
     emoji = action.get("emoji", "")
     if not emoji:
-        return
+        return False
 
     # Resolve the target message ID: use the tool-specified one if present,
     # otherwise fall back to the triggering message.
@@ -217,8 +206,10 @@ async def _execute_reaction(
             emoji,
             extra={"event_name": "action.reaction"},
         )
+        return True
     except Exception as e:
         logger.error(f"Reaction failed on {platform.platform_name}: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -230,14 +221,14 @@ async def _execute_sticker(
     msg: UnifiedMessage,
     action: dict,
     default_reply_to_id: int | str,
-) -> None:
+) -> bool:
     sticker_id = action.get("sticker_id", "")
     if not sticker_id:
-        return
+        return False
 
     if not platform.supports_stickers:
         logger.info(f"Platform {platform.platform_name} doesn't support stickers. Dropping.")
-        return
+        return False
 
     # WhatsApp expects 'wa:<filename>' prefix; normalise if the model omitted it.
     if platform.platform_name == "whatsapp" and not sticker_id.lower().startswith("wa:"):
@@ -267,8 +258,10 @@ async def _execute_sticker(
                 reply_to_id=reply_to_id,
                 media_type="sticker",
             )
+            return True
     except Exception as e:
         logger.error(f"Sticker failed: {e}")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +275,9 @@ async def _execute_mod_action(
 ) -> str | None:
     mod_action = action.get("action", "")
     if not mod_action:
-        return None
+        return "MODERATION FAILED: No action was specified."
+    if mod_action not in {"unban", "add", "kick", "ban", "mute", "unmute"}:
+        return f"MODERATION FAILED: Unsupported action '{mod_action}'."
 
     target_username = action.get("target_username")
     target_message_id = action.get("target_message_id")
@@ -297,8 +292,9 @@ async def _execute_mod_action(
                 await platform.unban_chat_member(msg.chat.id, target.id)
             else:  # add
                 link = await platform.create_chat_invite_link(msg.chat.id)
-                if link:
-                    await platform.send_message(target.id, f"You've been invited: {link}")
+                if not link:
+                    return "ADD FAILED: The platform did not create an invite link."
+                await platform.send_message(target.id, f"You've been invited: {link}")
         except Exception as e:
             return f"{mod_action.upper()} FAILED: {e}"
 
@@ -439,19 +435,22 @@ async def _record_outgoing_context(
         logger.debug(f"Failed to record outgoing context: {e}")
 
 
-async def _save_interaction_memory(
+async def save_interaction_memory(
     platform: str,
     msg: UnifiedMessage,
     messages: list[str],
-    pending_actions: list[dict],
+    completed_actions: list[dict],
     original_prompt: str,
-    raw_answer: str,
     reply_text: str,
+    memory_saver=None,
 ) -> None:
-    if not raw_answer:
+    if not messages and not completed_actions:
         return
 
     try:
+        if memory_saver is None:
+            from shin_ai.utils.memory import save_memory as memory_saver
+
         short_context = ""
         if reply_text:
             if "reply to a conversation chain" in reply_text:
@@ -461,7 +460,7 @@ async def _save_interaction_memory(
 
         mem_parts = list(messages)  # text messages first
 
-        for action in pending_actions:
+        for action in completed_actions:
             action_type = action.get("type")
             if action_type == "reaction":
                 mem_parts.append(f"[Reacted: {action.get('emoji', '')}]")
@@ -476,9 +475,9 @@ async def _save_interaction_memory(
                 target = action.get("target_username") or "the reply target"
                 mem_parts.append(f"[Action: {action.get('action', '')} on {target}]")
 
-        final_memory = " ".join(p for p in mem_parts if p) if mem_parts else raw_answer
+        final_memory = " ".join(part for part in mem_parts if part)
 
-        await save_memory(
+        await memory_saver(
             platform=platform,
             user_id=msg.from_user.id,
             username=msg.from_user.username,

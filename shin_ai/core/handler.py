@@ -27,6 +27,7 @@ from shin_ai.core.prompt_builder import (
 from shin_ai.core.action_executor import (
     execute_text_messages,
     execute_pending_actions,
+    save_interaction_memory,
     split_reply_messages,
 )
 from shin_ai.config import (
@@ -434,15 +435,13 @@ async def _execute_frozen_message(
         # Execute tool-called actions (reactions, stickers, moderation)
         # FIRST — before any text/skip logic so they always run even if
         # the AI chose [SKIP] or produced no text alongside the tool call.
-        mod_errors = await execute_pending_actions(
+        action_result = await execute_pending_actions(
             platform=platform,
             msg=msg,
             pending_actions=pending_actions,
             default_reply_to_id=msg.id,
-            original_prompt=prompt,
-            raw_answer=answer or "",
-            reply_text=reply_text,
         )
+        sent_messages: list[str] = []
 
         # Determine whether the AI chose to skip text output.
         # Robust detection: match a standalone [SKIP] token at the very start
@@ -487,18 +486,15 @@ async def _execute_frozen_message(
 
             # Send text messages
             if text_messages:
-                await execute_text_messages(
+                sent_messages.extend(await execute_text_messages(
                     platform=platform,
                     msg=msg,
                     messages=text_messages,
                     default_reply_to_id=msg.id,
-                    original_prompt=prompt,
-                    raw_answer=answer or "",
-                    reply_text=reply_text,
-                )
+                ))
 
-        if mod_errors:
-            error_context = "\n".join(f"- {err}" for err in mod_errors)
+        if action_result.errors:
+            error_context = "\n".join(f"- {err}" for err in action_result.errors)
             error_prompt = (
                 "[INTERNAL SYSTEM ERROR - NOT A USER MESSAGE]\n"
                 "The following moderation action(s) you attempted have FAILED:\n"
@@ -518,15 +514,21 @@ async def _execute_frozen_message(
 
             if error_answer and error_answer.strip():
                 error_messages = split_reply_messages(error_answer)
-                await execute_text_messages(
+                sent_messages.extend(await execute_text_messages(
                     platform=platform,
                     msg=msg,
                     messages=error_messages,
                     default_reply_to_id=msg.id,
-                    original_prompt=prompt,
-                    raw_answer=error_answer,
-                    reply_text=reply_text,
-                )
+                ))
+
+        await save_interaction_memory(
+            platform=platform.platform_name,
+            msg=msg,
+            messages=sent_messages,
+            completed_actions=action_result.completed_actions,
+            original_prompt=prompt,
+            reply_text=reply_text,
+        )
     finally:
         if typing_task:
             await _stop_typing(platform, msg.chat.id, typing_task)
