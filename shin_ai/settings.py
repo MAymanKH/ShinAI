@@ -84,8 +84,12 @@ class RuntimeSettings:
     typing_action_timeout_seconds: float
     context_max_chats: int
     context_messages_per_chat: int
+    context_message_chars: int
     context_ttl_seconds: float
     platform_message_cache_size: int
+    media_max_items: int
+    media_max_file_bytes: int
+    media_max_total_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +294,11 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             name="runtime.context.messages_per_chat",
             default=50,
         ),
+        context_message_chars=_positive_int(
+            context_raw.get("message_chars"),
+            name="runtime.context.message_chars",
+            default=4_000,
+        ),
         context_ttl_seconds=_positive_float(
             context_raw.get("ttl_seconds"),
             name="runtime.context.ttl_seconds",
@@ -300,7 +309,27 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             name="runtime.platform_message_cache_size",
             default=500,
         ),
+        media_max_items=_positive_int(
+            runtime_raw.get("media_max_items"),
+            name="runtime.media_max_items",
+            default=5,
+        ),
+        media_max_file_bytes=_positive_int(
+            runtime_raw.get("media_max_file_bytes"),
+            name="runtime.media_max_file_bytes",
+            default=10_000_000,
+        ),
+        media_max_total_bytes=_positive_int(
+            runtime_raw.get("media_max_total_bytes"),
+            name="runtime.media_max_total_bytes",
+            default=20_000_000,
+        ),
     )
+    if runtime.media_max_total_bytes < runtime.media_max_file_bytes:
+        raise ValueError(
+            "runtime.media_max_total_bytes must be greater than or equal to "
+            "runtime.media_max_file_bytes."
+        )
 
     coordination_raw = raw.get("coordination") or {}
     coordination_backend = str(coordination_raw.get("backend", "sqlite")).strip().lower()

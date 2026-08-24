@@ -8,7 +8,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from shin_ai.config import CONTEXT_MAX_CHATS, CONTEXT_MESSAGES_PER_CHAT, CONTEXT_TTL_SECONDS
+from shin_ai.config import (
+    CONTEXT_MAX_CHATS,
+    CONTEXT_MESSAGE_CHARS,
+    CONTEXT_MESSAGES_PER_CHAT,
+    CONTEXT_TTL_SECONDS,
+)
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser
 
 
@@ -27,11 +32,13 @@ class ContextBuffer:
         max_chats: int,
         messages_per_chat: int,
         ttl_seconds: float,
+        max_text_chars: int = 4_000,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.max_chats = max_chats
         self.messages_per_chat = messages_per_chat
         self.ttl_seconds = ttl_seconds
+        self.max_text_chars = max_text_chars
         self._clock = clock
         self._chats: OrderedDict[str, _ChatContext] = OrderedDict()
 
@@ -54,7 +61,11 @@ class ContextBuffer:
         if context is None:
             context = _ChatContext(deque(maxlen=self.messages_per_chat), now)
             self._chats[chat_key] = context
-        context.messages.append(entry)
+        stored_entry = dict(entry)
+        text = stored_entry.get("text")
+        if isinstance(text, str) and len(text) > self.max_text_chars:
+            stored_entry["text"] = text[: self.max_text_chars]
+        context.messages.append(stored_entry)
         context.last_access = now
         self._chats.move_to_end(chat_key)
         self._prune(now)
@@ -74,6 +85,7 @@ _context_buffer = ContextBuffer(
     max_chats=CONTEXT_MAX_CHATS,
     messages_per_chat=CONTEXT_MESSAGES_PER_CHAT,
     ttl_seconds=CONTEXT_TTL_SECONDS,
+    max_text_chars=CONTEXT_MESSAGE_CHARS,
 )
 
 

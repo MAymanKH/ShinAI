@@ -221,9 +221,13 @@ runtime:
   shutdown_grace_seconds: 30
   typing_action_timeout_seconds: 2
   platform_message_cache_size: 500
+  media_max_items: 5
+  media_max_file_bytes: 10000000
+  media_max_total_bytes: 20000000
   context:
     max_chats: 2000
     messages_per_chat: 50
+    message_chars: 4000
     ttl_seconds: 7200
 
 # Two instances coordinate when they use the same namespace and SQLite file.

@@ -76,8 +76,12 @@ SHUTDOWN_GRACE_SECONDS = _cfg.runtime.shutdown_grace_seconds
 TYPING_ACTION_TIMEOUT_SECONDS = _cfg.runtime.typing_action_timeout_seconds
 CONTEXT_MAX_CHATS = _cfg.runtime.context_max_chats
 CONTEXT_MESSAGES_PER_CHAT = _cfg.runtime.context_messages_per_chat
+CONTEXT_MESSAGE_CHARS = _cfg.runtime.context_message_chars
 CONTEXT_TTL_SECONDS = _cfg.runtime.context_ttl_seconds
 PLATFORM_MESSAGE_CACHE_SIZE = _cfg.runtime.platform_message_cache_size
+MEDIA_MAX_ITEMS = _cfg.runtime.media_max_items
+MEDIA_MAX_FILE_BYTES = _cfg.runtime.media_max_file_bytes
+MEDIA_MAX_TOTAL_BYTES = _cfg.runtime.media_max_total_bytes
 
 # Multi-instance coordination
 COORDINATION_BACKEND = _cfg.coordination.backend

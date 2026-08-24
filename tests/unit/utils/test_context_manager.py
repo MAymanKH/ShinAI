@@ -56,3 +56,18 @@ def test_context_buffer_stays_bounded_under_many_unique_chats() -> None:
     assert len(buffer) == 128
     assert buffer.snapshot("chat-0") == []
     assert buffer.snapshot("chat-9999") == [_entry(9_999)]
+
+
+def test_context_buffer_caps_retained_text_per_message() -> None:
+    buffer = ContextBuffer(
+        max_chats=2,
+        messages_per_chat=2,
+        ttl_seconds=60,
+        max_text_chars=5,
+    )
+    original = {"text": "123456789", "other": "preserved"}
+
+    buffer.append("chat", original)
+
+    assert buffer.snapshot("chat") == [{"text": "12345", "other": "preserved"}]
+    assert original["text"] == "123456789"

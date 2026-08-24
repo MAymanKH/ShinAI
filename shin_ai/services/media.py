@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from shin_ai.config import MEDIA_MAX_FILE_BYTES, MEDIA_MAX_ITEMS, MEDIA_MAX_TOTAL_BYTES
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.audio_transcriber import transcribe_audio_source
@@ -11,6 +12,28 @@ from shin_ai.utils.context_manager import get_recent_media_messages
 from shin_ai.utils.logger_config import logger
 
 Transcriber = Callable[[Callable[[], Awaitable[bytes]], str], Awaitable[str]]
+
+
+def _media_fits_limits(content: bytes, retained_bytes: int) -> bool:
+    size = len(content)
+    if size > MEDIA_MAX_FILE_BYTES:
+        logger.warning(
+            "Media rejected — bytes=%d per_file_limit=%d",
+            size,
+            MEDIA_MAX_FILE_BYTES,
+            extra={"event_name": "media.rejected"},
+        )
+        return False
+    if retained_bytes + size > MEDIA_MAX_TOTAL_BYTES:
+        logger.warning(
+            "Media rejected — bytes=%d retained=%d total_limit=%d",
+            size,
+            retained_bytes,
+            MEDIA_MAX_TOTAL_BYTES,
+            extra={"event_name": "media.rejected"},
+        )
+        return False
+    return True
 
 
 async def prepare_prompt_and_media(
@@ -126,19 +149,22 @@ async def download_message_media(
     media = []
     current: UnifiedMessage | None = msg
     depth = 0
-    while current is not None and depth <= 10:
+    retained_bytes = 0
+    while current is not None and depth <= 10 and len(media) < MEDIA_MAX_ITEMS:
         downloaded = await download(current)
         if downloaded is not None and downloaded[0]:
             content, mime_type, media_type, sender = downloaded
-            media.append(
-                {
-                    "bytes": content,
-                    "mime_type": mime_type,
-                    "sender": sender,
-                    "position": "Current message" if depth == 0 else f"{depth} messages back",
-                    "media_type": media_type,
-                }
-            )
+            if _media_fits_limits(content, retained_bytes):
+                media.append(
+                    {
+                        "bytes": content,
+                        "mime_type": mime_type,
+                        "sender": sender,
+                        "position": "Current message" if depth == 0 else f"{depth} messages back",
+                        "media_type": media_type,
+                    }
+                )
+                retained_bytes += len(content)
         current = current.reply_to_message
         depth += 1
     return media
@@ -199,7 +225,10 @@ async def download_context_media(
     message_ids: list[int | str],
 ) -> list[dict]:
     media = []
+    retained_bytes = 0
     for index, message_id in enumerate(message_ids):
+        if len(media) >= MEDIA_MAX_ITEMS:
+            break
         message = await platform.get_message(chat_id, message_id)
         if not message:
             continue
@@ -210,7 +239,7 @@ async def download_context_media(
         )
         if message.photo:
             content = await platform.download_media(message.photo)
-            if content:
+            if content and _media_fits_limits(content, retained_bytes):
                 media.append(
                     {
                         "bytes": content,
@@ -220,9 +249,10 @@ async def download_context_media(
                         "media_type": "photo",
                     }
                 )
+                retained_bytes += len(content)
         elif message.sticker and not message.sticker.is_animated and not message.sticker.is_video:
             content = await platform.download_media(message.sticker)
-            if content:
+            if content and _media_fits_limits(content, retained_bytes):
                 media.append(
                     {
                         "bytes": content,
@@ -232,4 +262,5 @@ async def download_context_media(
                         "media_type": f"sticker {message.sticker.emoji or ''}",
                     }
                 )
+                retained_bytes += len(content)
     return media

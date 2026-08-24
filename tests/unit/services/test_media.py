@@ -2,6 +2,7 @@ import asyncio
 
 from shin_ai.platforms.models import UnifiedChat, UnifiedMedia, UnifiedMessage, UnifiedUser
 from shin_ai.services.media import (
+    download_context_media,
     download_message_media,
     extract_prompt,
     find_audio_in_reply_chain,
@@ -79,3 +80,50 @@ def test_find_audio_walks_reply_chain() -> None:
     current = _message(3, reply_to_message=middle)
 
     assert find_audio_in_reply_chain(current) is audio
+
+
+def test_download_message_media_enforces_item_and_total_byte_limits(monkeypatch) -> None:
+    first = _message(1, photo=UnifiedMedia(type="PHOTO", id="first"))
+    second = _message(
+        2,
+        photo=UnifiedMedia(type="PHOTO", id="second"),
+        reply_to_message=first,
+    )
+    current = _message(
+        3,
+        photo=UnifiedMedia(type="PHOTO", id="oversized"),
+        reply_to_message=second,
+    )
+
+    class SizedPlatform(_Platform):
+        async def download_media(self, media) -> bytes:
+            return {
+                "oversized": b"x" * 6,
+                "second": b"y" * 4,
+                "first": b"z" * 4,
+            }[media.id]
+
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_FILE_BYTES", 5)
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_TOTAL_BYTES", 6)
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_ITEMS", 5)
+
+    media = run(download_message_media(SizedPlatform(), current))
+
+    assert [entry["bytes"] for entry in media] == [b"y" * 4]
+
+
+def test_context_media_stops_after_configured_item_count(monkeypatch) -> None:
+    class ContextPlatform(_Platform):
+        async def get_message(self, _chat_id, message_id):
+            return _message(
+                int(message_id),
+                photo=UnifiedMedia(type="PHOTO", id=str(message_id)),
+            )
+
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_FILE_BYTES", 100)
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_TOTAL_BYTES", 100)
+    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_ITEMS", 2)
+
+    media = run(download_context_media(ContextPlatform(), 1, [1, 2, 3, 4]))
+
+    assert len(media) == 2
