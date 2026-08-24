@@ -12,7 +12,6 @@ import asyncio
 import random
 from dataclasses import dataclass
 
-from shin_ai.config import LOG_CONTENT_PREVIEW_CHARS
 from shin_ai.data.loader import (
     MEMBERS,
     TELEGRAM_STICKER_TO_DESCRIPTION,
@@ -21,6 +20,7 @@ from shin_ai.data.loader import (
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.replies import save_reply
+from shin_ai.settings import get_settings
 from shin_ai.utils.context_manager import add_bot_message_to_context
 from shin_ai.utils.logger_config import logger
 
@@ -110,13 +110,16 @@ async def execute_text_messages(
                 sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
                 sent_messages.append(text)
-                preview = text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
+                preview = text.replace("\n", " ")[: get_settings().logging.content_preview_chars]
                 logger.info(
                     'Responded — part=%d/%d text="%s%s"',
                     idx + 1,
                     len(pairs),
-                    preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
-                    "..." if LOG_CONTENT_PREVIEW_CHARS and len(text) > LOG_CONTENT_PREVIEW_CHARS else "",
+                    preview if get_settings().logging.content_preview_chars else "<hidden>",
+                    "..."
+                    if get_settings().logging.content_preview_chars
+                    and len(text) > get_settings().logging.content_preview_chars
+                    else "",
                     extra={"event_name": "response.sent"},
                 )
                 logger.debug(

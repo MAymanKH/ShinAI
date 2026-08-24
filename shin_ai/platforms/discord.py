@@ -2,7 +2,6 @@ import asyncio
 
 import discord
 
-from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
     UnifiedChat,
@@ -11,6 +10,7 @@ from shin_ai.platforms.models import (
     UnifiedMessageEntity,
     UnifiedUser,
 )
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 
@@ -23,7 +23,7 @@ class DiscordPlatform(PlatformAdapter):
             intents=intents,
             member_cache_flags=discord.MemberCacheFlags.none(),
             chunk_guilds_at_startup=False,
-            max_messages=PLATFORM_MESSAGE_CACHE_SIZE,
+            max_messages=get_settings().runtime.platform_message_cache_size,
         )
         self.token = token
         self._bot_user = None

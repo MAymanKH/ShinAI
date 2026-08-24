@@ -9,8 +9,8 @@ import threading
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from shin_ai.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MAX_CONCURRENCY, EMBEDDING_MODEL
 from shin_ai.services.native_work import NativeWorkLimiter
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -110,9 +110,9 @@ def get_embedding_service() -> EmbeddingService:
         with _service_lock:
             if _service is None:
                 _service = EmbeddingService(
-                    EMBEDDING_MODEL,
-                    max_concurrency=EMBEDDING_MAX_CONCURRENCY,
-                    batch_size=EMBEDDING_BATCH_SIZE,
+                    get_settings().embedding.model,
+                    max_concurrency=get_settings().embedding.max_concurrency,
+                    batch_size=get_settings().embedding.batch_size,
                 )
     return _service
 

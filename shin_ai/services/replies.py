@@ -13,10 +13,11 @@ import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-from shin_ai.config import CONTEXT_MAX_CHATS, DATA_DIR, REPLY_STATE_TTL_SECONDS
 from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.paths import DATA_DIR
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
+from shin_ai.settings import get_settings
 from shin_ai.utils.chat_identity import chat_scope_key
 from shin_ai.utils.logger_config import logger
 
@@ -43,7 +44,7 @@ def set_next_message_watch(
 ) -> None:
     key = _reply_key(platform, chat_id, coordination_scope)
     if key not in _next_message_watch:
-        while len(_next_message_watch) >= CONTEXT_MAX_CHATS:
+        while len(_next_message_watch) >= get_settings().runtime.context_max_chats:
             _next_message_watch.popitem(last=False)
     _next_message_watch[key] = True
     # Re-arming an existing watch must also refresh its recency, otherwise an
@@ -112,7 +113,7 @@ def _load_cache_from_disk() -> dict[str, list[str]]:
 
     if not isinstance(_replies_cache, dict):
         _replies_cache = {}
-    while len(_replies_cache) > CONTEXT_MAX_CHATS:
+    while len(_replies_cache) > get_settings().runtime.context_max_chats:
         oldest_chat = next(iter(_replies_cache))
         _replies_cache.pop(oldest_chat, None)
     for chat_id, reply_ids in tuple(_replies_cache.items()):
@@ -190,7 +191,7 @@ async def save_reply(
     scoped_chat_id = _reply_key(platform, chat_id, coordination_scope) if platform else str(chat_id)
 
     if scoped_chat_id not in _replies_cache:
-        while len(_replies_cache) >= CONTEXT_MAX_CHATS:
+        while len(_replies_cache) >= get_settings().runtime.context_max_chats:
             oldest_chat = next(iter(_replies_cache))
             _replies_cache.pop(oldest_chat, None)
         _replies_cache[scoped_chat_id] = []
@@ -213,12 +214,12 @@ async def save_reply(
             await shared_store.set(
                 _shared_state_key("message", coordination_scope, chat_id, message_id),
                 "1",
-                ttl_seconds=REPLY_STATE_TTL_SECONDS,
+                ttl_seconds=get_settings().coordination.reply_state_ttl_seconds,
             )
             await shared_store.set(
                 _shared_state_key("next", coordination_scope, chat_id),
                 "1",
-                ttl_seconds=REPLY_STATE_TTL_SECONDS,
+                ttl_seconds=get_settings().coordination.reply_state_ttl_seconds,
             )
         except Exception:
             logger.exception("Shared bot-reply marker update failed")

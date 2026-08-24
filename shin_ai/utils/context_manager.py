@@ -8,13 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from shin_ai.config import (
-    CONTEXT_MAX_CHATS,
-    CONTEXT_MESSAGE_CHARS,
-    CONTEXT_MESSAGES_PER_CHAT,
-    CONTEXT_TTL_SECONDS,
-)
 from shin_ai.platforms.models import UnifiedMessage, UnifiedUser
+from shin_ai.settings import get_settings
 from shin_ai.utils.chat_identity import chat_scope_key
 
 
@@ -82,12 +77,27 @@ class ContextBuffer:
         return list(context.messages)
 
 
-_context_buffer = ContextBuffer(
-    max_chats=CONTEXT_MAX_CHATS,
-    messages_per_chat=CONTEXT_MESSAGES_PER_CHAT,
-    ttl_seconds=CONTEXT_TTL_SECONDS,
-    max_text_chars=CONTEXT_MESSAGE_CHARS,
-)
+_context_buffer: ContextBuffer | None = None
+
+
+def _get_buffer() -> ContextBuffer:
+    """Build the buffer on first use so importing this module reads no config."""
+    global _context_buffer
+    if _context_buffer is None:
+        runtime = get_settings().runtime
+        _context_buffer = ContextBuffer(
+            max_chats=runtime.context_max_chats,
+            messages_per_chat=runtime.context_messages_per_chat,
+            ttl_seconds=runtime.context_ttl_seconds,
+            max_text_chars=runtime.context_message_chars,
+        )
+    return _context_buffer
+
+
+def reset_context_buffer() -> None:
+    """Drop the buffer; used by tests and by settings reloads."""
+    global _context_buffer
+    _context_buffer = None
 
 
 def _get_chat_key(platform: str, chat_id: int | str) -> str:
@@ -126,7 +136,7 @@ def add_message_to_context(msg: UnifiedMessage) -> None:
     else:
         text_content = msg.text or msg.caption or "[Other Media]"
 
-    _context_buffer.append(
+    _get_buffer().append(
         _get_chat_key(msg.platform, msg.chat.id),
         {
             "platform": msg.platform,
@@ -169,7 +179,7 @@ def add_bot_message_to_context(
     else:
         text_content = text or ""
 
-    _context_buffer.append(
+    _get_buffer().append(
         _get_chat_key(platform, chat_id),
         {
             "platform": platform,
@@ -190,7 +200,7 @@ def get_recent_context_string(
     chat_id: int | str,
     current_msg_id: int | str | None = None,
 ) -> str:
-    messages = _context_buffer.snapshot(_get_chat_key(platform, chat_id))
+    messages = _get_buffer().snapshot(_get_chat_key(platform, chat_id))
     lines = []
     for message in messages:
         if current_msg_id is not None and str(message["msg_id"]) == str(current_msg_id):
@@ -214,7 +224,7 @@ def _recent_media(
     max_count: int,
 ) -> list[dict]:
     result = []
-    for message in reversed(_context_buffer.snapshot(_get_chat_key(platform, chat_id))):
+    for message in reversed(_get_buffer().snapshot(_get_chat_key(platform, chat_id))):
         if allowed(message.get("media_type")):
             result.append(
                 {

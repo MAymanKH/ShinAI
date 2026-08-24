@@ -9,7 +9,6 @@ import inspect
 
 from google import genai
 
-from shin_ai.config import COORDINATION_LEASE_SECONDS
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.providers.gemini_errors import (
     GeminiFailure,
@@ -17,13 +16,14 @@ from shin_ai.providers.gemini_errors import (
     classify_gemini_error,
 )
 from shin_ai.providers.gemini_keys import (
-    API_KEYS_MAP,
-    MODELS_LIST,
+    get_api_keys,
+    get_models,
 )
 from shin_ai.providers.gemini_keys import (
     get_gemini_stats_message as get_gemini_stats_message,
 )
 from shin_ai.providers.gemini_scheduler import GeminiScheduler
+from shin_ai.settings import get_settings
 from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS, POST_ACTION_TOOL_REMINDER
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_lookup import memory_lookup_tool
@@ -45,10 +45,10 @@ def get_gemini_scheduler() -> GeminiScheduler:
     global _gemini_scheduler
     if _gemini_scheduler is None:
         _gemini_scheduler = GeminiScheduler(
-            API_KEYS_MAP,
-            MODELS_LIST,
+            get_api_keys(),
+            get_models(),
             get_coordination_store(),
-            reservation_seconds=COORDINATION_LEASE_SECONDS,
+            reservation_seconds=get_settings().coordination.lease_seconds,
         )
     return _gemini_scheduler
 

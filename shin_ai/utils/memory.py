@@ -3,8 +3,8 @@ import time
 import uuid
 from datetime import datetime
 
-from shin_ai.config import MEMORY_MAX_DISTANCE
 from shin_ai.services.embeddings import get_embedding_service
+from shin_ai.settings import get_settings
 from shin_ai.utils.db import get_chroma_client
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_time import detect_time_filter
@@ -176,7 +176,7 @@ async def retrieve_memories(query: str, limit: int = 15):
 
         # A time-filtered search has already narrowed candidates by metadata, so
         # relevance can be graded a little more loosely there.
-        max_distance = MEMORY_MAX_DISTANCE * (1.25 if where_filter else 1.0)
+        max_distance = get_settings().retrieval.memory_max_distance * (1.25 if where_filter else 1.0)
         filtered_docs, filtered_embs = _filter_by_relevance(results, max_distance)
 
         final_memories = await _rank_diverse(query_emb, filtered_docs, filtered_embs, limit)
@@ -204,7 +204,9 @@ async def _retrieve_memories_unfiltered(query_emb: list, limit: int = 15):
             n_results=40,
             include=["documents", "distances", "embeddings"],
         )
-        filtered_docs, filtered_embs = _filter_by_relevance(results, MEMORY_MAX_DISTANCE)
+        filtered_docs, filtered_embs = _filter_by_relevance(
+            results, get_settings().retrieval.memory_max_distance
+        )
         return await _rank_diverse(query_emb, filtered_docs, filtered_embs, limit)
     except Exception as e:
         logger.error("Failed to retrieve memories (unfiltered fallback): %s", e, exc_info=True)

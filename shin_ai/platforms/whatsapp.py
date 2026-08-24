@@ -6,7 +6,6 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from shin_ai.config import PLATFORM_MESSAGE_CACHE_SIZE
 from shin_ai.data.loader import DATA_DIR
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
@@ -46,6 +45,7 @@ from shin_ai.platforms.whatsapp_runtime import (
     WaMessageType,
     build_jid,
 )
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 WHATSAPP_STICKERS_DIR = DATA_DIR / "whatsapp_stickers"
@@ -62,7 +62,7 @@ class WhatsAppPlatform(PlatformAdapter):
         self._cache_lock = RLock()
         self._raw_message_cache: OrderedDict[tuple[str, str], MessageEventType] = OrderedDict()
         self._unified_message_cache: OrderedDict[tuple[str, str], UnifiedMessage] = OrderedDict()
-        self._cache_limit = PLATFORM_MESSAGE_CACHE_SIZE
+        self._cache_limit = get_settings().runtime.platform_message_cache_size
         self._group_title_cache: OrderedDict[str, str] = OrderedDict()
 
     @property

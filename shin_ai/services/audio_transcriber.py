@@ -14,17 +14,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from shin_ai.config import (
-    WHISPER_CPU_THREADS,
-    WHISPER_IDLE_TIMEOUT_SECONDS,
-    WHISPER_LANGUAGE,
-    WHISPER_MAX_CONCURRENT,
-    WHISPER_MAX_FILE_BYTES,
-    WHISPER_MODEL,
-    WHISPER_PROCESS_ISOLATION,
-    WHISPER_TIMEOUT_SECONDS,
-)
 from shin_ai.services.native_work import NativeWorkLimiter
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 _MIME_SUFFIXES = {
@@ -265,17 +256,38 @@ class WhisperProcessManager:
 
 _in_process_model = None
 _in_process_model_lock = threading.Lock()
-_transcription_limiter = NativeWorkLimiter(
-    1 if WHISPER_PROCESS_ISOLATION else WHISPER_MAX_CONCURRENT,
-    task_name="shinai-audio-transcription",
-)
-_process_manager = WhisperProcessManager(
-    model_name=WHISPER_MODEL or "large-v3-turbo",
-    cpu_threads=WHISPER_CPU_THREADS,
-    language=WHISPER_LANGUAGE,
-    idle_timeout_seconds=WHISPER_IDLE_TIMEOUT_SECONDS,
-    timeout_seconds=WHISPER_TIMEOUT_SECONDS,
-)
+_transcription_limiter: NativeWorkLimiter | None = None
+_process_manager: WhisperProcessManager | None = None
+_service_lock = threading.Lock()
+
+
+def _get_limiter() -> NativeWorkLimiter:
+    global _transcription_limiter
+    if _transcription_limiter is None:
+        with _service_lock:
+            if _transcription_limiter is None:
+                whisper = get_settings().whisper
+                _transcription_limiter = NativeWorkLimiter(
+                    1 if whisper.process_isolation else whisper.max_concurrent_transcriptions,
+                    task_name="shinai-audio-transcription",
+                )
+    return _transcription_limiter
+
+
+def _get_process_manager() -> WhisperProcessManager:
+    global _process_manager
+    if _process_manager is None:
+        with _service_lock:
+            if _process_manager is None:
+                whisper = get_settings().whisper
+                _process_manager = WhisperProcessManager(
+                    model_name=whisper.model or "large-v3-turbo",
+                    cpu_threads=whisper.cpu_threads,
+                    language=whisper.language,
+                    idle_timeout_seconds=whisper.idle_timeout_seconds,
+                    timeout_seconds=whisper.timeout_seconds,
+                )
+    return _process_manager
 
 
 def _get_in_process_model():
@@ -284,8 +296,9 @@ def _get_in_process_model():
         return _in_process_model
     with _in_process_model_lock:
         if _in_process_model is None:
-            logger.info("Loading in-process Whisper model '%s'...", WHISPER_MODEL)
-            _in_process_model = _create_model(WHISPER_MODEL, WHISPER_CPU_THREADS)
+            whisper = get_settings().whisper
+            logger.info("Loading in-process Whisper model '%s'...", whisper.model)
+            _in_process_model = _create_model(whisper.model, whisper.cpu_threads)
     return _in_process_model
 
 
@@ -294,7 +307,7 @@ def _transcribe_in_process(audio_bytes: bytes, mime_type: str) -> str:
         _get_in_process_model(),
         audio_bytes,
         mime_type,
-        WHISPER_LANGUAGE,
+        get_settings().whisper.language,
     )
     logger.debug(
         "Whisper transcription complete — lang=%s probability=%.2f chars=%d",
@@ -312,23 +325,25 @@ async def transcribe_audio_source(
     """Download and transcribe inside one slot to bound retained audio bytes."""
     cancel_event = threading.Event()
 
+    whisper = get_settings().whisper
+
     async def run(commit) -> str:
         try:
             audio_bytes = await loader()
             if not audio_bytes:
                 logger.warning("Audio download returned empty data")
                 return ""
-            if len(audio_bytes) > WHISPER_MAX_FILE_BYTES:
+            if len(audio_bytes) > whisper.max_file_bytes:
                 logger.warning(
                     "Audio rejected — bytes=%d limit=%d",
                     len(audio_bytes),
-                    WHISPER_MAX_FILE_BYTES,
+                    whisper.max_file_bytes,
                 )
                 return ""
             commit()
-            if WHISPER_PROCESS_ISOLATION:
+            if whisper.process_isolation:
                 return await asyncio.to_thread(
-                    _process_manager.transcribe,
+                    _get_process_manager().transcribe,
                     audio_bytes,
                     mime_type,
                     cancel_event,
@@ -341,7 +356,7 @@ async def transcribe_audio_source(
             logger.error("Whisper transcription failed: %s", error, exc_info=True)
             return ""
 
-    return await _transcription_limiter.run(run, on_cancel=cancel_event.set)
+    return await _get_limiter().run(run, on_cancel=cancel_event.set)
 
 
 async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
@@ -352,12 +367,23 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
 
 
 async def close_audio_transcriber() -> None:
-    global _in_process_model
-    await _transcription_limiter.close()
-    await asyncio.to_thread(_process_manager.close)
+    global _in_process_model, _transcription_limiter, _process_manager
+
+    limiter, _transcription_limiter = _transcription_limiter, None
+    manager, _process_manager = _process_manager, None
+    if limiter is not None:
+        await limiter.close()
+    if manager is not None:
+        await asyncio.to_thread(manager.close)
     with _in_process_model_lock:
         _in_process_model = None
     gc.collect()
 
 
-atexit.register(_process_manager.close)
+def _close_process_manager_at_exit() -> None:
+    manager = _process_manager
+    if manager is not None:
+        manager.close()
+
+
+atexit.register(_close_process_manager_at_exit)

@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from shin_ai.config import DATA_DIR, GEMINI_MODELS
+from shin_ai.paths import DATA_DIR
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 GEMINI_KEYS_FILE = DATA_DIR / "gemini_keys.json"
-MODELS_LIST = tuple(GEMINI_MODELS)
 
 
 def load_keys() -> dict[str, str]:
@@ -71,4 +71,17 @@ async def get_gemini_stats_message(detailed: bool = False) -> str:
     return "\n".join(lines)
 
 
-API_KEYS_MAP = load_keys()
+_api_keys: dict[str, str] | None = None
+
+
+def get_api_keys() -> dict[str, str]:
+    """Read the key file once, on first use rather than at import."""
+    global _api_keys
+    if _api_keys is None:
+        _api_keys = load_keys()
+    return _api_keys
+
+
+def get_models() -> tuple[str, ...]:
+    """Models of the configured Gemini provider, in declared order."""
+    return tuple(get_settings().ai.gemini_models)

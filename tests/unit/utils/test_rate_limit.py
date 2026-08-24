@@ -2,7 +2,7 @@ import asyncio
 
 from shin_ai.coordination.store import InMemoryCoordinationStore
 from shin_ai.utils.rate_limit import (
-    GROUP_MAX_RESPONSES,
+    _group_max_responses,
     check_group_rate_limit_shared,
     check_rate_limit_shared,
 )
@@ -25,6 +25,7 @@ def test_user_rate_limit_is_shared_but_credential_scoped() -> None:
 def test_group_rate_limit_is_atomic_across_callers() -> None:
     async def scenario() -> None:
         store = InMemoryCoordinationStore()
+        allowed = _group_max_responses()
         results = await asyncio.gather(
             *(
                 check_group_rate_limit_shared(
@@ -34,10 +35,10 @@ def test_group_rate_limit_is_atomic_across_callers() -> None:
                     store=store,
                     now=100.0,
                 )
-                for _ in range(GROUP_MAX_RESPONSES + 2)
+                for _ in range(allowed + 2)
             )
         )
 
-        assert sum(results) == GROUP_MAX_RESPONSES
+        assert sum(results) == allowed
 
     run(scenario())

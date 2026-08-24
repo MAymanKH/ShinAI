@@ -8,8 +8,8 @@ with fine-grained filters
 import asyncio
 import json
 
-from shin_ai.config import LOOKUP_MAX_DISTANCE
 from shin_ai.services.embeddings import get_embedding_service
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import _get_memory_collection
 from shin_ai.utils.memory_lookup_filters import (
@@ -392,7 +392,7 @@ async def _lookup_with_keywords(
 
         filtered: list[tuple[str, list, dict]] = []
         for doc, emb, meta, distance in zip(docs, embs, metas, distances, strict=False):
-            if distance <= LOOKUP_MAX_DISTANCE:
+            if distance <= get_settings().retrieval.lookup_max_distance:
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:
@@ -424,7 +424,7 @@ async def _lookup_with_keywords(
 
         filtered: list[tuple[str, list, dict]] = []
         for doc, dist, emb, meta in zip(docs, dists, embs, metas_raw, strict=False):
-            if within_distance(dist, LOOKUP_MAX_DISTANCE):
+            if within_distance(dist, get_settings().retrieval.lookup_max_distance):
                 filtered.append((doc, emb, meta or {}))
 
         if not filtered:

@@ -11,20 +11,6 @@ import re as _re
 import time
 from dataclasses import dataclass
 
-from shin_ai.config import (
-    EVENT_DEDUP_TTL_SECONDS,
-    GROUP_MAX_RESPONSES_PER_WINDOW,
-    GROUP_RATE_LIMIT_WINDOW_SECONDS,
-    INTERACTION_TTL_SECONDS,
-    LOG_CONTENT_PREVIEW_CHARS,
-    MAX_CONCURRENT_INTERACTIONS,
-    MAX_PENDING_INTERACTIONS,
-    MAX_REPLY_DELAY_SECONDS,
-    MIN_REPLY_DELAY_SECONDS,
-    PER_CHAT_QUEUE_SIZE,
-    PREFLIGHT_TIMEOUT_SECONDS,
-    SHUTDOWN_GRACE_SECONDS,
-)
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.core.action_executor import (
     execute_pending_actions,
@@ -51,6 +37,7 @@ from shin_ai.services.media import extract_prompt, prepare_prompt_and_media
 from shin_ai.services.replies import get_reply_chain
 from shin_ai.services.social import get_social_context
 from shin_ai.services.typing import TypingSession, start_typing, stop_typing
+from shin_ai.settings import get_settings
 from shin_ai.stylers.style_retriever import get_style_examples
 from shin_ai.utils.context_manager import get_recent_context_string
 from shin_ai.utils.logger_config import bind_log_context, logger
@@ -85,7 +72,7 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
             return
 
         _log_interaction_trigger(platform, msg)
-        delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
+        delay = random.uniform(get_settings().min_delay_seconds, get_settings().max_delay_seconds)
         result = await _get_interaction_scheduler().submit(
             (platform.coordination_scope, str(msg.chat.id)),
             _AdmittedInteraction(platform, msg, interaction_id),
@@ -143,7 +130,7 @@ async def _claim_event(
         claimed = await get_coordination_store().claim(
             key,
             owner,
-            ttl_seconds=EVENT_DEDUP_TTL_SECONDS,
+            ttl_seconds=get_settings().coordination.event_dedup_ttl_seconds,
         )
         return claimed, (key, owner) if claimed else None
     except Exception as error:
@@ -156,10 +143,10 @@ def _get_interaction_scheduler() -> InteractionScheduler[_AdmittedInteraction]:
     if _interaction_scheduler is None:
         _interaction_scheduler = InteractionScheduler(
             _process_admitted_interaction,
-            max_concurrent=MAX_CONCURRENT_INTERACTIONS,
-            max_pending=MAX_PENDING_INTERACTIONS,
-            per_chat_limit=PER_CHAT_QUEUE_SIZE,
-            job_ttl_seconds=INTERACTION_TTL_SECONDS,
+            max_concurrent=get_settings().runtime.max_concurrent_interactions,
+            max_pending=get_settings().runtime.max_pending_interactions,
+            per_chat_limit=get_settings().runtime.per_chat_queue_size,
+            job_ttl_seconds=get_settings().runtime.interaction_ttl_seconds,
             on_error=_log_interaction_error,
             on_drop=_log_interaction_drop,
         )
@@ -171,7 +158,7 @@ async def shutdown_interaction_scheduler() -> None:
     _shutting_down = True
     scheduler = _interaction_scheduler
     if scheduler is not None:
-        await scheduler.close(grace_seconds=SHUTDOWN_GRACE_SECONDS)
+        await scheduler.close(grace_seconds=get_settings().runtime.shutdown_grace_seconds)
     _interaction_scheduler = None
 
 
@@ -199,7 +186,7 @@ def _log_interaction_drop(payload: _AdmittedInteraction, reason: str) -> None:
 def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> None:
     user_name = (msg.from_user.username or msg.from_user.first_name) if msg.from_user else "unknown"
     full_text = msg.text or msg.caption or ""
-    text_preview = full_text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
+    text_preview = full_text.replace("\n", " ")[: get_settings().logging.content_preview_chars]
     media_hint = ""
     if msg.photo:
         media_hint = " [photo]"
@@ -219,8 +206,11 @@ def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> 
         user_name,
         _get_interaction_type(msg).split("(")[0].strip(),
         media_hint,
-        text_preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
-        "..." if LOG_CONTENT_PREVIEW_CHARS and len(full_text) > LOG_CONTENT_PREVIEW_CHARS else "",
+        text_preview if get_settings().logging.content_preview_chars else "<hidden>",
+        "..."
+        if get_settings().logging.content_preview_chars
+        and len(full_text) > get_settings().logging.content_preview_chars
+        else "",
         extra={"event_name": "interaction.triggered"},
     )
 
@@ -248,8 +238,8 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
             ):
                 logger.debug(
                     "Group rate limit hit — allowed=%d window=%.0fs",
-                    GROUP_MAX_RESPONSES_PER_WINDOW,
-                    GROUP_RATE_LIMIT_WINDOW_SECONDS,
+                    get_settings().group_rate_limit_max_responses,
+                    get_settings().group_rate_limit_window_seconds,
                     extra={"event_name": "interaction.rate_limited"},
                 )
                 return
@@ -326,8 +316,8 @@ async def _passes_speculative_preflight(
             prompt=eval_prompt,
             media_list=[],
             max_retries=1,
-            attempt_timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS,
-            global_timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS,
+            attempt_timeout_seconds=get_settings().ai.preflight_timeout_seconds,
+            global_timeout_seconds=get_settings().ai.preflight_timeout_seconds,
         )
         if not eval_ans or "YES" not in eval_ans.strip().upper():
             logger.debug("Pre-flight eval rejected speculative message. Eval: %r", eval_ans)

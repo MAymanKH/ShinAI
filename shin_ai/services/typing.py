@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
-from shin_ai.config import TYPING_ACTION_TIMEOUT_SECONDS
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 
@@ -96,9 +96,11 @@ async def start_typing(
     *,
     refresh_seconds: float = 4.0,
     max_duration_seconds: float = 120.0,
-    action_timeout_seconds: float = TYPING_ACTION_TIMEOUT_SECONDS,
+    action_timeout_seconds: float | None = None,
 ) -> TypingSession:
     """Start one typing session per platform adapter and chat."""
+    if action_timeout_seconds is None:
+        action_timeout_seconds = get_settings().runtime.typing_action_timeout_seconds
     key = (id(platform), str(chat_id))
     existing = _active_sessions.get(key)
     if existing is not None:

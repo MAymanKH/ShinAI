@@ -90,7 +90,7 @@ def test_process_manager_terminates_worker_after_cancellation(monkeypatch) -> No
     assert discarded == [True]
 
 
-def test_audio_downloads_are_bounded_before_inference(monkeypatch) -> None:
+def test_audio_downloads_are_bounded_before_inference(monkeypatch, override_settings) -> None:
     async def scenario() -> None:
         active = 0
         peak = 0
@@ -103,12 +103,11 @@ def test_audio_downloads_are_bounded_before_inference(monkeypatch) -> None:
             active -= 1
             return b"1234"
 
-        monkeypatch.setattr(audio_transcriber, "WHISPER_MAX_FILE_BYTES", 3)
-        monkeypatch.setattr(
-            audio_transcriber,
-            "_transcription_limiter",
-            NativeWorkLimiter(1, task_name="test-transcription"),
-        )
+        override_settings(audio_transcriber, "whisper", max_file_bytes=3)
+        # One shared limiter: the point of the test is that both downloads
+        # contend for the same single slot.
+        limiter = NativeWorkLimiter(1, task_name="test-transcription")
+        monkeypatch.setattr(audio_transcriber, "_get_limiter", lambda: limiter)
         results = await asyncio.gather(
             audio_transcriber.transcribe_audio_source(oversized_loader),
             audio_transcriber.transcribe_audio_source(oversized_loader),
@@ -120,7 +119,9 @@ def test_audio_downloads_are_bounded_before_inference(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
-def test_cancelled_process_transcription_signals_worker_and_holds_slot(monkeypatch) -> None:
+def test_cancelled_process_transcription_signals_worker_and_holds_slot(
+    monkeypatch, override_settings
+) -> None:
     async def scenario() -> None:
         native_started = asyncio.Event()
         cancellation_seen = asyncio.Event()
@@ -136,10 +137,10 @@ def test_cancelled_process_transcription_signals_worker_and_holds_slot(monkeypat
                 cancellation_seen.set()
             return "transcribed"
 
-        monkeypatch.setattr(audio_transcriber, "WHISPER_PROCESS_ISOLATION", True)
+        override_settings(audio_transcriber, "whisper", process_isolation=True)
         monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
         limiter = NativeWorkLimiter(1, task_name="test-transcription")
-        monkeypatch.setattr(audio_transcriber, "_transcription_limiter", limiter)
+        monkeypatch.setattr(audio_transcriber, "_get_limiter", lambda: limiter)
 
         first = asyncio.create_task(audio_transcriber.transcribe_audio(b"first"))
         await native_started.wait()

@@ -39,6 +39,14 @@ class AISettings:
     fallbacks: tuple[str, ...]
     rotation: str
 
+    @property
+    def gemini_models(self) -> tuple[str, ...]:
+        """Models of the first configured Gemini provider, for key rotation."""
+        for provider in self.providers.values():
+            if provider.type == "gemini":
+                return provider.models
+        return ()
+
 
 @dataclass(frozen=True, slots=True)
 class WhisperSettings:
@@ -94,6 +102,14 @@ class PlatformSettings:
     discord_enabled: bool
     discord_bot_token: str | None
     whatsapp_enabled: bool
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_api_id and self.telegram_api_hash and self.telegram_bot_token)
+
+    @property
+    def discord_configured(self) -> bool:
+        return bool(self.discord_bot_token)
 
 
 @dataclass(frozen=True, slots=True)

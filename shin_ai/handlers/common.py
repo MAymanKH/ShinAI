@@ -1,9 +1,9 @@
 import random
 from collections.abc import Callable
 
-from shin_ai.config import RANDOM_TRIGGER_PROBABILITY
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.replies import check_and_clear_next_message_watch, check_reply_chain
+from shin_ai.settings import get_settings
 
 SUPPORTED_CHAT_TYPES = {"PRIVATE", "GROUP", "SUPERGROUP"}
 
@@ -112,7 +112,7 @@ async def should_respond_to_message(
         _debug("pass:reply_chain")
         return True
 
-    if random.random() < RANDOM_TRIGGER_PROBABILITY:
+    if random.random() < get_settings().random_trigger_probability:
         _debug("pass:random")
         return True
 

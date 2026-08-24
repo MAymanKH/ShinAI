@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from shin_ai.config import MEDIA_MAX_FILE_BYTES, MEDIA_MAX_ITEMS, MEDIA_MAX_TOTAL_BYTES
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.services.audio_transcriber import transcribe_audio_source
+from shin_ai.settings import get_settings
 from shin_ai.utils.context_manager import get_recent_media_messages
 from shin_ai.utils.logger_config import logger
 
@@ -16,20 +16,20 @@ Transcriber = Callable[[Callable[[], Awaitable[bytes]], str], Awaitable[str]]
 
 def _media_fits_limits(content: bytes, retained_bytes: int) -> bool:
     size = len(content)
-    if size > MEDIA_MAX_FILE_BYTES:
+    if size > get_settings().runtime.media_max_file_bytes:
         logger.warning(
             "Media rejected — bytes=%d per_file_limit=%d",
             size,
-            MEDIA_MAX_FILE_BYTES,
+            get_settings().runtime.media_max_file_bytes,
             extra={"event_name": "media.rejected"},
         )
         return False
-    if retained_bytes + size > MEDIA_MAX_TOTAL_BYTES:
+    if retained_bytes + size > get_settings().runtime.media_max_total_bytes:
         logger.warning(
             "Media rejected — bytes=%d retained=%d total_limit=%d",
             size,
             retained_bytes,
-            MEDIA_MAX_TOTAL_BYTES,
+            get_settings().runtime.media_max_total_bytes,
             extra={"event_name": "media.rejected"},
         )
         return False
@@ -146,7 +146,7 @@ async def download_message_media(
     current: UnifiedMessage | None = msg
     depth = 0
     retained_bytes = 0
-    while current is not None and depth <= 10 and len(media) < MEDIA_MAX_ITEMS:
+    while current is not None and depth <= 10 and len(media) < get_settings().runtime.media_max_items:
         downloaded = await download(current)
         if downloaded is not None and downloaded[0]:
             content, mime_type, media_type, sender = downloaded
@@ -223,7 +223,7 @@ async def download_context_media(
     media = []
     retained_bytes = 0
     for index, message_id in enumerate(message_ids):
-        if len(media) >= MEDIA_MAX_ITEMS:
+        if len(media) >= get_settings().runtime.media_max_items:
             break
         message = await platform.get_message(chat_id, message_id)
         if not message:

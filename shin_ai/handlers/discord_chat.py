@@ -1,16 +1,28 @@
 import discord
 
-from shin_ai.config import DEBUG, DISCORD_BOT_TOKEN, DISCORD_CONFIGURED, DISCORD_ENABLED
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.platforms.discord import DiscordPlatform
+from shin_ai.settings import get_settings
 from shin_ai.utils.context_manager import add_message_to_context
 from shin_ai.utils.logger_config import logger
 
-# Initialize Discord Platform
-discord_platform = None
-if DISCORD_ENABLED and DISCORD_CONFIGURED:
-    discord_platform = DiscordPlatform(DISCORD_BOT_TOKEN)
+
+def register() -> DiscordPlatform | None:
+    """Build the Discord platform and attach its handlers.
+
+    Returns None when Discord is disabled or has no bot token.
+    """
+    platform_settings = get_settings().platform
+    if not platform_settings.discord_enabled:
+        logger.info("Discord handler is disabled by configuration.")
+        return None
+    if not platform_settings.discord_configured:
+        logger.warning("Discord is enabled but its bot token is missing; Discord handler is disabled.")
+        return None
+
+    discord_platform = DiscordPlatform(platform_settings.discord_bot_token)
+    debug = get_settings().debug
 
     @discord_platform.client.event
     async def on_message(message: discord.Message):
@@ -23,7 +35,7 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
             add_message_to_context(unified_msg)
 
         def _discord_debug(reason: str, text: str) -> None:
-            if not DEBUG:
+            if not debug:
                 return
             logger.debug(
                 "[DiscordFilter] chat=%s user=%s reason=%s text='%s'",
@@ -50,7 +62,6 @@ if DISCORD_ENABLED and DISCORD_CONFIGURED:
             await process_message(discord_platform, unified_msg)
         except Exception as e:
             logger.error("Error processing Discord message: %s", e, exc_info=True)
-elif DISCORD_ENABLED and not DISCORD_CONFIGURED:
-    logger.warning("Discord is enabled but DISCORD_BOT_TOKEN is missing; Discord handler is disabled.")
-else:
-    logger.info("Discord handler is disabled by configuration.")
+
+    logger.info("Discord handlers registered.")
+    return discord_platform

@@ -7,14 +7,10 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from shin_ai.config import (
-    AI_PROVIDER_MAX_RETRIES,
-    AI_PROVIDER_TIMEOUT_SECONDS,
-    GLOBAL_AI_TIMEOUT_SECONDS,
-)
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.providers.registry import ProviderSettings, get_first_gemini_provider, get_provider_chain
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 ProviderExecutor = Callable[..., Awaitable[tuple[str, list[dict]]]]
@@ -32,12 +28,24 @@ async def call_ai_provider(
     provider_chain: Sequence[ProviderSettings] | None = None,
     executor: ProviderExecutor | None = None,
     media_describer: MediaDescriber | None = None,
-    max_retries: int = AI_PROVIDER_MAX_RETRIES,
-    attempt_timeout_seconds: float = AI_PROVIDER_TIMEOUT_SECONDS,
-    global_timeout_seconds: float = GLOBAL_AI_TIMEOUT_SECONDS,
+    # Resolved in the body, not here: a default argument is evaluated when the
+    # module is imported, which would make importing this module require a
+    # readable config.yaml.
+    max_retries: int | None = None,
+    attempt_timeout_seconds: float | None = None,
+    global_timeout_seconds: float | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[str | None, list[dict]]:
     """Try configured providers under one total deadline."""
+    ai = get_settings().ai
+    max_retries = ai.max_retries if max_retries is None else max_retries
+    attempt_timeout_seconds = (
+        ai.timeout_seconds if attempt_timeout_seconds is None else attempt_timeout_seconds
+    )
+    global_timeout_seconds = (
+        ai.global_timeout_seconds if global_timeout_seconds is None else global_timeout_seconds
+    )
+
     chain = list(provider_chain if provider_chain is not None else get_provider_chain())
     execute = executor or execute_provider_once
     describe_media = media_describer or describe_media_with_gemini

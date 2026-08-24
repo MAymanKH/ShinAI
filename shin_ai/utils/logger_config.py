@@ -9,10 +9,12 @@ import sys
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 
-from shin_ai.config import DEBUG, LOG_BACKUP_COUNT, LOG_FILE, LOG_MAX_BYTES
+if TYPE_CHECKING:
+    from shin_ai.settings import LoggingSettings
 
 warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests to the HF Hub.*")
@@ -116,10 +118,10 @@ _FILE_FORMATTER = logging.Formatter(
 def setup_logger(
     name: str = "shin_ai",
     *,
-    log_file: Path | str | None = LOG_FILE,
-    debug: bool = DEBUG,
-    max_bytes: int = LOG_MAX_BYTES,
-    backup_count: int = LOG_BACKUP_COUNT,
+    log_file: Path | str | None = None,
+    debug: bool = False,
+    max_bytes: int = 25_000_000,
+    backup_count: int = 5,
 ) -> logging.Logger:
     """Create one console handler and an optional rotating file handler."""
     previous_logger_class = logging.getLoggerClass()
@@ -196,24 +198,30 @@ def _configure_third_party_loggers(debug: bool) -> None:
             sdk_logger.addFilter(_sdk_noise_filter)
 
 
-def reconfigure_logger(debug: bool = False) -> None:
-    level = logging.DEBUG if debug else logging.INFO
-    logger.setLevel(level)
-    for handler in logger.handlers:
-        handler.setLevel(level)
+def configure_logging(settings: LoggingSettings) -> logging.Logger:
+    """Apply configured logging. Called once from the composition root.
 
-    _configure_third_party_loggers(debug)
+    Import-time logging is deliberately console-only at INFO: modules log while
+    being imported, and reading config.yaml from disk to decide how is a
+    side effect that makes the package unimportable without a valid config.
+    """
+    configured = setup_logger(
+        log_file=settings.file,
+        debug=settings.debug,
+        max_bytes=settings.max_bytes,
+        backup_count=settings.backup_count,
+    )
+    _configure_third_party_loggers(settings.debug)
+    if settings.debug:
+        configured.debug("Debug logging enabled", extra={"event_name": "lifecycle.logging"})
+    return configured
 
-    if debug:
-        logger.debug(
-            "Debug logging enabled",
-            extra={"event_name": "lifecycle.logging"},
-        )
 
-
+# Console-only defaults so importing any module is side-effect free beyond
+# creating handlers; configure_logging() upgrades this once settings load.
 logger = setup_logger()
 
-_configure_third_party_loggers(DEBUG)
+_configure_third_party_loggers(False)
 
 _root_filter = ApplicationLogFilter()
 logging.getLogger().addFilter(_root_filter)

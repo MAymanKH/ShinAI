@@ -2,7 +2,6 @@ import httpx
 from pyrogram import Client, enums
 from pyrogram.types import ChatPermissions, Message
 
-from shin_ai.config import TELEGRAM_BOT_TOKEN
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
     UnifiedChat,
@@ -11,6 +10,7 @@ from shin_ai.platforms.models import (
     UnifiedMessageEntity,
     UnifiedUser,
 )
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 
 
@@ -29,7 +29,9 @@ class TelegramPlatform(PlatformAdapter):
 
     @property
     def coordination_scope(self) -> str:
-        return f"telegram:{self.credential_fingerprint(TELEGRAM_BOT_TOKEN or 'default')}"
+        return (
+            f"telegram:{self.credential_fingerprint(get_settings().platform.telegram_bot_token or 'default')}"
+        )
 
     async def get_bot_user(self) -> UnifiedUser:
         if self._bot_user:
@@ -55,11 +57,12 @@ class TelegramPlatform(PlatformAdapter):
         if not getattr(me, "is_bot", False):
             raise RuntimeError(
                 "Telegram session is authenticated as a user account, not a bot. "
-                "Delete shin_ai_bot.session and restart to re-authenticate with TELEGRAM_BOT_TOKEN."
+                "Delete shin_ai_bot.session and restart to re-authenticate with the configured bot token."
             )
 
         expected_bot_id = None
-        token = (TELEGRAM_BOT_TOKEN or "").strip()
+        bot_token = get_settings().platform.telegram_bot_token
+        token = (bot_token or "").strip()
         if ":" in token:
             token_prefix = token.split(":", 1)[0]
             if token_prefix.isdigit():
@@ -67,7 +70,7 @@ class TelegramPlatform(PlatformAdapter):
 
         if expected_bot_id is not None and me.id != expected_bot_id:
             raise RuntimeError(
-                "Telegram session does not match TELEGRAM_BOT_TOKEN "
+                "Telegram session does not match the configured bot token "
                 f"(expected bot id {expected_bot_id}, got {me.id}). "
                 "Delete shin_ai_bot.session and restart."
             )
@@ -77,10 +80,10 @@ class TelegramPlatform(PlatformAdapter):
             if hasattr(self.client, "delete_webhook"):
                 await self.client.delete_webhook(drop_pending_updates=False)
                 logger.info("Telegram webhook cleared for long polling (pyrogram API).")
-            elif TELEGRAM_BOT_TOKEN:
+            elif bot_token:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(
-                        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook",
+                        f"https://api.telegram.org/bot{bot_token}/deleteWebhook",
                         data={"drop_pending_updates": "false"},
                     )
                 if resp.is_success:
@@ -88,7 +91,7 @@ class TelegramPlatform(PlatformAdapter):
                 else:
                     logger.warning(f"Telegram Bot API deleteWebhook failed: HTTP {resp.status_code}")
             else:
-                logger.warning("Skipping webhook clear because TELEGRAM_BOT_TOKEN is empty.")
+                logger.warning("Skipping webhook clear because the Telegram bot token is empty.")
         except Exception as e:
             logger.warning(f"Unable to clear Telegram webhook: {e}")
 

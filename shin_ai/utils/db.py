@@ -7,16 +7,7 @@ import threading
 
 import chromadb
 
-from shin_ai.config import (
-    CHROMA_DATABASE,
-    CHROMA_HOST,
-    CHROMA_MODE,
-    CHROMA_PATH,
-    CHROMA_PORT,
-    CHROMA_SSL,
-    CHROMA_TENANT,
-)
-from shin_ai.settings import ChromaSettings
+from shin_ai.settings import ChromaSettings, get_settings
 
 _client = None
 _client_lock = threading.Lock()
@@ -44,13 +35,13 @@ def get_chroma_client():
         with _client_lock:
             if _client is None:
                 settings = ChromaSettings(
-                    mode=CHROMA_MODE,
-                    path=CHROMA_PATH,
-                    host=CHROMA_HOST,
-                    port=CHROMA_PORT,
-                    ssl=CHROMA_SSL,
-                    tenant=CHROMA_TENANT,
-                    database=CHROMA_DATABASE,
+                    mode=get_settings().chroma.mode,
+                    path=get_settings().chroma.path,
+                    host=get_settings().chroma.host,
+                    port=get_settings().chroma.port,
+                    ssl=get_settings().chroma.ssl,
+                    tenant=get_settings().chroma.tenant,
+                    database=get_settings().chroma.database,
                 )
                 _client = create_chroma_client(settings)
     return _client

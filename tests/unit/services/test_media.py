@@ -1,6 +1,7 @@
 import asyncio
 
 from shin_ai.platforms.models import UnifiedChat, UnifiedMedia, UnifiedMessage, UnifiedUser
+from shin_ai.services import media as media_module
 from shin_ai.services.media import (
     download_context_media,
     download_message_media,
@@ -78,7 +79,7 @@ def test_find_audio_walks_reply_chain() -> None:
     assert find_audio_in_reply_chain(current) is audio
 
 
-def test_download_message_media_enforces_item_and_total_byte_limits(monkeypatch) -> None:
+def test_download_message_media_enforces_item_and_total_byte_limits(override_settings) -> None:
     first = _message(1, photo=UnifiedMedia(type="PHOTO", id="first"))
     second = _message(
         2,
@@ -99,16 +100,20 @@ def test_download_message_media_enforces_item_and_total_byte_limits(monkeypatch)
                 "first": b"z" * 4,
             }[media.id]
 
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_FILE_BYTES", 5)
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_TOTAL_BYTES", 6)
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_ITEMS", 5)
+    override_settings(
+        media_module,
+        "runtime",
+        media_max_file_bytes=5,
+        media_max_total_bytes=6,
+        media_max_items=5,
+    )
 
     media = run(download_message_media(SizedPlatform(), current))
 
     assert [entry["bytes"] for entry in media] == [b"y" * 4]
 
 
-def test_context_media_stops_after_configured_item_count(monkeypatch) -> None:
+def test_context_media_stops_after_configured_item_count(override_settings) -> None:
     class ContextPlatform(_Platform):
         async def get_message(self, _chat_id, message_id):
             return _message(
@@ -116,9 +121,13 @@ def test_context_media_stops_after_configured_item_count(monkeypatch) -> None:
                 photo=UnifiedMedia(type="PHOTO", id=str(message_id)),
             )
 
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_FILE_BYTES", 100)
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_TOTAL_BYTES", 100)
-    monkeypatch.setattr("shin_ai.services.media.MEDIA_MAX_ITEMS", 2)
+    override_settings(
+        media_module,
+        "runtime",
+        media_max_file_bytes=100,
+        media_max_total_bytes=100,
+        media_max_items=2,
+    )
 
     media = run(download_context_media(ContextPlatform(), 1, [1, 2, 3, 4]))
 

@@ -5,8 +5,7 @@ from collections import Counter
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from shin_ai.config import ADMIN_USER_ID
-from shin_ai.core.client import app
+from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import _get_memory_collection
 
@@ -402,63 +401,65 @@ def _render_view(analytics, view: str, page: int):
     return _main_view_text(analytics), _main_keyboard()
 
 
-@app.on_message(filters.command("shinai_analytics"))
-async def show_analytics(client: Client, msg: Message):
-    if not msg.from_user:
-        return
+def register(client) -> None:
+    """Attach the admin analytics command and its pagination callbacks."""
 
-    if msg.from_user.id != ADMIN_USER_ID:
-        return
+    @client.on_message(filters.command("shinai_analytics"))
+    async def show_analytics(client: Client, msg: Message):
+        if not msg.from_user:
+            return
 
-    try:
-        analytics = await load_analytics_data()
-        report, keyboard = _render_view(analytics, "main", 0)
-        await msg.reply(report, reply_markup=keyboard)
-    except Exception as e:
-        logger.error(f"Error generating analytics: {e}", exc_info=True)
-        await msg.reply("An error occurred while generating analytics.")
+        if msg.from_user.id != get_settings().admin_user_id:
+            return
 
+        try:
+            analytics = await load_analytics_data()
+            report, keyboard = _render_view(analytics, "main", 0)
+            await msg.reply(report, reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"Error generating analytics: {e}", exc_info=True)
+            await msg.reply("An error occurred while generating analytics.")
 
-@app.on_callback_query(filters.regex(r"^analytics:"))
-async def analytics_callback(client: Client, callback: CallbackQuery):
-    if not callback.from_user:
-        return
+    @client.on_callback_query(filters.regex(r"^analytics:"))
+    async def analytics_callback(client: Client, callback: CallbackQuery):
+        if not callback.from_user:
+            return
 
-    if callback.from_user.id != ADMIN_USER_ID:
-        return
+        if callback.from_user.id != get_settings().admin_user_id:
+            return
 
-    data = callback.data or ""
-    parts = data.split(":")
+        data = callback.data or ""
+        parts = data.split(":")
 
-    view = "main"
-    page = 0
-
-    if len(parts) == 3:
-        view = parts[1]
-        page = _safe_int(parts[2], 0)
-
-    if view not in {"main", "users", "chats", "activity"}:
         view = "main"
         page = 0
 
-    try:
-        analytics = await load_analytics_data()
-        if view in {"users", "chats", "activity"}:
-            total_items = _view_item_count(analytics, view)
-            max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
-            if page < 0:
-                page = 0
-                await callback.answer("You are already on the first page.")
-            elif page > max_page:
-                page = max_page
-                await callback.answer("No more results to show.")
+        if len(parts) == 3:
+            view = parts[1]
+            page = _safe_int(parts[2], 0)
 
-        text, keyboard = _render_view(analytics, view, page)
-        if not callback.message:
-            await callback.answer("Unable to update this analytics message.", show_alert=True)
-            return
-        await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Error processing analytics callback: {e}", exc_info=True)
-        await callback.answer("Failed to load analytics view.", show_alert=True)
+        if view not in {"main", "users", "chats", "activity"}:
+            view = "main"
+            page = 0
+
+        try:
+            analytics = await load_analytics_data()
+            if view in {"users", "chats", "activity"}:
+                total_items = _view_item_count(analytics, view)
+                max_page = 0 if total_items == 0 else (total_items - 1) // PAGE_SIZE
+                if page < 0:
+                    page = 0
+                    await callback.answer("You are already on the first page.")
+                elif page > max_page:
+                    page = max_page
+                    await callback.answer("No more results to show.")
+
+            text, keyboard = _render_view(analytics, view, page)
+            if not callback.message:
+                await callback.answer("Unable to update this analytics message.", show_alert=True)
+                return
+            await callback.message.edit_text(text, reply_markup=keyboard)
+            await callback.answer()
+        except Exception as e:
+            logger.error(f"Error processing analytics callback: {e}", exc_info=True)
+            await callback.answer("Failed to load analytics view.", show_alert=True)
