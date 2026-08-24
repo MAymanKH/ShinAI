@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -293,7 +294,38 @@ _TEMPORAL_INDICATOR_WORDS = {
     "هاليوم",
     "هالاسبوع",
     "هالشهر",
+    "النهارده",
+    "انهارده",
+    "دلوقتي",
+    "فات",
+    "فاتت",
 }
+
+
+def _normalize_token(word: str) -> str:
+    """Fold Arabic orthographic variation so one spelling matches all forms.
+
+    Egyptian Arabic writes the same temporal word several ways: with or
+    without the definite article ("الاسبوع" / "اسبوع"), with any of the alef
+    forms, and with ة or ه. Matching raw tokens meant the idiomatic phrasings
+    -- which are the common ones -- never reached time detection at all.
+    """
+    word = word.translate(_ARABIC_FOLDING)
+    if word.startswith("ال") and len(word) > 4:
+        word = word[2:]
+    return word
+
+
+_ARABIC_FOLDING = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ة": "ه", "ى": "ي"})
+_WORD_PATTERN = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def _query_tokens(query: str) -> set[str]:
+    """Tokenise a query into normalised words, ignoring punctuation."""
+    return {_normalize_token(word) for word in _WORD_PATTERN.findall(query.lower())}
+
+
+_NORMALIZED_TEMPORAL_WORDS = {_normalize_token(word) for word in _TEMPORAL_INDICATOR_WORDS}
 
 TIME_DETECTION_MIN_SIMILARITY = 0.62
 TIME_DETECTION_MIN_GAP = 0.08
@@ -324,6 +356,11 @@ async def _init_embeddings() -> None:
         logger.info("Time reference embeddings ready.")
 
 
+# Queries that should NOT trigger a time filter. Recall phrasings such as
+# "what did I say" or "do you remember" deliberately do not belong here: they
+# contain no temporal word, so the keyword gate already rejects them before
+# this list is consulted, while their presence dragged genuine temporal recall
+# ("what did we talk about yesterday") below the similarity gap.
 _NO_TIME_EXAMPLES = [
     "tell me a joke",
     "explain this code",
@@ -339,14 +376,6 @@ _NO_TIME_EXAMPLES = [
     "مين انت",
     "ايش رأيك",
     "شرح لي الكود",
-    "what did I say",
-    "ايش قلت",
-    "do you remember",
-    "تتذكر",
-    "who said",
-    "مين قال",
-    "what happened",
-    "ايش صار",
 ]
 
 
@@ -355,8 +384,7 @@ async def detect_time_filter(query: str) -> tuple[int | None, int | None]:
     Semantically detect time references in the query using the local E5 model.
     Returns (start_epoch, end_epoch) or (None, None) if no time reference found.
     """
-    query_words = set(query.lower().split())
-    if not query_words & _TEMPORAL_INDICATOR_WORDS:
+    if not _query_tokens(query) & _NORMALIZED_TEMPORAL_WORDS:
         logger.debug("No temporal keywords in query, skipping time detection")
         return None, None
 
