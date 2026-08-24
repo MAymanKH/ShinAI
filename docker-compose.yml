@@ -1,8 +1,9 @@
-version: '3.8'
-
 services:
   bot:
     build: .
+    # Matches the UID the image creates. Mounted files must be readable by it;
+    # chown them to 10001 on the host if the container cannot read config.yaml.
+    user: "10001:10001"
     container_name: shin_ai_bot
     restart: unless-stopped
     volumes:

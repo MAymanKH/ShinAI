@@ -48,6 +48,13 @@ build/
 *.swp
 *.swo
 
+# --- Tooling caches / coverage ---
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # --- Test/Dev Files ---
 tst.py
 manual.py

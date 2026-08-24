@@ -39,3 +39,20 @@ ENV/
 # Data persistence directories (should be mounted via volumes)
 chroma_db/
 data/
+
+# Logs and lock files (bind-mount or ship to a log collector instead)
+*.log
+*.log.*
+.__*.lock
+
+# Tooling caches and local test output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Development-only trees
+tests/
+docs/
+.github/
