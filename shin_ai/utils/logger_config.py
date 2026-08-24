@@ -1,134 +1,176 @@
+"""Human-readable, correlated application logging."""
+
+from __future__ import annotations
+
+import contextvars
 import logging
+import multiprocessing
 import sys
 import warnings
+from contextlib import contextmanager
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
-# Suppress google_genai SDK warnings about automatic function calling (AFC) compatibility
+from shin_ai.config import DEBUG, LOG_BACKUP_COUNT, LOG_FILE, LOG_MAX_BYTES
+
+
 warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
+_log_context: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "shinai_log_context",
+    default={},
+)
 
-class AFCWarningFilter(logging.Filter):
-    """Filters out annoying Gemini SDK automatic function calling (AFC) warnings."""
+
+@contextmanager
+def bind_log_context(**fields):
+    """Attach stable identifiers to all logs emitted in the current task."""
+    current = _log_context.get()
+    merged = {**current, **{key: str(value) for key, value in fields.items() if value is not None}}
+    token = _log_context.set(merged)
+    try:
+        yield
+    finally:
+        _log_context.reset(token)
+
+
+class ApplicationLogFilter(logging.Filter):
+    """Add safe formatter fields and suppress unhelpful SDK warnings."""
+
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        if "automatic function calling" in msg or "AFC is disabled" in msg or "AFC will be disabled" in msg:
+        message = record.getMessage()
+        if (
+            "automatic function calling" in message
+            or "AFC is disabled" in message
+            or "AFC will be disabled" in message
+        ):
             return False
+
+        context = _log_context.get()
+        record.event_name = getattr(record, "event_name", "-")
+        ordered = (
+            ("rid", context.get("interaction_id")),
+            ("platform", context.get("platform")),
+            ("chat", context.get("chat_id")),
+            ("msg", context.get("message_id")),
+            ("user", context.get("user_id")),
+        )
+        record.log_context = " ".join(
+            f"{key}={value}" for key, value in ordered if value not in (None, "")
+        )
+        if record.log_context:
+            record.log_context += " | "
         return True
 
 
-def setup_logger(name: str = "ShinAI", log_file: str = "shinai_bot.log", level: int = logging.INFO) -> logging.Logger:
-    """
-    Set up a logger with both file and console handlers.
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    # Prevent propagation to the root logger.
-    # neonize (the WhatsApp Go library) bridges Python's root logger to its own
-    # Go stderr logger, which causes every line to appear twice in PM2 logs.
-    logger.propagate = False
+class ApplicationLogger(logging.Logger):
+    """Preserve tracebacks for errors logged from an active exception block."""
 
-    if not logger.handlers:
-        c_handler = logging.StreamHandler(sys.stdout)
-        f_handler = logging.FileHandler(log_file, encoding="utf-8")
+    def error(self, msg, *args, **kwargs) -> None:
+        if "exc_info" not in kwargs and sys.exc_info()[0] is not None:
+            kwargs["exc_info"] = True
+        super().error(msg, *args, **kwargs)
 
-        # Console: concise — HH:MM:SS [LEVEL   ] message
-        console_fmt = logging.Formatter(
-            "%(asctime)s [%(levelname)-8s] %(message)s",
-            datefmt="%H:%M:%S",
+
+class ConsoleFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        rendered = super().format(record)
+        if record.levelno >= logging.WARNING:
+            rendered += f" | source={record.module}:{record.funcName}:{record.lineno}"
+        return rendered
+
+
+_CONSOLE_FORMATTER = ConsoleFormatter(
+    "%(asctime)s | %(levelname)-7s | %(event_name)-22s | %(log_context)s%(message)s",
+    datefmt="%H:%M:%S",
+)
+_FILE_FORMATTER = logging.Formatter(
+    "%(asctime)s.%(msecs)03d | %(levelname)-8s | %(event_name)-22s | "
+    "%(module)s:%(funcName)s:%(lineno)d | %(log_context)s%(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+
+def setup_logger(
+    name: str = "shin_ai",
+    *,
+    log_file: Path | str | None = LOG_FILE,
+    debug: bool = DEBUG,
+    max_bytes: int = LOG_MAX_BYTES,
+    backup_count: int = LOG_BACKUP_COUNT,
+) -> logging.Logger:
+    """Create one console handler and an optional rotating file handler."""
+    previous_logger_class = logging.getLoggerClass()
+    logging.setLoggerClass(ApplicationLogger)
+    try:
+        application_logger = logging.getLogger(name)
+    finally:
+        logging.setLoggerClass(previous_logger_class)
+    application_logger.propagate = False
+    application_logger.handlers.clear()
+    level = logging.DEBUG if debug else logging.INFO
+    application_logger.setLevel(level)
+
+    log_filter = ApplicationLogFilter()
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(level)
+    console.setFormatter(_CONSOLE_FORMATTER)
+    console.addFilter(log_filter)
+    application_logger.addHandler(console)
+
+    # A spawned Whisper worker must not rotate the same file as its parent.
+    is_main_process = multiprocessing.current_process().name == "MainProcess"
+    if log_file is not None and is_main_process:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
         )
-        # File: full context for post-mortem analysis
-        file_fmt = logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d — %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(_FILE_FORMATTER)
+        file_handler.addFilter(log_filter)
+        application_logger.addHandler(file_handler)
 
-        c_handler.setFormatter(console_fmt)
-        f_handler.setFormatter(file_fmt)
-
-        c_handler.setLevel(level)
-        f_handler.setLevel(level)
-
-        logger.addHandler(c_handler)
-        logger.addHandler(f_handler)
-
-    # Attach filter to the ShinAI logger
-    logger.addFilter(AFCWarningFilter())
-
-    return logger
+    return application_logger
 
 
-# Third-party loggers that are too verbose at INFO.
-# Silenced to WARNING in production; restored to NOTSET (library default) in debug mode.
 _THIRD_PARTY_LOGGERS = (
-    # HTTP clients
     "httpx", "httpcore", "hpack",
-    # Pyrogram (Telegram client internals)
-    "pyrogram",
-    "pyrogram.connection.connection",
-    "pyrogram.session.session",
-    "pyrogram.dispatcher",
-    # Discord.py client internals
-    "discord",
-    "discord.client",
-    "discord.gateway",
-    "discord.http",
-    # WhatsApp Go bridge (neonize pipes whatsmeow Go logs into Python logging)
-    "whatsmeow",
-    "whatsmeow.Client",
-    # Google Gemini SDK (both underscore and dot package variants)
-    "google_genai",
-    "google_genai.models",
-    "google.genai",
-    "google.genai.models",
-    "google.ai.generativelanguage",
-    "google.api_core",
-    # sentence-transformers: older versions show tqdm Batches bars when their
-    # logger is at INFO level — raising to WARNING suppresses them per-request.
+    "pyrogram", "pyrogram.connection.connection", "pyrogram.session.session", "pyrogram.dispatcher",
+    "discord", "discord.client", "discord.gateway", "discord.http",
+    "whatsmeow", "whatsmeow.Client",
+    "google_genai", "google_genai.models", "google.genai", "google.genai.models",
+    "google.ai.generativelanguage", "google.api_core",
     "sentence_transformers",
 )
 
 
 def reconfigure_logger(debug: bool = False) -> None:
-    """
-    Apply the DEBUG flag from config.yaml to the root ShinAI logger.
-
-    Call this once from main.py after the config has been loaded:
-
-        from shin_ai.utils.logger_config import reconfigure_logger
-        from shin_ai.config import DEBUG
-        reconfigure_logger(DEBUG)
-
-    When debug=True:
-      - ShinAI logger drops to DEBUG level (all logger.debug() calls visible)
-      - Third-party loggers (pyrogram, discord, whatsmeow, httpx) are restored
-        to their natural level so you can see connection/session details.
-
-    When debug=False (production):
-      - Third-party loggers are silenced to WARNING — only errors/warnings show.
-    """
     level = logging.DEBUG if debug else logging.INFO
-    log = logging.getLogger("ShinAI")
-    log.setLevel(level)
-    for handler in log.handlers:
+    logger.setLevel(level)
+    for handler in logger.handlers:
         handler.setLevel(level)
 
-    # Toggle third-party verbosity based on debug mode
-    third_party_level = logging.NOTSET if debug else logging.WARNING
+    third_party_level = logging.INFO if debug else logging.WARNING
     for name in _THIRD_PARTY_LOGGERS:
         logging.getLogger(name).setLevel(third_party_level)
 
     if debug:
-        log.debug("Logger reconfigured to DEBUG level (debug: true in config.yaml)")
+        logger.debug(
+            "Debug logging enabled",
+            extra={"event_name": "lifecycle.logging"},
+        )
 
 
-# Module-level singleton — defaults to INFO until reconfigure_logger() is called.
 logger = setup_logger()
 
-# Apply production silence immediately on import (before reconfigure_logger is called).
-for _noisy in _THIRD_PARTY_LOGGERS:
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+for _name in _THIRD_PARTY_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.INFO if DEBUG else logging.WARNING)
 
-# Register the AFC warning filter globally to root and Google loggers
-_afc_filter = AFCWarningFilter()
-logging.getLogger().addFilter(_afc_filter)
+_root_filter = ApplicationLogFilter()
+logging.getLogger().addFilter(_root_filter)
 for _name in ("google_genai", "google_genai.models", "google.genai", "google.genai.models"):
-    logging.getLogger(_name).addFilter(_afc_filter)
+    logging.getLogger(_name).addFilter(_root_filter)

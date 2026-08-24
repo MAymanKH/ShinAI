@@ -35,6 +35,7 @@ from shin_ai.config import (
     GROUP_MAX_RESPONSES_PER_WINDOW,
     GROUP_RATE_LIMIT_WINDOW_SECONDS,
     INTERACTION_TTL_SECONDS,
+    LOG_CONTENT_PREVIEW_CHARS,
     MAX_REPLY_DELAY_SECONDS,
     MAX_CONCURRENT_INTERACTIONS,
     MAX_PENDING_INTERACTIONS,
@@ -44,7 +45,7 @@ from shin_ai.config import (
     EVENT_DEDUP_TTL_SECONDS,
 )
 from shin_ai.coordination.runtime import get_coordination_store
-from shin_ai.utils.logger_config import logger
+from shin_ai.utils.logger_config import bind_log_context, logger
 from shin_ai.utils.rate_limit import check_group_rate_limit_shared, check_rate_limit_shared
 from shin_ai.utils.memory import retrieve_memories
 from shin_ai.utils.context_manager import get_recent_context_string, get_recent_media_messages
@@ -62,6 +63,7 @@ from shin_ai.data.loader import PERSONALITY
 class _AdmittedInteraction:
     platform: PlatformAdapter
     message: UnifiedMessage
+    interaction_id: str
 
 
 _interaction_scheduler: InteractionScheduler[_AdmittedInteraction] | None = None
@@ -76,46 +78,61 @@ async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     if state.IS_CHECKING_KEYS or _shutting_down:
         return
 
-    claimed, claim = await _claim_event(platform, msg)
-    if not claimed:
-        logger.debug(
-            "[%s] Duplicate event ignored — chat=%s msg=%s",
-            platform.platform_name,
-            msg.chat.id,
-            msg.id,
-        )
-        return
+    interaction_id = _interaction_id(platform, msg)
+    with bind_log_context(**_message_log_context(platform, msg, interaction_id)):
+        claimed, claim = await _claim_event(platform, msg)
+        if not claimed:
+            logger.debug(
+                "Duplicate event ignored",
+                extra={"event_name": "interaction.duplicate"},
+            )
+            return
 
-    _log_interaction_trigger(platform, msg)
-    delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
-    result = await _get_interaction_scheduler().submit(
-        (platform.coordination_scope, str(msg.chat.id)),
-        _AdmittedInteraction(platform, msg),
-        delay_seconds=delay,
-    )
-    if not result.accepted:
-        if claim is not None:
-            key, owner = claim
-            try:
-                await get_coordination_store().delete(key, expected_value=owner)
-            except Exception as error:
-                logger.warning("Failed to release rejected event claim: %s", error)
-        logger.warning(
-            "[%s] Interaction rejected — chat=%s msg=%s reason=%s pending=%d",
-            platform.platform_name,
-            msg.chat.id,
-            msg.id,
-            result.reason,
-            _get_interaction_scheduler().pending_count,
+        _log_interaction_trigger(platform, msg)
+        delay = random.uniform(MIN_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS)
+        result = await _get_interaction_scheduler().submit(
+            (platform.coordination_scope, str(msg.chat.id)),
+            _AdmittedInteraction(platform, msg, interaction_id),
+            delay_seconds=delay,
         )
-    elif result.delay_applied > 0.1:
-        logger.info(
-            "[%s] Reply queued — chat=%s msg=%s delay=%.2fs",
-            platform.platform_name,
-            msg.chat.id,
-            msg.id,
-            result.delay_applied,
-        )
+        if not result.accepted:
+            if claim is not None:
+                key, owner = claim
+                try:
+                    await get_coordination_store().delete(key, expected_value=owner)
+                except Exception as error:
+                    logger.warning("Failed to release rejected event claim: %s", error)
+            logger.warning(
+                "Interaction rejected — reason=%s pending=%d",
+                result.reason,
+                _get_interaction_scheduler().pending_count,
+                extra={"event_name": "interaction.rejected"},
+            )
+        elif result.delay_applied > 0.1:
+            logger.info(
+                "Reply queued — delay=%.2fs",
+                result.delay_applied,
+                extra={"event_name": "interaction.queued"},
+            )
+
+
+def _interaction_id(platform: PlatformAdapter, msg: UnifiedMessage) -> str:
+    raw = f"{platform.coordination_scope}|{msg.chat.id}|{msg.id}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+
+
+def _message_log_context(
+    platform: PlatformAdapter,
+    msg: UnifiedMessage,
+    interaction_id: str,
+) -> dict:
+    return {
+        "interaction_id": interaction_id,
+        "platform": platform.platform_name,
+        "chat_id": msg.chat.id,
+        "message_id": msg.id,
+        "user_id": msg.from_user.id if msg.from_user else None,
+    }
 
 
 async def _claim_event(
@@ -164,25 +181,23 @@ async def shutdown_interaction_scheduler() -> None:
 
 def _log_interaction_error(payload: _AdmittedInteraction, error: BaseException) -> None:
     msg = payload.message
-    logger.error(
-        "[%s] Interaction failed — chat=%s msg=%s: %s",
-        payload.platform.platform_name,
-        msg.chat.id,
-        msg.id,
-        error,
-        exc_info=(type(error), error, error.__traceback__),
-    )
+    with bind_log_context(**_message_log_context(payload.platform, msg, payload.interaction_id)):
+        logger.error(
+            "Interaction failed: %s",
+            error,
+            exc_info=(type(error), error, error.__traceback__),
+            extra={"event_name": "interaction.failed"},
+        )
 
 
 def _log_interaction_drop(payload: _AdmittedInteraction, reason: str) -> None:
     msg = payload.message
-    logger.warning(
-        "[%s] Interaction dropped — chat=%s msg=%s reason=%s",
-        payload.platform.platform_name,
-        msg.chat.id,
-        msg.id,
-        reason,
-    )
+    with bind_log_context(**_message_log_context(payload.platform, msg, payload.interaction_id)):
+        logger.warning(
+            "Interaction dropped — reason=%s",
+            reason,
+            extra={"event_name": "interaction.dropped"},
+        )
 
 
 def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> None:
@@ -190,9 +205,8 @@ def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> 
         (msg.from_user.username or msg.from_user.first_name)
         if msg.from_user else "unknown"
     )
-    user_id = msg.from_user.id if msg.from_user else "?"
     full_text = msg.text or msg.caption or ""
-    text_preview = full_text.replace("\n", " ")[:100]
+    text_preview = full_text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
     media_hint = ""
     if msg.photo:
         media_hint = " [photo]"
@@ -207,73 +221,69 @@ def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> 
     elif msg.document:
         media_hint = " [document]"
     logger.info(
-        "[%s] Triggered — chat=%s (%s) | user=%s (%s) | %s%s | text=\"%s%s\"",
-        platform.platform_name,
-        msg.chat.id,
+        "Triggered — chat_name=%s user_name=%s type=%s%s text=\"%s%s\"",
         msg.chat.title or msg.chat.type,
         user_name,
-        user_id,
         _get_interaction_type(msg).split("(")[0].strip(),
         media_hint,
-        text_preview,
-        "..." if len(full_text) > 100 else "",
+        text_preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
+        "..." if LOG_CONTENT_PREVIEW_CHARS and len(full_text) > LOG_CONTENT_PREVIEW_CHARS else "",
+        extra={"event_name": "interaction.triggered"},
     )
 
 
 async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
     platform = payload.platform
     msg = payload.message
-    reset_request_context()
-    try:
-        if state.IS_CHECKING_KEYS:
-            return
-        if msg.from_user and not await check_rate_limit_shared(
-            platform.platform_name,
-            msg.from_user.id,
-            coordination_scope=platform.coordination_scope,
-        ):
-            logger.debug(
-                "[%s] User rate limit hit — chat=%s user=%s",
-                platform.platform_name,
-                msg.chat.id,
-                msg.from_user.id,
-            )
-            return
-        if msg.chat.type != "PRIVATE" and not await check_group_rate_limit_shared(
-            platform.platform_name,
-            msg.chat.id,
-            coordination_scope=platform.coordination_scope,
-        ):
-            logger.debug(
-                "[%s] Group rate limit hit — chat=%s (allowed %d/%.0fs)",
-                platform.platform_name,
-                msg.chat.id,
-                GROUP_MAX_RESPONSES_PER_WINDOW,
-                GROUP_RATE_LIMIT_WINDOW_SECONDS,
-            )
-            return
-
-        prompt, media_list = await _prepare_prompt_and_media(platform, msg)
-        recent_context_section = _get_recent_context(platform.platform_name, msg)
-
-        if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
-            return
-
-        reply_text = await _get_reply_chain_text(platform, msg)
-        await _execute_frozen_message(
-            platform=platform,
-            msg=msg,
-            prompt=prompt,
-            media_list=media_list,
-            reply_text=reply_text,
-            style_examples=await _get_style_examples(prompt),
-            social_context_section=await get_social_context(msg, reply_text),
-            memory_section=await _get_memory_section(prompt, msg),
-            runtime_context=await _build_runtime_context(platform, msg),
-            target_instructions=_build_target_instructions(msg),
-        )
-    finally:
+    with bind_log_context(**_message_log_context(platform, msg, payload.interaction_id)):
         reset_request_context()
+        try:
+            if state.IS_CHECKING_KEYS:
+                return
+            if msg.from_user and not await check_rate_limit_shared(
+                platform.platform_name,
+                msg.from_user.id,
+                coordination_scope=platform.coordination_scope,
+            ):
+                logger.debug(
+                    "User rate limit hit",
+                    extra={"event_name": "interaction.rate_limited"},
+                )
+                return
+            if msg.chat.type != "PRIVATE" and not await check_group_rate_limit_shared(
+                platform.platform_name,
+                msg.chat.id,
+                coordination_scope=platform.coordination_scope,
+            ):
+                logger.debug(
+                    "Group rate limit hit — allowed=%d window=%.0fs",
+                    GROUP_MAX_RESPONSES_PER_WINDOW,
+                    GROUP_RATE_LIMIT_WINDOW_SECONDS,
+                    extra={"event_name": "interaction.rate_limited"},
+                )
+                return
+
+            prompt, media_list = await _prepare_prompt_and_media(platform, msg)
+            recent_context_section = _get_recent_context(platform.platform_name, msg)
+
+            if not await _passes_speculative_preflight(msg, prompt, recent_context_section):
+                return
+
+            reply_text = await _get_reply_chain_text(platform, msg)
+            await _execute_frozen_message(
+                platform=platform,
+                msg=msg,
+                prompt=prompt,
+                media_list=media_list,
+                reply_text=reply_text,
+                style_examples=await _get_style_examples(prompt),
+                social_context_section=await get_social_context(msg, reply_text),
+                memory_section=await _get_memory_section(prompt, msg),
+                runtime_context=await _build_runtime_context(platform, msg),
+                target_instructions=_build_target_instructions(msg),
+            )
+        finally:
+            reset_request_context()
 
 
 async def _prepare_prompt_and_media(
@@ -1070,7 +1080,12 @@ async def _call_ai_provider(
                 )
                 if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
                     raise RuntimeError("AI provider returned empty response")
-                logger.info("AI provider '%s' succeeded on attempt %s.", provider_cfg.name, attempt)
+                logger.info(
+                    "AI provider succeeded — provider=%s attempt=%s",
+                    provider_cfg.name,
+                    attempt,
+                    extra={"event_name": "provider.succeeded"},
+                )
                 return answer, pending_actions
             except asyncio.TimeoutError as e:
                 last_error = e

@@ -41,17 +41,20 @@ async def main():
         except Exception as e:
             logger.error(f"Failed to start {platform_label} platform: {e}")
 
-    logger.info("ShinAI Started Successfully. Listening for messages...")
+    logger.info(
+        "ShinAI started successfully; listening for messages",
+        extra={"event_name": "lifecycle.ready"},
+    )
     if not active_platforms:
         logger.warning("No chat platforms are active. Configure TELEGRAM_ENABLED, DISCORD_ENABLED, WHATSAPP_ENABLED and credentials.")
     
     try:
         await idle()
     finally:
-        logger.info("Draining interactions...")
+        logger.info("Draining interactions", extra={"event_name": "lifecycle.shutdown"})
         await shutdown_interaction_scheduler()
 
-        logger.info("Stopping platforms...")
+        logger.info("Stopping platforms", extra={"event_name": "lifecycle.shutdown"})
         for platform_label, platform in reversed(active_platforms):
             try:
                 await platform.stop()

@@ -149,6 +149,7 @@ async def gemini_api(
                     "Gemini pair succeeded — model=%s key=%s",
                     model,
                     reservation.key_name,
+                    extra={"event_name": "provider.succeeded"},
                 )
                 return response_text, pending_actions
             except asyncio.CancelledError:
@@ -316,20 +317,24 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
         (tool_result_str, pending_action_or_None)
     """
     args = dict(fn_call.args) if fn_call.args else {}
+    logger.info(
+        "Tool requested — provider=Gemini tool=%s",
+        fn_call.name,
+        extra={"event_name": "tool.requested"},
+    )
+    logger.debug("Tool arguments — provider=Gemini tool=%s args=%r", fn_call.name, args)
 
     if fn_call.name == "search_web_tool":
         query = args.get("query", "")
-        logger.info("Gemini → web search: %r", query)
         return await search_web_tool(query), None
 
     if fn_call.name == "memory_lookup_tool":
-        logger.info("Gemini → memory lookup: %s", args)
         return await memory_lookup_tool(**args), None
 
     if fn_call.name == "transcribe_audio":
         message_id = args.get("message_id")
         suffix = f" for message_id='{message_id}'" if message_id is not None else " (latest audio in chat)"
-        logger.info("Gemini → audio transcription%s", suffix)
+        logger.debug("Audio transcription target%s", suffix)
         if tool_context is None:
             return "Audio transcription is unavailable in this context (no chat/platform bound).", None
         platform, msg = tool_context
@@ -342,7 +347,6 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None) -> tuple[str, dict |
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:
-        logger.info("Gemini → action tool %r: %s", fn_call.name, args)
         return await handler(args)
 
     logger.warning("Gemini → unknown tool requested: %r", fn_call.name)

@@ -319,21 +319,27 @@ async def _execute_tool_call(
     except (TypeError, json.JSONDecodeError):
         args = {}
 
+    logger.info(
+        "Tool requested — provider=%s tool=%s",
+        provider_name,
+        tool_name,
+        extra={"event_name": "tool.requested"},
+    )
+    logger.debug("Tool arguments — provider=%s tool=%s args=%r", provider_name, tool_name, args)
+
     if tool_name == "search_web_tool":
         query = args.get("query", "")
-        logger.info(f"{provider_name} requested web search for: '{query}'")
         result = await search_web_tool(query)
         return result, None
 
     if tool_name == "memory_lookup_tool":
-        logger.info(f"{provider_name} requested memory lookup with args: {args}")
         result = await memory_lookup_tool(**args)
         return result, None
 
     if tool_name == "transcribe_audio":
         message_id = args.get("message_id")
         suffix = f" for message_id='{message_id}'" if message_id is not None else " (latest audio in chat)"
-        logger.info("%s requested audio transcription%s", provider_name, suffix)
+        logger.debug("Audio transcription target%s", suffix)
         if tool_context is None:
             return "Audio transcription is unavailable in this context (no chat/platform bound).", None
         platform, msg = tool_context
@@ -346,7 +352,7 @@ async def _execute_tool_call(
 
     if tool_name == "ask_gemini_about_image":
         question = args.get("question", "")
-        logger.info(f"{provider_name} requested Gemini image info for question: '{question}'")
+        logger.debug("Gemini image question: %r", question)
         if not media_list:
             return "No image is currently attached to this conversation context.", None
         from shin_ai.providers.gemini import gemini_api
@@ -367,7 +373,6 @@ async def _execute_tool_call(
 
     handler = ACTION_TOOL_HANDLERS.get(tool_name)
     if handler:
-        logger.info(f"{provider_name} requested action tool '{tool_name}' with args: {args}")
         result_str, pending_action = await handler(args)
         return result_str, pending_action
 

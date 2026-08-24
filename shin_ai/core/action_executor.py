@@ -19,6 +19,7 @@ from shin_ai.data.loader import (
     WHATSAPP_STICKER_TO_DESCRIPTION,
 )
 from shin_ai.services.replies import save_reply
+from shin_ai.config import LOG_CONTENT_PREVIEW_CHARS
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory import save_memory
 from shin_ai.utils.context_manager import add_bot_message_to_context
@@ -109,6 +110,17 @@ async def execute_text_messages(
             else:
                 sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
+                preview = text.replace("\n", " ")[:LOG_CONTENT_PREVIEW_CHARS]
+                logger.info(
+                    "Responded — sent_id=%s reply_to=%s part=%d/%d text=\"%s%s\"",
+                    sent_id,
+                    reply_to_id or "none",
+                    idx + 1,
+                    len(pairs),
+                    preview if LOG_CONTENT_PREVIEW_CHARS else "<hidden>",
+                    "..." if LOG_CONTENT_PREVIEW_CHARS and len(text) > LOG_CONTENT_PREVIEW_CHARS else "",
+                    extra={"event_name": "response.sent"},
+                )
                 if tag_target is not None and reply_to_id is not None:
                     logger.info(
                         "[%s] Reply-overrode target — chat=%s sent=%s -> reply_to=%s (model-chosen)",
@@ -199,6 +211,12 @@ async def _execute_reaction(
 
     try:
         await platform.react(msg.chat.id, message_id, emoji)
+        logger.info(
+            "Reaction sent — target=%s emoji=%s",
+            message_id,
+            emoji,
+            extra={"event_name": "action.reaction"},
+        )
     except Exception as e:
         logger.error(f"Reaction failed on {platform.platform_name}: {e}")
 
@@ -234,6 +252,12 @@ async def _execute_sticker(
     try:
         sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
         if sent_id:
+            logger.info(
+                "Sticker sent — sent_id=%s reply_to=%s",
+                sent_id,
+                reply_to_id or "none",
+                extra={"event_name": "action.sticker"},
+            )
             await save_reply(msg.chat.id, sent_id, platform.platform_name)
             await _record_outgoing_context(
                 platform=platform,
@@ -278,6 +302,12 @@ async def _execute_mod_action(
         except Exception as e:
             return f"{mod_action.upper()} FAILED: {e}"
 
+        logger.info(
+            "Moderation action completed — action=%s target=%s",
+            mod_action,
+            target.id,
+            extra={"event_name": "action.moderation"},
+        )
         return None
 
     target = await _resolve_mod_target(platform, msg, target_username, target_message_id)
@@ -302,6 +332,12 @@ async def _execute_mod_action(
                 return f"UNMUTE FAILED: Platform {platform.platform_name} does not support per-user unmute."
             await platform.restrict_chat_member(msg.chat.id, target.id, True)
 
+        logger.info(
+            "Moderation action completed — action=%s target=%s",
+            mod_action,
+            target.id,
+            extra={"event_name": "action.moderation"},
+        )
         return None
     except Exception as e:
         return f"{mod_action.upper()} FAILED: {e}"
