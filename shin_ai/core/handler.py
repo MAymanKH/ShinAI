@@ -55,6 +55,15 @@ class _AdmittedInteraction:
 _interaction_scheduler: InteractionScheduler[_AdmittedInteraction] | None = None
 _shutting_down = False
 
+_CAPACITY_MESSAGE = (
+    "وصلنا لحد الاستخدام المتاح، فجرّب تاني كمان شوية. البوت ده مجاني ومفتوح المصدر "
+    "وبيشتغل على حساب المطوّر الشخصي، فلو حابب تدعمه في تكاليف التشغيل ممكن من هنا: "
+    "https://ko-fi.com/MAymanKH\n\n"
+    "We’ve reached the usage limit, so please try again in a little while. "
+    "This bot is free and open source, with running costs covered by the developer personally. "
+    "If you’d like to help cover those costs, you can support them here: https://ko-fi.com/MAymanKH"
+)
+
 
 async def process_message(platform: PlatformAdapter, msg: UnifiedMessage):
     """Deduplicate and admit an interaction without retaining downloaded media."""
@@ -418,11 +427,20 @@ async def _execute_frozen_message(
 
         if not answer and not pending_actions:
             logger.warning(
-                "[%s] AI returned empty response for chat=%s user=%s — skipping",
+                "[%s] AI exhausted attempts for chat=%s user=%s",
                 platform.platform_name,
                 msg.chat.id,
                 msg.from_user.id if msg.from_user else "?",
             )
+            if "يالبوت" not in (msg.text or msg.caption or "") and (
+                _is_direct_interaction(msg) or _should_use_speculative_reply(msg)
+            ):
+                await execute_text_messages(
+                    platform=platform,
+                    msg=msg,
+                    messages=[_CAPACITY_MESSAGE],
+                    default_reply_to_id=msg.id,
+                )
             return
 
         # Execute tool-called actions (reactions, stickers, moderation)

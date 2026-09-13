@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,6 +11,80 @@ from shin_ai.platforms.models import UnifiedChat, UnifiedMessage, UnifiedUser
 class _Platform:
     platform_name = "telegram"
     coordination_scope = "telegram:test"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("trigger", "should_notify"),
+    [
+        ("private", True),
+        ("mention", True),
+        ("reply", True),
+        ("speculative", True),
+        ("random", False),
+        ("keyword", False),
+        ("keyword_caption", False),
+        ("private_keyword", False),
+    ],
+)
+def test_exhausted_attempts_send_bilingual_notice(monkeypatch, trigger, should_notify):
+    msg = _message()
+    if trigger.startswith("private"):
+        msg.chat.type = "PRIVATE"
+    elif trigger == "mention":
+        msg.mentioned = True
+    elif trigger == "reply":
+        msg.reply_to_message = _message()
+        msg.reply_to_message.from_user.is_self = True
+    elif trigger == "speculative":
+        msg.is_speculative_reply = True
+    if "keyword" in trigger:
+        msg.text = "يالبوت"
+        if trigger == "keyword_caption":
+            msg.text = None
+            msg.caption = "يالبوت"
+
+    provider = AsyncMock(return_value=(None, []))
+    send = AsyncMock(return_value=[])
+    stop = AsyncMock()
+    memory = AsyncMock()
+    monkeypatch.setattr(handler, "call_ai_provider", provider)
+    monkeypatch.setattr(handler, "execute_text_messages", send)
+    monkeypatch.setattr(handler, "start_typing", AsyncMock(return_value="session"))
+    monkeypatch.setattr(handler, "stop_typing", stop)
+    monkeypatch.setattr(handler, "save_interaction_memory", memory)
+
+    asyncio.run(
+        handler._execute_frozen_message(
+            platform=_Platform(),
+            msg=msg,
+            prompt="hello",
+            media_list=[],
+            reply_text="",
+            recent_context_section="",
+            style_examples="",
+            social_context_section="",
+            memory_section="",
+            runtime_context="",
+            target_instructions="",
+        )
+    )
+
+    provider.assert_awaited_once()
+    stop.assert_awaited_once_with("session")
+    memory.assert_not_awaited()
+    if should_notify:
+        send.assert_awaited_once()
+        assert send.call_args.kwargs["default_reply_to_id"] == msg.id
+        messages = send.call_args.kwargs["messages"]
+        assert len(messages) == 1
+        arabic, english = messages[0].split("\n\n")
+        assert arabic.startswith("وصلنا لحد الاستخدام المتاح")
+        assert english.startswith("We’ve reached the usage limit")
+        assert arabic.endswith("https://ko-fi.com/MAymanKH")
+        assert english.endswith("https://ko-fi.com/MAymanKH")
+    else:
+        send.assert_not_awaited()
 
 
 def _message() -> UnifiedMessage:
