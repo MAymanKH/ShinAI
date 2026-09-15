@@ -19,8 +19,11 @@ class _Platform:
     [
         ("private", True),
         ("mention", True),
-        ("reply", True),
-        ("speculative", True),
+        ("reply", False),
+        ("speculative", False),
+        ("private_reply", False),
+        ("mention_reply", False),
+        ("mention_speculative", False),
         ("random", False),
         ("keyword", False),
         ("keyword_caption", False),
@@ -31,12 +34,12 @@ def test_exhausted_attempts_send_bilingual_notice(monkeypatch, trigger, should_n
     msg = _message()
     if trigger.startswith("private"):
         msg.chat.type = "PRIVATE"
-    elif trigger == "mention":
+    if trigger.startswith("mention"):
         msg.mentioned = True
-    elif trigger == "reply":
+    if trigger.endswith("reply"):
         msg.reply_to_message = _message()
         msg.reply_to_message.from_user.is_self = True
-    elif trigger == "speculative":
+    if trigger.endswith("speculative"):
         msg.is_speculative_reply = True
     if "keyword" in trigger:
         msg.text = "يالبوت"

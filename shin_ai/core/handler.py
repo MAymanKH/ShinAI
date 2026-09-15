@@ -432,8 +432,15 @@ async def _execute_frozen_message(
                 msg.chat.id,
                 msg.from_user.id if msg.from_user else "?",
             )
-            if "يالبوت" not in (msg.text or msg.caption or "") and (
-                _is_direct_interaction(msg) or _should_use_speculative_reply(msg)
+            if (
+                "يالبوت" not in (msg.text or msg.caption or "")
+                and not msg.is_speculative_reply
+                and not (
+                    msg.reply_to_message
+                    and msg.reply_to_message.from_user
+                    and msg.reply_to_message.from_user.is_self
+                )
+                and (msg.chat.type == "PRIVATE" or msg.mentioned)
             ):
                 await execute_text_messages(
                     platform=platform,
