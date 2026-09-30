@@ -34,7 +34,10 @@ class Application:
         Pyrogram binds the running event loop when its Client is constructed,
         so this must be called from inside the application's loop.
         """
+        from shin_ai.providers.gemini_keys import initialize_keys
+
         application = cls(settings=settings or get_settings())
+        initialize_keys(application.settings.ai)
         application._register_handlers()
         return application
 

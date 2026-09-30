@@ -214,7 +214,11 @@ ai:
     # Google Gemini
     - name: my_gemini
       type: gemini
-      # API keys are managed in data/gemini_keys.json (supports many keys with rotation)
+      # Startup regenerates data/gemini_keys.json from every Gemini provider's keys.
+      # Aliases must be unique across providers unless they refer to the same key.
+      api_keys:
+        primary: "your-gemini-api-key-here"
+        secondary: "your-second-gemini-api-key-here"
       # Optionally override which models to use:
       models:
         - gemini-3.5-flash

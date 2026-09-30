@@ -1,12 +1,21 @@
 """The composition root decides which platforms exist and survives their failures."""
 
 import asyncio
+import json
 
 import pytest
 
 from shin_ai import app as app_module
 from shin_ai.app import Application
 from shin_ai.settings import get_settings
+
+
+@pytest.fixture(autouse=True)
+def isolate_gemini_key_file(monkeypatch, tmp_path):
+    from shin_ai.providers import gemini_keys
+
+    monkeypatch.setattr(gemini_keys, "GEMINI_KEYS_FILE", tmp_path / "data" / "gemini_keys.json")
+    monkeypatch.setattr(gemini_keys, "_api_keys", None)
 
 
 class _Platform:
@@ -54,6 +63,17 @@ def wire(monkeypatch):
 
 
 class TestRegistration:
+    def test_build_generates_gemini_keys_before_registering_handlers(self, monkeypatch) -> None:
+        from shin_ai.providers.gemini_keys import GEMINI_KEYS_FILE, get_api_keys
+
+        def register(application):
+            expected = application.settings.ai.providers["my_gemini"].api_keys
+            assert json.loads(GEMINI_KEYS_FILE.read_text()) == expected
+            assert get_api_keys() == expected
+
+        monkeypatch.setattr(Application, "_register_handlers", register)
+        Application.build(get_settings())
+
     def test_registers_only_the_platforms_that_return_an_adapter(self, wire) -> None:
         wire(telegram=_Platform("tg"), discord=None, whatsapp=_Platform("wa"))
         application = Application.build(get_settings())

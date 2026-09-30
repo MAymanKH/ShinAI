@@ -7,7 +7,7 @@ can load configuration without importing provider rotation state or platform SDK
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ class ProviderSettings:
     model: str | None = None
     models: tuple[str, ...] = ()
     concurrency: int | None = None
+    api_keys: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +234,21 @@ def _parse_provider(raw: dict[str, Any]) -> ProviderSettings:
     if provider_type == "gemini" and not models:
         raise ValueError(f"Provider '{name}' (type=gemini) must define at least one model.")
 
+    api_keys: dict[str, str] = {}
+    if provider_type == "gemini":
+        keys_raw = raw.get("api_keys")
+        if not isinstance(keys_raw, dict) or not keys_raw:
+            raise ValueError(
+                f"Provider '{name}' (type=gemini) must define api_keys "
+                "as a non-empty mapping of aliases to API keys."
+            )
+        for alias, key in keys_raw.items():
+            if not isinstance(alias, str) or not alias.strip() or not isinstance(key, str) or not key.strip():
+                raise ValueError(f"Provider '{name}': api_keys aliases and values must be non-empty strings.")
+            if alias.strip() in api_keys:
+                raise ValueError(f"Provider '{name}': duplicate Gemini key alias '{alias.strip()}'.")
+            api_keys[alias.strip()] = key.strip()
+
     concurrency = raw.get("concurrency")
     if concurrency is not None:
         concurrency = _positive_int(
@@ -248,6 +264,7 @@ def _parse_provider(raw: dict[str, Any]) -> ProviderSettings:
         model=_optional_string(raw.get("model")),
         models=models,
         concurrency=concurrency,
+        api_keys=api_keys,
     )
 
 
@@ -485,11 +502,16 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
     if not providers_raw:
         raise ValueError("config.yaml must define at least one provider under ai.providers.")
     providers: dict[str, ProviderSettings] = {}
+    gemini_keys: dict[str, str] = {}
     for entry in providers_raw:
         provider = _parse_provider(entry)
         if provider.name in providers:
             raise ValueError(f"Duplicate provider name: '{provider.name}'")
         providers[provider.name] = provider
+        for alias, key in provider.api_keys.items():
+            if alias in gemini_keys and gemini_keys[alias] != key:
+                raise ValueError(f"Conflicting Gemini key alias '{alias}' across providers; use unique aliases.")
+            gemini_keys[alias] = key
 
     primary = str(ai_raw.get("primary") or "").strip()
     if not primary:

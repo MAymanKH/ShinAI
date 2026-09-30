@@ -17,6 +17,7 @@ def _minimal_config() -> dict:
                 {
                     "name": "gemini",
                     "type": "gemini",
+                    "api_keys": {"test": "test-key"},
                     "models": ["gemini-test"],
                 }
             ],
@@ -55,9 +56,30 @@ def test_parse_config_rejects_unknown_fallback() -> None:
 
 def test_parse_config_rejects_duplicate_provider_names() -> None:
     raw = _minimal_config()
-    raw["ai"]["providers"].append({"name": "gemini", "type": "gemini", "models": ["other-model"]})
+    raw["ai"]["providers"].append(
+        {"name": "gemini", "type": "gemini", "models": ["other-model"], "api_keys": {"test": "test-key"}}
+    )
 
     with pytest.raises(ValueError, match="Duplicate provider name"):
+        _parse_config(raw)
+
+
+@pytest.mark.parametrize("keys", [None, {}, ["key"], {"": "key"}, {"alias": " "}, {"alias": 123}])
+def test_parse_config_rejects_invalid_gemini_keys(keys) -> None:
+    raw = _minimal_config()
+    raw["ai"]["providers"][0]["api_keys"] = keys
+
+    with pytest.raises(ValueError, match="api_keys"):
+        _parse_config(raw)
+
+
+def test_parse_config_rejects_conflicting_key_aliases_across_providers() -> None:
+    raw = _minimal_config()
+    raw["ai"]["providers"].append(
+        {"name": "other", "type": "gemini", "models": ["other-model"], "api_keys": {"test": "other-key"}}
+    )
+
+    with pytest.raises(ValueError, match="Conflicting Gemini key alias 'test'"):
         _parse_config(raw)
 
 
