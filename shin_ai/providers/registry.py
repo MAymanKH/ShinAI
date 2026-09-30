@@ -43,19 +43,33 @@ def get_primary() -> ProviderSettings:
     return settings.ai.providers[settings.ai.primary]
 
 
-def get_provider_chain() -> list[ProviderSettings]:
+def get_provider_chain(
+    platform: str | None = None, chat_id: int | str | None = None
+) -> list[ProviderSettings]:
     settings = get_settings()
     ai = settings.ai
-    names = [ai.primary, *ai.fallbacks]
-    if ai.rotation == "round_robin":
+    assigned = [
+        provider
+        for provider in ai.providers.values()
+        if provider.chats and provider.is_available_for(platform, chat_id)
+    ]
+    names = [name for name in dict.fromkeys([ai.primary, *ai.fallbacks]) if not ai.providers[name].chats]
+    if ai.rotation == "round_robin" and names:
         with _round_robin_lock:
             index = next(_round_robin_counter) % len(names)
         names = names[index:] + names[:index]
-    return [ai.providers[name] for name in names]
+    return [*assigned, *(ai.providers[name] for name in names)]
 
 
-def get_first_gemini_provider() -> ProviderSettings | None:
+def get_first_gemini_provider(
+    platform: str | None = None, chat_id: int | str | None = None
+) -> ProviderSettings | None:
+    eligible = [
+        provider
+        for provider in get_settings().ai.providers.values()
+        if provider.type == "gemini" and provider.is_available_for(platform, chat_id)
+    ]
     return next(
-        (provider for provider in get_settings().ai.providers.values() if provider.type == "gemini"),
-        None,
+        (provider for provider in eligible if provider.chats),
+        eligible[0] if eligible else None,
     )

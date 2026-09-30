@@ -175,12 +175,22 @@ ai:
   #  Together AI, Fireworks, vLLM, Ollama, and more).
   # -------------------------------------------------------
   providers:
+    # Optional on any provider: dedicate it to these platform/chat pairs.
+    # Assigned providers run first in matching chats and cannot run elsewhere,
+    # including as fallbacks or Gemini image helpers. Omit chats for shared use.
+    # If several providers match, they run in the order defined below, followed
+    # by shared primary/fallback providers. Assigned priority overrides round_robin.
     # OpenRouter — access hundreds of models via one API
     - name: my_openrouter
       type: openai
       base_url: https://openrouter.ai/api/v1
       api_key: "sk-or-your-key-here"
       model: anthropic/claude-3.5-sonnet
+      # Uncomment to dedicate this provider to the listed chats:
+      # chats:
+      #   telegram: [-1001234567890, -1009876543210]
+      #   discord: ["123456789012345678"]  # Channel or DM chat ID
+      #   whatsapp: ["1234567890@g.us"]
 
     # Groq — ultra-fast inference
     - name: my_groq

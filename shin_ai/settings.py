@@ -13,6 +13,8 @@ from typing import Any
 
 import yaml
 
+from shin_ai.utils.chat_identity import normalize_chat_id
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
@@ -27,6 +29,14 @@ class ProviderSettings:
     models: tuple[str, ...] = ()
     concurrency: int | None = None
     api_keys: dict[str, str] = field(default_factory=dict)
+    chats: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def is_available_for(self, platform: str | None, chat_id: int | str | None) -> bool:
+        if not self.chats:
+            return True
+        if platform is None or chat_id is None:
+            return False
+        return normalize_chat_id(platform, chat_id) in self.chats.get(platform, ())
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,14 +49,6 @@ class AISettings:
     primary: str
     fallbacks: tuple[str, ...]
     rotation: str
-
-    @property
-    def gemini_models(self) -> tuple[str, ...]:
-        """Models of the first configured Gemini provider, for key rotation."""
-        for provider in self.providers.values():
-            if provider.type == "gemini":
-                return provider.models
-        return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +258,24 @@ def _parse_provider(raw: dict[str, Any]) -> ProviderSettings:
             name=f"ai.providers[{name}].concurrency",
             default=1,
         )
+
+    chats_raw = raw.get("chats", {})
+    if not isinstance(chats_raw, dict):
+        raise ValueError(f"Provider '{name}': chats must be a mapping of platforms to chat ID lists.")
+    chats: dict[str, tuple[str, ...]] = {}
+    for platform, chat_ids in chats_raw.items():
+        if platform not in {"telegram", "discord", "whatsapp"}:
+            raise ValueError(f"Provider '{name}': chats platform must be telegram, discord, or whatsapp.")
+        if not isinstance(chat_ids, list) or not chat_ids:
+            raise ValueError(f"Provider '{name}': chats.{platform} must be a non-empty list of chat IDs.")
+        if any(
+            isinstance(chat_id, bool) or not isinstance(chat_id, (int, str)) or not str(chat_id).strip()
+            for chat_id in chat_ids
+        ):
+            raise ValueError(
+                f"Provider '{name}': chats.{platform} chat IDs must be integers or non-empty strings."
+            )
+        chats[platform] = tuple(dict.fromkeys(normalize_chat_id(platform, chat_id) for chat_id in chat_ids))
     return ProviderSettings(
         name=name,
         type=provider_type,
@@ -265,6 +285,7 @@ def _parse_provider(raw: dict[str, Any]) -> ProviderSettings:
         models=models,
         concurrency=concurrency,
         api_keys=api_keys,
+        chats=chats,
     )
 
 
@@ -510,7 +531,9 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         providers[provider.name] = provider
         for alias, key in provider.api_keys.items():
             if alias in gemini_keys and gemini_keys[alias] != key:
-                raise ValueError(f"Conflicting Gemini key alias '{alias}' across providers; use unique aliases.")
+                raise ValueError(
+                    f"Conflicting Gemini key alias '{alias}' across providers; use unique aliases."
+                )
             gemini_keys[alias] = key
 
     primary = str(ai_raw.get("primary") or "").strip()

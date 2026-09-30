@@ -1,6 +1,7 @@
 """The system prompt advertises a fixed tool set; every provider must honour it."""
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -73,6 +74,29 @@ class TestAskGeminiAboutImage:
         monkeypatch.setattr(gemini, "gemini_api", boom)
         result = asyncio.run(ask_gemini_about_image("what is this?", [{"bytes": b"x"}]))
         assert "provider exploded" in result
+
+    def test_both_provider_dispatchers_forward_the_chat_context(self, monkeypatch):
+        from shin_ai.providers import gemini, tool_loop
+
+        context = (object(), object())
+        calls = []
+
+        async def ask(question, media, tool_context):
+            calls.append((question, tool_context))
+            return "an image"
+
+        monkeypatch.setattr(tool_loop, "ask_gemini_about_image", ask)
+        openai_call = SimpleNamespace(
+            function=SimpleNamespace(name="ask_gemini_about_image", arguments='{"question": "openai"}')
+        )
+        gemini_call = SimpleNamespace(name="ask_gemini_about_image", args={"question": "gemini"})
+
+        async def scenario():
+            await tool_loop._execute_tool_call("openai", openai_call, [], context)
+            await gemini._dispatch_gemini_tool(gemini_call, context, [])
+
+        asyncio.run(scenario())
+        assert calls == [("openai", context), ("gemini", context)]
 
 
 @pytest.mark.parametrize("schema", [*TOOLS, ASK_GEMINI_ABOUT_IMAGE_TOOL_SCHEMA])

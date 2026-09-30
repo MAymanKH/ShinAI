@@ -69,8 +69,18 @@ async def get_gemini_stats_message(detailed: bool = False) -> str:
     """Render shared passive health without firing quota-consuming probe calls."""
     from shin_ai.providers.gemini import get_gemini_scheduler
 
-    snapshot = await get_gemini_scheduler().health_snapshot()
     lines = ["**Gemini Key/Model Health (shared runtime state)**"]
+    for provider in get_settings().ai.providers.values():
+        if provider.type != "gemini":
+            continue
+        lines.append(f"\n**Provider: {provider.name}**")
+        snapshot = await get_gemini_scheduler(provider).health_snapshot()
+        lines.extend(_format_model_health(snapshot, detailed))
+    return "\n".join(lines)
+
+
+def _format_model_health(snapshot: dict, detailed: bool) -> list[str]:
+    lines = []
     for model, model_data in snapshot["models"].items():
         total = model_data["total_keys"]
         eligible = model_data["eligible_keys"]
@@ -96,7 +106,7 @@ async def get_gemini_stats_message(detailed: bool = False) -> str:
                 issues.append(issue)
             if issues:
                 lines.append("Issues:\n" + "\n".join(issues))
-    return "\n".join(lines)
+    return lines
 
 
 _api_keys: dict[str, str] | None = None
@@ -108,8 +118,3 @@ def get_api_keys() -> dict[str, str]:
     if _api_keys is None:
         _api_keys = load_keys()
     return _api_keys
-
-
-def get_models() -> tuple[str, ...]:
-    """Models of the configured Gemini provider, in declared order."""
-    return tuple(get_settings().ai.gemini_models)

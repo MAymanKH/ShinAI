@@ -343,7 +343,9 @@ async def _transcribe_chat_audio(
     return "No voice message or audio file found in this conversation or recent chat history."
 
 
-async def ask_gemini_about_image(question: str, media_list: list[dict] | None) -> str:
+async def ask_gemini_about_image(
+    question: str, media_list: list[dict] | None, tool_context: Any = None
+) -> str:
     """Answer a targeted question about the attached image(s) via Gemini."""
     logger.debug("Gemini image question: %r", question)
     if not media_list:
@@ -357,6 +359,7 @@ async def ask_gemini_about_image(question: str, media_list: list[dict] | None) -
             "Answer the user's question accurately, concisely, and factually based on the visual content.",
             question,
             media_list=media_list,
+            tool_context=tool_context,
             # This call *is* the image tool. Re-declaring it here would let the
             # nested model call the tool that invoked it.
             allow_image_tool=False,
@@ -413,7 +416,7 @@ async def _execute_tool_call(
             return f"Error transcribing audio: {e!s}", None
 
     if tool_name == "ask_gemini_about_image":
-        return await ask_gemini_about_image(args.get("question", ""), media_list), None
+        return await ask_gemini_about_image(args.get("question", ""), media_list, tool_context), None
 
     handler = ACTION_TOOL_HANDLERS.get(tool_name)
     if handler:

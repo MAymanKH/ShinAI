@@ -479,6 +479,23 @@ To ensure uninterrupted uptime:
 
 ShinAI supports two main types of AI providers under the hood: Google Gemini (native SDK) and any OpenAI-Compatible API.
 
+To dedicate a provider to particular chats, add `chats` under that provider:
+
+```yaml
+chats:
+  telegram: [-1001234567890, -1009876543210]
+  discord: ["123456789012345678"]
+  whatsapp: ["1234567890@g.us"]
+```
+
+That provider takes priority in the listed platform/chat pairs and cannot be used
+elsewhere, including for Gemini image descriptions and image tools. Omit `chats`
+for a shared provider. Matching assigned providers run in configuration order,
+followed by shared providers from `ai.primary` and `ai.fallbacks`. Assigned priority
+also applies with round-robin rotation. An assigned provider does not need to appear
+in the global primary/fallback list. If no eligible provider remains, the bot cannot
+generate a reply for that chat. Gemini providers use their own configured keys and models.
+
 ### Gemini
 - Supports native **multimodal image understanding** (photos, stickers).
 - Rotates credential/model pairs with shared SQLite leases and pair-specific

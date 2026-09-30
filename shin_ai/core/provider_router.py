@@ -45,9 +45,10 @@ async def call_ai_provider(
         ai.global_timeout_seconds if global_timeout_seconds is None else global_timeout_seconds
     )
 
-    chain = list(provider_chain if provider_chain is not None else get_provider_chain())
+    chain = list(
+        provider_chain if provider_chain is not None else get_provider_chain(msg.platform, msg.chat.id)
+    )
     execute = executor or execute_provider_once
-    describe_media = media_describer or describe_media_with_gemini
     last_error: BaseException | None = None
     media_context: str | None = None
     chain_started = clock()
@@ -65,7 +66,12 @@ async def call_ai_provider(
         provider_media = media_list if media_list else []
         if media_list and provider.type != "gemini":
             if media_context is None:
-                media_context = await describe_media(original_prompt or prompt, media_list)
+                if media_describer is not None:
+                    media_context = await media_describer(original_prompt or prompt, media_list)
+                else:
+                    media_context = await describe_media_with_gemini(
+                        original_prompt or prompt, media_list, msg=msg
+                    )
             if media_context:
                 provider_prompt = append_media_context(prompt, media_context)
             else:
@@ -139,10 +145,13 @@ async def call_ai_provider(
     return None, []
 
 
-async def describe_media_with_gemini(user_message: str, media_list: list[dict]) -> str:
+async def describe_media_with_gemini(
+    user_message: str, media_list: list[dict], *, msg: UnifiedMessage | None = None
+) -> str:
     """Describe media once for providers that may not support raw image input."""
-    if get_first_gemini_provider() is None:
-        logger.warning("No Gemini provider configured for media description")
+    provider = get_first_gemini_provider(msg.platform if msg else None, msg.chat.id if msg else None)
+    if provider is None:
+        logger.warning("No eligible Gemini provider for media description")
         return ""
 
     from shin_ai.providers.gemini import gemini_api
@@ -162,6 +171,8 @@ async def describe_media_with_gemini(user_message: str, media_list: list[dict]) 
             system_prompt,
             summary_prompt,
             media_list=media_list,
+            provider=provider,
+            msg=msg,
         )
     except Exception as error:
         logger.error("Gemini media fallback failed: %s", error)
@@ -191,6 +202,8 @@ async def execute_provider_once(
     *,
     attempt_timeout_seconds: float | None = None,
 ) -> tuple[str, list[dict]]:
+    if not provider.is_available_for(msg.platform, msg.chat.id):
+        raise ValueError(f"Provider '{provider.name}' is not assigned to this chat.")
     tool_context: Any = (platform, msg) if platform is not None else None
 
     if provider.type == "gemini":
@@ -202,6 +215,8 @@ async def execute_provider_once(
             media_list=media_list,
             tool_context=tool_context,
             attempt_timeout_seconds=attempt_timeout_seconds,
+            provider=provider,
+            msg=msg,
         )
     if provider.type == "openai":
         from shin_ai.providers.openai_compatible import openai_provider

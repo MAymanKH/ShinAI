@@ -11,20 +11,19 @@ import time
 from google import genai
 
 from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.providers.gemini_errors import (
     GeminiFailure,
     GeminiFailureKind,
     classify_gemini_error,
 )
-from shin_ai.providers.gemini_keys import (
-    get_api_keys,
-    get_models,
-)
+from shin_ai.providers.gemini_keys import get_api_keys
 from shin_ai.providers.gemini_keys import (
     get_gemini_stats_message as get_gemini_stats_message,
 )
 from shin_ai.providers.gemini_scheduler import GeminiScheduler
-from shin_ai.settings import get_settings
+from shin_ai.providers.registry import get_first_gemini_provider
+from shin_ai.settings import ProviderSettings, get_settings
 from shin_ai.utils.action_tools import ACTION_TOOL_HANDLERS, POST_ACTION_TOOL_REMINDER
 from shin_ai.utils.logger_config import logger
 from shin_ai.utils.memory_lookup import memory_lookup_tool
@@ -32,7 +31,7 @@ from shin_ai.utils.web_search import search_web_tool
 
 # Cache genai.Client instances per API key to avoid recreating connections
 _genai_client_cache: dict[str, genai.Client] = {}
-_gemini_scheduler: GeminiScheduler | None = None
+_gemini_schedulers: dict[str, GeminiScheduler] = {}
 
 
 def _get_genai_client(api_key: str) -> genai.Client:
@@ -42,25 +41,25 @@ def _get_genai_client(api_key: str) -> genai.Client:
     return _genai_client_cache[api_key]
 
 
-def get_gemini_scheduler() -> GeminiScheduler:
-    global _gemini_scheduler
-    if _gemini_scheduler is None:
-        _gemini_scheduler = GeminiScheduler(
-            get_api_keys(),
-            get_models(),
+def get_gemini_scheduler(provider: ProviderSettings) -> GeminiScheduler:
+    name = provider.name
+    if name not in _gemini_schedulers:
+        keys = get_api_keys()
+        keys = {alias: keys[alias] for alias in provider.api_keys if alias in keys}
+        _gemini_schedulers[name] = GeminiScheduler(
+            keys,
+            provider.models,
             get_coordination_store(),
             reservation_seconds=get_settings().coordination.lease_seconds,
         )
-    return _gemini_scheduler
+    return _gemini_schedulers[name]
 
 
 async def close_gemini_clients() -> None:
     """Close cached HTTP pools and release the process-local scheduler."""
-    global _gemini_scheduler
-
     clients = list({id(client): client for client in _genai_client_cache.values()}.values())
     _genai_client_cache.clear()
-    _gemini_scheduler = None
+    _gemini_schedulers.clear()
 
     for client in clients:
         try:
@@ -105,6 +104,8 @@ async def gemini_api(
     media_list=None,
     tool_context=None,
     *,
+    provider: ProviderSettings | None = None,
+    msg: UnifiedMessage | None = None,
     scheduler: GeminiScheduler | None = None,
     allow_image_tool: bool = True,
     attempt_timeout_seconds: float | None = None,
@@ -121,6 +122,8 @@ async def gemini_api(
         tool_context:  Optional (platform, triggering_msg) tuple that gives
                        context-bound tools (e.g. transcribe_audio) access to
                        the current chat.
+        provider:      Selected provider, with its own keys, models, and chat assignments.
+        msg:           Triggering message for chat eligibility when tool_context is absent.
         attempt_timeout_seconds: Budget for a single key/model generation.
                        Each pair gets its own full allowance; defaults to
                        ai.timeout_seconds.
@@ -132,7 +135,15 @@ async def gemini_api(
         action dicts queued by send_reaction / send_sticker / moderate_user
         tool calls during the generation loop.
     """
-    active_scheduler = scheduler or get_gemini_scheduler()
+    if scheduler is None:
+        msg = msg or (tool_context[1] if tool_context else None)
+        platform_name = msg.platform if msg else None
+        chat_id = msg.chat.id if msg else None
+        provider = provider or get_first_gemini_provider(platform_name, chat_id)
+        if provider is None or not provider.is_available_for(platform_name, chat_id):
+            raise ValueError("No eligible Gemini provider for this chat.")
+        scheduler = get_gemini_scheduler(provider)
+    active_scheduler = scheduler
     models_to_try = list(active_scheduler.models)
     ai_settings = get_settings().ai
     attempt_timeout = (
@@ -443,7 +454,7 @@ async def _dispatch_gemini_tool(fn_call, tool_context=None, media_list=None) -> 
     if fn_call.name == "ask_gemini_about_image":
         from shin_ai.providers.tool_loop import ask_gemini_about_image
 
-        return await ask_gemini_about_image(args.get("question", ""), media_list), None
+        return await ask_gemini_about_image(args.get("question", ""), media_list, tool_context), None
 
     handler = ACTION_TOOL_HANDLERS.get(fn_call.name)
     if handler:
