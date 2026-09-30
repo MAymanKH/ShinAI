@@ -69,14 +69,14 @@ async def get_gemini_stats_message(detailed: bool = False) -> str:
     """Render shared passive health without firing quota-consuming probe calls."""
     from shin_ai.providers.gemini import get_gemini_scheduler
 
-    lines = ["**Gemini Key/Model Health (shared runtime state)**"]
+    blocks = ["**Gemini Key/Model Health (shared runtime state)**"]
     for provider in get_settings().ai.providers.values():
         if provider.type != "gemini":
             continue
-        lines.append(f"\n**Provider: {provider.name}**")
         snapshot = await get_gemini_scheduler(provider).health_snapshot()
-        lines.extend(_format_model_health(snapshot, detailed))
-    return "\n".join(lines)
+        health = "\n\n".join(_format_model_health(snapshot, detailed))
+        blocks.append(f"**Provider: {provider.name}**\n```\n{health}\n```")
+    return "\n\n".join(blocks)
 
 
 def _format_model_health(snapshot: dict, detailed: bool) -> list[str]:
@@ -85,7 +85,7 @@ def _format_model_health(snapshot: dict, detailed: bool) -> list[str]:
         total = model_data["total_keys"]
         eligible = model_data["eligible_keys"]
         lines.append(
-            f"\n**Model: {model}**\n"
+            f"Model: {model}\n"
             f"Health: {'Available' if model_data['available'] else 'Unavailable'}\n"
             f"✅ Eligible keys: {eligible}/{total}"
         )

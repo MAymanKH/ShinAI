@@ -247,6 +247,9 @@ def test_direct_gemini_execution_rejects_other_chats(scoped_gemini, stub_gemini)
 
 
 def test_gemini_health_reports_separate_provider_pools(scoped_gemini, monkeypatch):
+    from pyrogram.parser import Parser
+    from pyrogram.raw.types import MessageEntityPre
+
     from shin_ai.providers import gemini_keys
 
     monkeypatch.setattr(gemini_keys, "get_settings", gemini_module.get_settings)
@@ -256,6 +259,32 @@ def test_gemini_health_reports_separate_provider_pools(scoped_gemini, monkeypatc
     assert "shared-model" in shared and "dedicated-model" not in shared
     assert "dedicated-model" in dedicated and "shared-model" not in dedicated
     assert report.count("Eligible keys: 1/1") == 2
+    assert shared.count("```") == 2
+    assert dedicated.count("```") == 2
+    rendered = asyncio.run(Parser(None).parse(report))
+    assert sum(isinstance(entity, MessageEntityPre) for entity in rendered["entities"]) == 2
+    assert "shared-secret" not in report and "dedicated-secret" not in report
+
+
+def test_detailed_gemini_health_keeps_key_issues_in_their_provider_block(scoped_gemini, monkeypatch):
+    from shin_ai.providers import gemini_keys
+    from shin_ai.providers.gemini_errors import classify_gemini_error
+
+    monkeypatch.setattr(gemini_keys, "get_settings", gemini_module.get_settings)
+
+    async def scenario():
+        for provider in scoped_gemini.values():
+            scheduler = gemini_module.get_gemini_scheduler(provider)
+            reservation = await scheduler.reserve(provider.models[0])
+            await reservation.failed(classify_gemini_error(RuntimeError("429 rate limit")))
+        return await gemini_keys.get_gemini_stats_message(detailed=True)
+
+    report = asyncio.run(scenario())
+    shared, dedicated = report.split("**Provider: dedicated**")
+    assert "shared-key: rate_limit" in shared and "dedicated-key" not in shared
+    assert "dedicated-key: rate_limit" in dedicated and "shared-key" not in dedicated
+    assert shared.count("```") == dedicated.count("```") == 2
+    assert report.count("Eligible keys: 0/1") == 2
 
 
 def test_image_helpers_do_not_call_gemini_without_an_eligible_provider(scoped_gemini, stub_gemini):

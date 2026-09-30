@@ -504,7 +504,9 @@ generate a reply for that chat. Gemini providers use their own configured keys a
   in `config.yaml`. Add as many entries as you need; aliases are arbitrary names
   and there is no key count limit. Startup regenerates `data/gemini_keys.json` from these mappings,
   and runtime rotation reads that file. Use unique aliases across providers unless
-  they refer to the same key. Inspect current health via `/gstats`.
+  they refer to the same key. Inspect current health via `/gstats`, which shows
+  each provider's model and key health in a separate block. `/gstats_details`
+  includes key aliases, cooldowns, and errors in those blocks for admins.
 - Configured using the `gemini` provider type in `config.yaml`.
 
 ### OpenAI-Compatible APIs
