@@ -484,7 +484,8 @@ ShinAI supports two main types of AI providers under the hood: Google Gemini (na
 - Rotates credential/model pairs with shared SQLite leases and pair-specific
   cooldowns. A model remains available while at least one configured key works.
 - Define an `api_keys` mapping of aliases to API keys under each Gemini provider
-  in `config.yaml`. Startup regenerates `data/gemini_keys.json` from these mappings,
+  in `config.yaml`. Add as many entries as you need; aliases are arbitrary names
+  and there is no key count limit. Startup regenerates `data/gemini_keys.json` from these mappings,
   and runtime rotation reads that file. Use unique aliases across providers unless
   they refer to the same key. Inspect current health via `/gstats`.
 - Configured using the `gemini` provider type in `config.yaml`.

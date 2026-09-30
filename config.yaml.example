@@ -215,10 +215,12 @@ ai:
     - name: my_gemini
       type: gemini
       # Startup regenerates data/gemini_keys.json from every Gemini provider's keys.
+      # Add as many keys as you need; aliases are arbitrary names, with no key count limit.
       # Aliases must be unique across providers unless they refer to the same key.
       api_keys:
-        primary: "your-gemini-api-key-here"
-        secondary: "your-second-gemini-api-key-here"
+        key_1: "your-first-gemini-api-key-here"
+        key_2: "your-second-gemini-api-key-here"
+        key_3: "your-third-gemini-api-key-here"
       # Optionally override which models to use:
       models:
         - gemini-3.5-flash
