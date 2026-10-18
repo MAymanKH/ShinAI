@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from shin_ai.core.request_context import paid_route
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.providers.registry import ProviderSettings, get_first_gemini_provider, get_provider_chain
@@ -17,6 +19,68 @@ MediaDescriber = Callable[[str, list[dict]], Awaitable[str]]
 
 
 async def call_ai_provider(
+    *,
+    msg: UnifiedMessage,
+    system_prompt: str,
+    prompt: str,
+    media_list: list[dict],
+    original_prompt: str | None = None,
+    platform: PlatformAdapter | None = None,
+    provider_chain: Sequence[ProviderSettings] | None = None,
+    executor: ProviderExecutor | None = None,
+    media_describer: MediaDescriber | None = None,
+    # Resolved in the body, not here: a default argument is evaluated when the
+    # module is imported, which would make importing this module require a
+    # readable config.yaml.
+    max_retries: int | None = None,
+    attempt_timeout_seconds: float | None = None,
+    global_timeout_seconds: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[str | None, list[dict]]:
+    """Use the request's paid pool and hard deadline, or the existing free route."""
+    kwargs = dict(
+        msg=msg,
+        system_prompt=system_prompt,
+        prompt=prompt,
+        media_list=media_list,
+        original_prompt=original_prompt,
+        platform=platform,
+        provider_chain=provider_chain,
+        executor=executor,
+        media_describer=media_describer,
+        max_retries=max_retries,
+        attempt_timeout_seconds=attempt_timeout_seconds,
+        global_timeout_seconds=global_timeout_seconds,
+        clock=clock,
+    )
+    route = paid_route.get()
+    if route is None:
+        return await _call_ai_provider(**kwargs)
+    if len(system_prompt) + len(prompt) > get_settings().billing.max_input_chars:
+        logger.warning("Paid request exceeds billing.max_input_chars")
+        return None, []
+    remaining = route.deadline - time.monotonic()
+    if remaining <= 0:
+        return None, []
+    kwargs.update(
+        provider_chain=get_provider_chain(msg.platform, msg.chat.id),
+        max_retries=min(max_retries or route.max_retries, route.max_retries),
+        attempt_timeout_seconds=min(
+            attempt_timeout_seconds or route.attempt_timeout_seconds,
+            route.attempt_timeout_seconds,
+            remaining,
+        ),
+        global_timeout_seconds=min(global_timeout_seconds or remaining, remaining),
+    )
+    try:
+        async with asyncio.timeout(remaining):
+            return await _call_ai_provider(**kwargs)
+    except TimeoutError:
+        logger.warning("Paid provider deadline exhausted", extra={"event_name": "billing.deadline"})
+        return None, []
+
+
+async def _call_ai_provider(
     *,
     msg: UnifiedMessage,
     system_prompt: str,

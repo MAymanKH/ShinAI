@@ -11,6 +11,7 @@ import time
 from google import genai
 
 from shin_ai.coordination.runtime import get_coordination_store
+from shin_ai.core.request_context import paid_route
 from shin_ai.platforms.models import UnifiedMessage
 from shin_ai.providers.gemini_errors import (
     GeminiFailure,
@@ -333,6 +334,7 @@ def _build_gemini_config(system_prompt: str, model: str, media_list=None, tool_c
         system_instruction=system_prompt,
         tools=gemini_tools,
         thinking_config=thinking_config,
+        max_output_tokens=get_settings().billing.max_output_tokens if paid_route.get() is not None else None,
     )
 
 

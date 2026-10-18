@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import threading
 
+from shin_ai.core.request_context import paid_route
 from shin_ai.settings import (
     AISettings,
     FirecrawlSettings,
@@ -48,12 +49,25 @@ def get_provider_chain(
 ) -> list[ProviderSettings]:
     settings = get_settings()
     ai = settings.ai
+    route = paid_route.get()
+    if route is not None:
+        return [
+            ai.providers[name]
+            for name in route.providers
+            if ai.providers[name].is_available_for(platform, chat_id)
+        ]
     assigned = [
         provider
         for provider in ai.providers.values()
-        if provider.chats and provider.is_available_for(platform, chat_id)
+        if provider.name not in settings.billing.providers
+        and provider.chats
+        and provider.is_available_for(platform, chat_id)
     ]
-    names = [name for name in dict.fromkeys([ai.primary, *ai.fallbacks]) if not ai.providers[name].chats]
+    names = [
+        name
+        for name in dict.fromkeys([ai.primary, *ai.fallbacks])
+        if name not in settings.billing.providers and not ai.providers[name].chats
+    ]
     if ai.rotation == "round_robin" and names:
         with _round_robin_lock:
             index = next(_round_robin_counter) % len(names)
@@ -64,9 +78,20 @@ def get_provider_chain(
 def get_first_gemini_provider(
     platform: str | None = None, chat_id: int | str | None = None
 ) -> ProviderSettings | None:
+    settings = get_settings()
+    route = paid_route.get()
+    candidates = (
+        [settings.ai.providers[name] for name in route.providers]
+        if route is not None
+        else [
+            provider
+            for provider in settings.ai.providers.values()
+            if provider.name not in settings.billing.providers
+        ]
+    )
     eligible = [
         provider
-        for provider in get_settings().ai.providers.values()
+        for provider in candidates
         if provider.type == "gemini" and provider.is_available_for(platform, chat_id)
     ]
     return next(

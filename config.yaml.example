@@ -50,6 +50,26 @@ response:
   group_max_responses: 3
   group_rate_limit_window_seconds: 10.0
 
+# --- Optional hosted prepaid usage ---
+# Self-hosters do not need to enable this. See docs/HOSTED_USAGE.md.
+billing:
+  enabled: false
+  database_path: data/billing.sqlite3
+  # Names from ai.providers reserved exclusively for paid requests, even while disabled.
+  # Add a dedicated provider under ai.providers, then list its name here.
+  # Do not include these names in ai.primary or ai.fallbacks.
+  providers: []
+  # Charged once per interaction with at least one confirmed delivery or action.
+  response_cost: 1
+  max_retries: 1
+  attempt_timeout_seconds: 15
+  # One hard generation deadline shared by main and supporting model calls.
+  global_timeout_seconds: 30
+  # Initial text prompt limit at the router; larger requests fall back to free.
+  max_input_chars: 64000
+  # Output token limit on each model generation, including supporting calls.
+  max_output_tokens: 1024
+
 # --- Audio Transcription (Whisper) ---
 whisper:
   # Recommended: large-v3-turbo (best quality-to-speed ratio, ~3GB RAM with int8)

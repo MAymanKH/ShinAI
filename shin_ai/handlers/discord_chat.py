@@ -1,5 +1,6 @@
 import discord
 
+from shin_ai.billing.commands import handle_usage_command
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.platforms.discord import DiscordPlatform
@@ -30,6 +31,9 @@ def register() -> DiscordPlatform | None:
             return
 
         unified_msg = discord_platform.to_unified_message(message)
+
+        if await handle_usage_command(discord_platform, unified_msg):
+            return
 
         if should_record_context(unified_msg):
             add_message_to_context(unified_msg)

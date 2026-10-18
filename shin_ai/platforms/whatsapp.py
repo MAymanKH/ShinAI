@@ -5,6 +5,7 @@ from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
 
+from shin_ai.core.request_context import record_delivery
 from shin_ai.data.loader import DATA_DIR
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
@@ -479,6 +480,8 @@ class WhatsAppPlatform(PlatformAdapter):
         # an incoming LID sender with SenderAlt: WhatsApp validates the quote
         # against the routing identity used by the original stanza.
         response = await self._run_sync(self.client.send_message, source.Chat, outgoing)
+        if response.ID:
+            await record_delivery()
         await self._cache_outgoing_message(source.Chat, response)
         return response.ID
 
@@ -500,6 +503,8 @@ class WhatsAppPlatform(PlatformAdapter):
             return await self._send_quoted_message(raw_quoted, text)
 
         response = await self._run_sync(self.client.send_message, chat_jid, text)
+        if response.ID:
+            await record_delivery()
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
 
@@ -577,6 +582,8 @@ class WhatsAppPlatform(PlatformAdapter):
                     self.client.send_sticker, chat_jid, sticker_source, passthrough=False
                 )
 
+        if response.ID:
+            await record_delivery()
         await self._cache_outgoing_message(chat_jid, response)
         return response.ID
 
@@ -593,7 +600,7 @@ class WhatsAppPlatform(PlatformAdapter):
                     message_id,
                     chat_id,
                 )
-                return
+                raise ValueError("Cannot react: WhatsApp target message was not found")
 
         sender_jid = raw_target.Info.MessageSource.Sender
         reaction_message = await self._run_sync(

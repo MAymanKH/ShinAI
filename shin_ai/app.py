@@ -67,6 +67,9 @@ class Application:
 
     async def start(self) -> list[PlatformEntry]:
         """Start every registered platform, tolerating individual failures."""
+        from shin_ai.billing.runtime import initialize_billing
+
+        await initialize_billing()
         for label, platform in self.platforms:
             logger.info("Starting %s platform...", label, extra={"event_name": "platform.starting"})
             try:

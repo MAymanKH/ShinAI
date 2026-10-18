@@ -72,6 +72,10 @@ def _lazy_closer(module_name: str, closer_name: str) -> AsyncCloser:
 def _default_resource_closers() -> tuple[ResourceCloser, ...]:
     return (
         (
+            "billing",
+            _lazy_closer("shin_ai.billing.runtime", "close_billing"),
+        ),
+        (
             "reply cache",
             _lazy_closer("shin_ai.services.replies", "shutdown_replies_service"),
         ),

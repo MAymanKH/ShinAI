@@ -5,12 +5,15 @@ Universal message handler logic for ShinAI, agnostic of platform.
 """
 
 import hashlib
+import json
 import os
 import random
 import re as _re
 import time
 from dataclasses import dataclass
 
+from shin_ai.billing.runtime import get_credit_store
+from shin_ai.billing.store import DuplicateRequest, Identity, Scope
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.core.action_executor import (
     execute_pending_actions,
@@ -25,7 +28,13 @@ from shin_ai.core.prompt_builder import (
     get_static_system_prompt,
 )
 from shin_ai.core.provider_router import call_ai_provider
-from shin_ai.core.request_context import reset_request_context
+from shin_ai.core.request_context import (
+    PaidRoute,
+    delivery_callback,
+    paid_route,
+    record_delivery,
+    reset_request_context,
+)
 from shin_ai.core.response_policy import (
     is_trivial_message,
     parse_model_response,
@@ -39,6 +48,7 @@ from shin_ai.services.social import get_social_context
 from shin_ai.services.typing import TypingSession, start_typing, stop_typing
 from shin_ai.settings import get_settings
 from shin_ai.stylers.style_retriever import get_style_examples
+from shin_ai.utils.chat_identity import normalize_chat_id
 from shin_ai.utils.context_manager import get_recent_context_string
 from shin_ai.utils.logger_config import bind_log_context, logger
 from shin_ai.utils.memory import retrieve_memories
@@ -224,9 +234,33 @@ def _log_interaction_trigger(platform: PlatformAdapter, msg: UnifiedMessage) -> 
     )
 
 
+async def _admit_free_usage(platform: PlatformAdapter, msg: UnifiedMessage) -> bool:
+    if msg.chat.type == "PRIVATE":
+        return True
+    return await check_group_rate_limit_shared(
+        platform.platform_name,
+        msg.chat.id,
+        coordination_scope=platform.coordination_scope,
+    )
+
+
 async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
     platform = payload.platform
     msg = payload.message
+    store = None
+    reservation = None
+    delivery_seen = False
+    settlement_done = False
+    route_token = paid_route.set(None)
+    delivery_token = delivery_callback.set(None)
+
+    async def settle_delivery() -> None:
+        nonlocal delivery_seen, settlement_done
+        delivery_seen = True
+        if store is not None and reservation is not None and not settlement_done:
+            await store.settle(reservation)
+            settlement_done = True
+
     with bind_log_context(**_message_log_context(platform, msg, payload.interaction_id)):
         reset_request_context()
         try:
@@ -235,44 +269,63 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                 msg.from_user.id,
                 coordination_scope=platform.coordination_scope,
             ):
-                logger.debug(
-                    "User rate limit hit",
-                    extra={"event_name": "interaction.rate_limited"},
-                )
+                logger.debug("User rate limit hit", extra={"event_name": "interaction.rate_limited"})
                 return
-            if msg.chat.type != "PRIVATE" and not await check_group_rate_limit_shared(
-                platform.platform_name,
-                msg.chat.id,
-                coordination_scope=platform.coordination_scope,
-            ):
-                logger.debug(
-                    "Group rate limit hit — allowed=%d window=%.0fs",
-                    get_settings().group_rate_limit_max_responses,
-                    get_settings().group_rate_limit_window_seconds,
-                    extra={"event_name": "interaction.rate_limited"},
-                )
+            if is_trivial_message(msg):
                 return
 
-            # Cheap, purely local rejections first. Everything below this point
-            # downloads media, runs Whisper, or hits the vector store, and a
-            # text-free sticker would have thrown all of it away.
-            if is_trivial_message(msg):
-                logger.info(
-                    "Skipped reply — trivial message (laugh/sticker/emoji-only)",
-                    extra={"event_name": "interaction.trivial"},
+            billing = get_settings().billing
+            if billing.enabled and msg.from_user and _is_direct_interaction(msg):
+                eligible = any(
+                    get_settings().ai.providers[name].is_available_for(msg.platform, msg.chat.id)
+                    for name in billing.providers
                 )
+                if eligible:
+                    store = get_credit_store()
+                    scopes = [Scope(msg.platform, "chat", normalize_chat_id(msg.platform, msg.chat.id))]
+                    if msg.chat.guild_id is not None:
+                        scopes.append(Scope(msg.platform, "guild", str(msg.chat.guild_id)))
+                    reference = hashlib.sha256(
+                        json.dumps(
+                            [
+                                platform.coordination_scope,
+                                msg.platform,
+                                normalize_chat_id(msg.platform, msg.chat.id),
+                                str(msg.id),
+                            ]
+                        ).encode()
+                    ).hexdigest()
+                    try:
+                        reservation = await store.reserve(
+                            reference,
+                            Identity(msg.platform, normalize_chat_id(msg.platform, msg.from_user.id)),
+                            tuple(scopes),
+                            billing.response_cost,
+                        )
+                    except DuplicateRequest:
+                        return
+                    if reservation is not None:
+                        paid_route.set(
+                            PaidRoute(
+                                providers=billing.providers,
+                                deadline=time.monotonic() + billing.global_timeout_seconds,
+                                attempt_timeout_seconds=billing.attempt_timeout_seconds,
+                                max_retries=billing.max_retries,
+                            )
+                        )
+                        delivery_callback.set(settle_delivery)
+
+            if reservation is None and not await _admit_free_usage(platform, msg):
+                logger.debug("Group rate limit hit", extra={"event_name": "interaction.rate_limited"})
                 return
 
             recent_context_section = _get_recent_context(platform.platform_name, msg)
-
-            # The pre-flight only needs the message text, so run it before any
-            # media download or transcription work.
             if not await _passes_speculative_preflight(msg, extract_prompt(msg), recent_context_section):
                 return
 
             prompt, media_list = await prepare_prompt_and_media(platform, msg)
             reply_text = await _get_reply_chain_text(platform, msg)
-            await _execute_frozen_message(
+            frozen = dict(
                 platform=platform,
                 msg=msg,
                 prompt=prompt,
@@ -285,8 +338,25 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                 runtime_context=await _build_runtime_context(platform, msg),
                 target_instructions=_build_target_instructions(msg),
             )
+            provider_succeeded = await _execute_frozen_message(**frozen)
+            if provider_succeeded is False and reservation is not None and not delivery_seen:
+                await store.release(reservation)
+                reservation = None
+                paid_route.set(None)
+                delivery_callback.set(None)
+                if await _admit_free_usage(platform, msg):
+                    await _execute_frozen_message(**frozen)
         finally:
-            reset_request_context()
+            try:
+                if store is not None and reservation is not None and not settlement_done:
+                    if delivery_seen:
+                        await store.settle(reservation)
+                    else:
+                        await store.release(reservation)
+            finally:
+                delivery_callback.reset(delivery_token)
+                paid_route.reset(route_token)
+                reset_request_context()
 
 
 async def _passes_speculative_preflight(
@@ -433,7 +503,8 @@ async def _execute_frozen_message(
                 msg.from_user.id if msg.from_user else "?",
             )
             if (
-                "يالبوت" not in (msg.text or msg.caption or "")
+                paid_route.get() is None
+                and "يالبوت" not in (msg.text or msg.caption or "")
                 and not msg.is_speculative_reply
                 and not (
                     msg.reply_to_message
@@ -448,7 +519,7 @@ async def _execute_frozen_message(
                     messages=[_CAPACITY_MESSAGE],
                     default_reply_to_id=msg.id,
                 )
-            return
+            return False
 
         # Execute tool-called actions (reactions, stickers, moderation)
         # FIRST — before any text/skip logic so they always run even if
@@ -459,6 +530,8 @@ async def _execute_frozen_message(
             pending_actions=pending_actions,
             default_reply_to_id=msg.id,
         )
+        if action_result.completed_actions:
+            await record_delivery()
         sent_messages: list[str] = []
 
         response = parse_model_response(answer or "", has_actions=bool(pending_actions))
@@ -486,6 +559,8 @@ async def _execute_frozen_message(
                 default_reply_to_id=msg.id,
             )
             sent_messages.extend(delivered)
+            if delivered:
+                await record_delivery()
 
         if action_result.errors:
             error_context = "\n".join(f"- {err}" for err in action_result.errors)
@@ -519,6 +594,8 @@ async def _execute_frozen_message(
                         default_reply_to_id=msg.id,
                     )
                     sent_messages.extend(delivered)
+                    if delivered:
+                        await record_delivery()
 
         # The visible response is complete. Stop typing before slower embedding
         # and database persistence so background work cannot restart the indicator.
@@ -534,6 +611,7 @@ async def _execute_frozen_message(
             reply_text=reply_text,
             trigger=_direct_trigger(msg) or ("follow_up" if _should_use_speculative_reply(msg) else "automatic"),
         )
+        return True
     finally:
         if typing_session is not None:
             await stop_typing(typing_session)

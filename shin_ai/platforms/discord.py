@@ -127,6 +127,7 @@ class DiscordPlatform(PlatformAdapter):
             await msg.add_reaction(reaction)
         except Exception as e:
             logger.error("Error reacting on Discord: %s", e)
+            raise
 
     async def send_chat_action(self, chat_id: int | str, action: str) -> None:
         key = str(chat_id)
@@ -200,36 +201,42 @@ class DiscordPlatform(PlatformAdapter):
 
     async def ban_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
         channel = self.client.get_channel(int(chat_id))
-        if channel and hasattr(channel, "guild"):
-            # Using discord.Object is more reliable as it doesn't require the user to be in cache
-            await channel.guild.ban(discord.Object(id=int(user_id)))
+        if not channel or not hasattr(channel, "guild"):
+            raise ValueError("Discord moderation requires an available guild channel")
+        # Using discord.Object is more reliable as it doesn't require the user to be in cache
+        await channel.guild.ban(discord.Object(id=int(user_id)))
 
     async def kick_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
         channel = self.client.get_channel(int(chat_id))
-        if channel and hasattr(channel, "guild"):
-            member = channel.guild.get_member(int(user_id))
-            if member:
-                await channel.guild.kick(member)
+        if not channel or not hasattr(channel, "guild"):
+            raise ValueError("Discord moderation requires an available guild channel")
+        member = channel.guild.get_member(int(user_id))
+        if member is None:
+            raise ValueError("Discord moderation target was not found in the guild")
+        await channel.guild.kick(member)
 
     async def unban_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
         channel = self.client.get_channel(int(chat_id))
-        if channel and hasattr(channel, "guild"):
-            await channel.guild.unban(discord.Object(id=int(user_id)))
+        if not channel or not hasattr(channel, "guild"):
+            raise ValueError("Discord moderation requires an available guild channel")
+        await channel.guild.unban(discord.Object(id=int(user_id)))
 
     async def restrict_chat_member(
         self, chat_id: int | str, user_id: int | str, can_send_messages: bool
     ) -> None:
         channel = self.client.get_channel(int(chat_id))
-        if channel and hasattr(channel, "guild"):
-            member = channel.guild.get_member(int(user_id))
-            if member:
-                # To mute, we timeout
-                if not can_send_messages:
-                    from datetime import timedelta
+        if not channel or not hasattr(channel, "guild"):
+            raise ValueError("Discord moderation requires an available guild channel")
+        member = channel.guild.get_member(int(user_id))
+        if member is None:
+            raise ValueError("Discord moderation target was not found in the guild")
+        # To mute, we timeout
+        if not can_send_messages:
+            from datetime import timedelta
 
-                    await member.timeout(discord.utils.utcnow() + timedelta(days=28))
-                else:
-                    await member.timeout(None)
+            await member.timeout(discord.utils.utcnow() + timedelta(days=28))
+        else:
+            await member.timeout(None)
 
     async def create_chat_invite_link(self, chat_id: int | str) -> str:
         channel = self.client.get_channel(int(chat_id))

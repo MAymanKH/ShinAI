@@ -1,7 +1,7 @@
 # Optional prepaid usage
 
-This document records the scope for prepaid usage on the hosted ShinAI bot.
-The feature is planned and is not implemented yet.
+ShinAI supports optional prepaid response credits funded through a local
+administrator command. The website and payment gateway are not implemented yet.
 
 ## Repository and deployment
 
@@ -66,14 +66,76 @@ refunds and reversals. Additional gateways fund the same balance.
 Account for platform-specific purchase requirements, including Telegram Stars
 for digital sales inside Telegram and applicable Discord Premium Apps rules.
 
-## Implementation order and remaining choices
+## Try administrator-funded credits
 
-First implement durable credits, administrator-added test credits, paid routing,
-and chat spending controls. Verify concurrency, failures, duplicate requests,
-and restart recovery. Then add the website and test checkout before enabling
-real purchases.
+Add a dedicated provider to `ai.providers`. List its name in `billing.providers`
+and set `billing.enabled: true` in your local configuration. Keep the free
+provider in `ai.primary` and leave paid providers out of `ai.fallbacks`.
+`config.yaml.example` lists all billing settings. Names in `billing.providers`
+are excluded from the free route even when billing is disabled.
 
-Before implementation, define the credit unit and billable success condition,
-including partial delivery and tool actions. Also define overlapping sponsor
-selection and whether automatic bot interjections can spend credits. These
-choices must be explicit before enabling shared spending.
+Use the local CLI to grant test credits. Replace the example Discord user ID
+with the payer's numeric platform ID. Use a distinct reference for each grant.
+Repeating the same reference and payload does not add credits twice. A reference
+with a different payload is rejected.
+
+```bash
+python -m shin_ai.billing --config config.yaml grant \
+	--platform discord --user 123456789012345678 \
+	--credits 20 --reference test-grant-001
+python -m shin_ai.billing --config config.yaml balance \
+	--platform discord --user 123456789012345678
+```
+
+In a private chat with the bot, use `/balance` to view available and reserved
+credits. Balance commands in groups redirect you to a private chat.
+
+Use `/paid_usage only_me` in each chat where your credits can cover your own
+direct requests. Use `/paid_usage everyone` to let other members spend your
+balance on direct requests. Use `/paid_usage off` to remove your permission.
+In Discord, append `server` to any of these commands to configure the whole
+server instead of just the current channel.
+
+## Spending and recovery rules
+
+The default cost is one credit per interaction with at least one confirmed text
+message, sticker, reaction, or moderation action. Multiple outputs cost one
+interaction. Partial delivery counts as success. Skipped responses, capacity
+notices, and requests with no confirmed delivery do not consume credits.
+Settlement occurs at first confirmed delivery, before context and memory
+persistence. Random and speculative interactions always use free usage.
+
+Your own enabled balance takes priority over shared sponsorship. Otherwise, a
+channel sponsor takes priority over a server sponsor. Empty balances are skipped.
+Only one shared sponsor can enable `everyone` for an exact chat or server scope.
+Turning your setting off does not disable another person's sponsorship.
+
+Accounts are identified by platform and immutable user ID. Cross-platform account
+linking is not implemented yet. A balance is shared across that platform user's
+enabled chats. Use separate grants for identities on different platforms.
+
+The paid pool has a hard generation deadline, configurable retries, a text input
+limit, and an output token limit. Supporting image calls use paid Gemini providers
+only. If none is eligible, image helpers cannot use the free Gemini pool during a
+paid request. Existing queue delays, local preparation, delivery delays, media
+size limits, and tool limits still apply. A model-call deadline is not an
+end-to-end response-time guarantee.
+
+Billing currently requires a Unix host and one billing-enabled bot process per
+database. An exclusive file lock prevents competing bot processes. Administrator
+CLI commands can run while the bot is active and never recover outstanding work.
+At startup, the bot refunds unresolved reservations and preserves their request
+IDs so they cannot be charged again. Repeated initialization does not recover
+live work. Store the database and its ownership file on the same local filesystem.
+
+External delivery and database settlement cannot be atomic. A process crash
+between them can leave an ambiguous delivery, which startup recovery refunds.
+This policy favors the user over charging for an unconfirmed response.
+
+The implementation combines a transactional store with request-scoped provider
+routing. A lifecycle ownership lock keeps recovery simpler than renewable
+reservation leases. Settlement callbacks preserve partial-delivery evidence
+without making every caller coordinate the accounting steps.
+
+Next, add authenticated account access and purchase records, then test payment
+confirmation, refunds, and reconciliation before accepting real payments.

@@ -165,3 +165,23 @@ async def test_analytics_command_modes(registered, monkeypatch, command, chat_ty
         return
     assert not files
 
+
+def test_usage_commands_register_before_context_only_when_enabled(override_settings, monkeypatch):
+    override_settings(telegram_chat, "platform", telegram_enabled=True)
+    base = telegram_chat.get_settings()
+    from dataclasses import replace
+
+    settings = replace(base, billing=replace(base.billing, enabled=True))
+    monkeypatch.setattr(telegram_chat, "get_settings", lambda: settings)
+    client = _RecordingClient()
+    platform = telegram_chat.register(client)
+    assert client.messages["usage_command"].group == COMMAND_HANDLER_GROUP
+    assert client.messages["usage_command"].group < client.messages["context_recorder"].group
+    message = _Message(from_user=object())
+    message.stop_propagation = lambda: (_ for _ in ()).throw(StopPropagation)
+    monkeypatch.setattr(platform, "to_unified_message", lambda _msg: object())
+    handler = AsyncMock(return_value=True)
+    monkeypatch.setattr(telegram_chat, "handle_usage_command", handler)
+    with pytest.raises(StopPropagation):
+        asyncio.run(client.messages["usage_command"].callback(client, message))
+    handler.assert_awaited_once()

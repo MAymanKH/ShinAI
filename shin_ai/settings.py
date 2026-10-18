@@ -6,6 +6,7 @@ can load configuration without importing provider rotation state or platform SDK
 
 from __future__ import annotations
 
+import math
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -159,6 +160,19 @@ class FirecrawlSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class BillingSettings:
+    enabled: bool
+    database_path: Path
+    providers: tuple[str, ...]
+    response_cost: int
+    max_retries: int
+    attempt_timeout_seconds: float
+    global_timeout_seconds: float
+    max_input_chars: int = 64_000
+    max_output_tokens: int = 1_024
+
+
+@dataclass(frozen=True, slots=True)
 class ShinAISettings:
     platform: PlatformSettings
     admin_user_id: int
@@ -178,6 +192,7 @@ class ShinAISettings:
     style_group_id: str | None
     ai: AISettings
     firecrawl: FirecrawlSettings
+    billing: BillingSettings
 
     @property
     def debug(self) -> bool:
@@ -576,6 +591,68 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         rotation=rotation,
     )
 
+    billing_raw = raw.get("billing") or {}
+    if not isinstance(billing_raw, dict):
+        raise ValueError("billing must be a mapping.")
+    billing_enabled = billing_raw.get("enabled", False)
+    if not isinstance(billing_enabled, bool):
+        raise ValueError("billing.enabled must be a boolean.")
+    paid_names = billing_raw.get("providers") or []
+    if not isinstance(paid_names, list) or any(not isinstance(name, str) for name in paid_names):
+        raise ValueError("billing.providers must be a list of provider names.")
+    paid_names = tuple(dict.fromkeys(paid_names))
+    for name in paid_names:
+        if name not in providers:
+            raise ValueError(f"billing.providers contains unknown provider '{name}'.")
+        if name in (primary, *fallbacks):
+            raise ValueError(f"Paid provider '{name}' cannot appear in ai.primary or ai.fallbacks.")
+    if billing_enabled and not paid_names:
+        raise ValueError("billing.providers must contain at least one provider when billing is enabled.")
+    for name in ("response_cost", "max_retries", "max_input_chars", "max_output_tokens"):
+        value = billing_raw.get(name)
+        if value is not None and (type(value) is not int or value <= 0):
+            raise ValueError(f"billing.{name} must be an integer greater than zero.")
+    billing_path = Path(str(billing_raw.get("database_path", "data/billing.sqlite3")))
+    if not billing_path.is_absolute():
+        billing_path = project_root / billing_path
+    billing = BillingSettings(
+        enabled=billing_enabled,
+        database_path=billing_path,
+        providers=paid_names,
+        response_cost=_positive_int(
+            billing_raw.get("response_cost"), name="billing.response_cost", default=1
+        ),
+        max_retries=_positive_int(billing_raw.get("max_retries"), name="billing.max_retries", default=1),
+        attempt_timeout_seconds=_positive_float(
+            billing_raw.get("attempt_timeout_seconds"),
+            name="billing.attempt_timeout_seconds",
+            default=15,
+        ),
+        global_timeout_seconds=_positive_float(
+            billing_raw.get("global_timeout_seconds"),
+            name="billing.global_timeout_seconds",
+            default=30,
+        ),
+        max_input_chars=_positive_int(
+            billing_raw.get("max_input_chars"),
+            name="billing.max_input_chars",
+            default=64_000,
+        ),
+        max_output_tokens=_positive_int(
+            billing_raw.get("max_output_tokens"),
+            name="billing.max_output_tokens",
+            default=1_024,
+        ),
+    )
+    if not all(
+        math.isfinite(value)
+        for value in (
+            billing.attempt_timeout_seconds,
+            billing.global_timeout_seconds,
+        )
+    ):
+        raise ValueError("Billing timeouts must be finite.")
+
     web_search_raw = raw.get("web_search") or {}
     firecrawl_raw = raw.get("firecrawl") or {}
     return ShinAISettings(
@@ -609,6 +686,7 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         style_group_id=_optional_string(raw.get("style_group_id")),
         ai=ai,
         firecrawl=FirecrawlSettings(api_key=_optional_string(firecrawl_raw.get("api_key"))),
+        billing=billing,
     )
 
 

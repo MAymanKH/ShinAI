@@ -12,6 +12,7 @@ import asyncio
 import random
 from dataclasses import dataclass
 
+from shin_ai.core.request_context import record_delivery
 from shin_ai.data.loader import (
     MEMBERS,
     TELEGRAM_STICKER_TO_DESCRIPTION,
@@ -107,6 +108,7 @@ async def execute_text_messages(
                 sent_id = await platform.send_message(msg.chat.id, text, reply_to_id)
             if sent_id:
                 sent_messages.append(text)
+                await record_delivery()
                 preview = text.replace("\n", " ")[: get_settings().logging.content_preview_chars]
                 logger.info(
                     'Responded — part=%d/%d text="%s%s"',
@@ -216,6 +218,7 @@ async def _execute_reaction(
 
     try:
         await platform.react(msg.chat.id, message_id, emoji)
+        await record_delivery()
         logger.info(
             "Reaction sent — target=%s emoji=%s",
             message_id,
@@ -261,6 +264,7 @@ async def _execute_sticker(
     try:
         sent_id = await platform.send_sticker(msg.chat.id, sticker_id, reply_to_id)
         if sent_id:
+            await record_delivery()
             logger.info(
                 "Sticker sent — sent_id=%s reply_to=%s",
                 sent_id,
@@ -318,7 +322,10 @@ async def _execute_mod_action(
                 link = await platform.create_chat_invite_link(msg.chat.id)
                 if not link:
                     return "ADD FAILED: The platform did not create an invite link."
-                await platform.send_message(target.id, f"You've been invited: {link}")
+                sent_id = await platform.send_message(target.id, f"You've been invited: {link}")
+                if not sent_id:
+                    return "ADD FAILED: The invitation was not delivered."
+            await record_delivery()
         except Exception as e:
             return f"{mod_action.upper()} FAILED: {e}"
 
@@ -352,6 +359,7 @@ async def _execute_mod_action(
                 return f"UNMUTE FAILED: Platform {platform.platform_name} does not support per-user unmute."
             await platform.restrict_chat_member(msg.chat.id, target.id, True)
 
+        await record_delivery()
         logger.info(
             "Moderation action completed — action=%s target=%s",
             mod_action,

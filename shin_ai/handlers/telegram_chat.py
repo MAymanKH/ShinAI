@@ -1,8 +1,10 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
+from shin_ai.billing.commands import handle_usage_command, is_usage_command
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import (
+    COMMAND_HANDLER_GROUP,
     is_supported_chat,
     should_record_context,
     should_respond_to_message,
@@ -29,6 +31,15 @@ def register(client) -> TelegramPlatform | None:
 
     telegram_platform = TelegramPlatform(client)
     debug = get_settings().debug
+
+    if get_settings().billing.enabled:
+        usage_filter = filters.create(lambda _filter, _client, msg: is_usage_command(msg.text))
+
+        @client.on_message(filters.incoming & usage_filter, group=COMMAND_HANDLER_GROUP)
+        async def usage_command(_client: Client, msg: Message):
+            unified_msg = telegram_platform.to_unified_message(msg)
+            if await handle_usage_command(telegram_platform, unified_msg):
+                msg.stop_propagation()
 
     @client.on_message(filters.incoming, group=-1)
     async def context_recorder(_client: Client, msg: Message):

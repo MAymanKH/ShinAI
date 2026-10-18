@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
 
+from shin_ai.core.request_context import paid_route
 from shin_ai.providers.tool_loop import run_tool_calling_chat
 from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
@@ -125,6 +126,9 @@ async def openai_provider(
     semaphore = await _get_semaphore(cfg)
 
     async def _call() -> tuple[str, list[dict]]:
+        completion_options = {}
+        if paid_route.get() is not None:
+            completion_options["max_tokens"] = get_settings().billing.max_output_tokens
         return await run_tool_calling_chat(
             provider_name=cfg.name,
             create_completion=client.chat.completions.create,
@@ -133,11 +137,11 @@ async def openai_provider(
             model=cfg.model,
             media_list=media_list,
             tool_context=tool_context,
+            **completion_options,
         )
 
-    # The router no longer wraps provider calls in a deadline, so the timeout on
-    # the model call is applied here — inside the semaphore, so queueing behind
-    # another request does not eat into this one's allowance.
+    # Free rotation owns its attempt timeout inside the semaphore. Paid routing
+    # additionally bounds the whole operation, including semaphore wait time.
     timeout = (
         get_settings().ai.timeout_seconds if attempt_timeout_seconds is None else attempt_timeout_seconds
     )

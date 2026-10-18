@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any
 
+from shin_ai.billing.commands import handle_usage_command
 from shin_ai.core.handler import process_message
 from shin_ai.handlers.common import should_record_context, should_respond_to_message
 from shin_ai.settings import get_settings
@@ -30,6 +31,9 @@ def register():
 
     async def _handle_whatsapp_message(event_msg: MessageEventType) -> None:
         unified_msg = await whatsapp_platform.ingest_event_message(event_msg)
+
+        if await handle_usage_command(whatsapp_platform, unified_msg):
+            return
 
         if should_record_context(unified_msg):
             add_message_to_context(unified_msg)

@@ -2,6 +2,7 @@ import httpx
 from pyrogram import Client, enums
 from pyrogram.types import ChatPermissions, Message
 
+from shin_ai.core.request_context import record_delivery
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import (
     UnifiedChat,
@@ -133,8 +134,9 @@ class TelegramPlatform(PlatformAdapter):
         except AttributeError:
             # Using msg.react directly if possible on the native msg
             msg = await self.client.get_messages(int(chat_id), int(message_id))
-            if msg:
-                await msg.react(reaction)
+            if not msg:
+                raise ValueError("Cannot react: Telegram target message was not found") from None
+            await msg.react(reaction)
 
     async def send_chat_action(self, chat_id: int | str, action: str) -> None:
         tg_action = getattr(enums.ChatAction, action.upper(), None)
@@ -180,6 +182,7 @@ class TelegramPlatform(PlatformAdapter):
     async def kick_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
         # Telegram has no native kick - ban then immediately unban
         await self.client.ban_chat_member(int(chat_id), int(user_id))
+        await record_delivery()
         await self.client.unban_chat_member(int(chat_id), int(user_id))
 
     async def unban_chat_member(self, chat_id: int | str, user_id: int | str) -> None:
