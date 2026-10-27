@@ -9,11 +9,15 @@ from __future__ import annotations
 import math
 import threading
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
+from shin_ai.billing.money import decimal_amount, usd_to_units
+from shin_ai.billing.types import ModelPrice
 from shin_ai.utils.chat_identity import normalize_chat_id
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -160,16 +164,47 @@ class FirecrawlSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class BillingWebSettings:
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8080
+    public_url: str = "http://localhost:8080"
+    login_ttl_seconds: int = 600
+    session_ttl_seconds: int = 86400
+    support_email: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PaymobSettings:
+    enabled: bool = False
+    mode: str = "test"
+    integration_ids: tuple[int, ...] = ()
+    merchant_id: int = 0
+    secret_key_env: str = "PAYMOB_SECRET_KEY"
+    public_key_env: str = "PAYMOB_PUBLIC_KEY"
+    hmac_secret_env: str = "PAYMOB_HMAC_SECRET"
+    api_key_env: str = "PAYMOB_API_KEY"
+    egp_per_usd: Decimal = Decimal("1")
+    fee_bps: int = 0
+    fixed_fee_cents: int = 0
+    packages: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class BillingSettings:
     enabled: bool
     database_path: Path
     providers: tuple[str, ...]
-    response_cost: int
+    max_request_units: int
     max_retries: int
     attempt_timeout_seconds: float
     global_timeout_seconds: float
     max_input_chars: int = 64_000
     max_output_tokens: int = 1_024
+    markup_bps: int = 2500
+    pricing: tuple[ModelPrice, ...] = ()
+    web: BillingWebSettings = field(default_factory=BillingWebSettings)
+    paymob: PaymobSettings = field(default_factory=PaymobSettings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -608,20 +643,163 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
             raise ValueError(f"Paid provider '{name}' cannot appear in ai.primary or ai.fallbacks.")
     if billing_enabled and not paid_names:
         raise ValueError("billing.providers must contain at least one provider when billing is enabled.")
-    for name in ("response_cost", "max_retries", "max_input_chars", "max_output_tokens"):
+    if "response_cost" in billing_raw:
+        raise ValueError("billing.response_cost is replaced by billing.max_request_usd and pricing")
+    for name in ("max_retries", "max_input_chars", "max_output_tokens"):
         value = billing_raw.get(name)
         if value is not None and (type(value) is not int or value <= 0):
             raise ValueError(f"billing.{name} must be an integer greater than zero.")
     billing_path = Path(str(billing_raw.get("database_path", "data/billing.sqlite3")))
     if not billing_path.is_absolute():
         billing_path = project_root / billing_path
+
+    def boolean(section, key, default=False):
+        value = section.get(key, default)
+        if not isinstance(value, bool):
+            raise ValueError(f"billing.{key} must be a boolean")
+        return value
+
+    def percent_bps(value, name):
+        scaled = decimal_amount(value, name, allow_zero=True) * 100
+        if scaled != scaled.to_integral_value() or scaled > 100_000:
+            raise ValueError(f"{name} must have at most two decimal places and be at most 1000 percent")
+        return int(scaled)
+
+    prices_raw = billing_raw.get("pricing", [])
+    if not isinstance(prices_raw, list):
+        raise ValueError("billing.pricing must be a list")
+    prices = []
+    price_keys = set()
+    for entry in prices_raw:
+        if not isinstance(entry, dict):
+            raise ValueError("Each billing.pricing entry must be a mapping")
+        provider_name = str(entry.get("provider", ""))
+        model = str(entry.get("model", "")).strip()
+        adapter = str(entry.get("adapter", ""))
+        version = str(entry.get("version", "")).strip()
+        if provider_name not in paid_names or not model or not version:
+            raise ValueError("Each price requires a paid provider, model, and version")
+        if adapter not in {"gemini", "deepseek", "openrouter", "openai"}:
+            raise ValueError("Price adapter must be gemini, deepseek, openrouter, or openai")
+        if (providers[provider_name].type == "gemini") != (adapter == "gemini"):
+            raise ValueError("Price adapter must match its provider type")
+        key = (provider_name, model)
+        if key in price_keys:
+            raise ValueError("Duplicate provider/model price")
+        price_keys.add(key)
+        aliases = entry.get("aliases", [])
+        if not isinstance(aliases, list) or any(
+            not isinstance(alias, str) or not alias.strip() for alias in aliases
+        ):
+            raise ValueError("Price aliases must be a list of actual model names")
+        prices.append(
+            ModelPrice(
+                provider_name,
+                model,
+                adapter,
+                version,
+                decimal_amount(entry.get("input_per_million_usd"), "input price", allow_zero=True),
+                decimal_amount(
+                    entry.get("cached_input_per_million_usd", entry.get("input_per_million_usd")),
+                    "cached input price",
+                    allow_zero=True,
+                ),
+                decimal_amount(entry.get("output_per_million_usd"), "output price", allow_zero=True),
+                _positive_int(entry.get("max_input_tokens"), name="price.max_input_tokens", default=65536),
+                tuple(aliases),
+            )
+        )
+    if billing_enabled:
+        for name in paid_names:
+            for model in providers[name].models or (providers[name].model,):
+                if (name, model) not in price_keys:
+                    raise ValueError(f"Missing billing.pricing for {name}/{model}")
+
+    web_raw = billing_raw.get("web") or {}
+    paymob_raw = billing_raw.get("paymob") or {}
+    if not isinstance(web_raw, dict) or not isinstance(paymob_raw, dict):
+        raise ValueError("billing.web and billing.paymob must be mappings")
+    web_enabled = boolean(web_raw, "enabled")
+    public_url = str(web_raw.get("public_url", "http://localhost:8080")).rstrip("/")
+    url = urlparse(public_url)
+    if (
+        url.scheme not in {"http", "https"}
+        or not url.hostname
+        or url.username
+        or url.password
+        or url.path not in {"", "/"}
+        or url.query
+        or url.fragment
+    ):
+        raise ValueError("billing.web.public_url must be an absolute origin URL")
+    if url.scheme == "http" and url.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("billing.web.public_url requires HTTPS outside localhost")
+    web = BillingWebSettings(
+        enabled=web_enabled,
+        host=str(web_raw.get("host", "127.0.0.1")),
+        port=_positive_int(web_raw.get("port"), name="billing.web.port", default=8080),
+        public_url=public_url,
+        login_ttl_seconds=_positive_int(web_raw.get("login_ttl_seconds"), name="login TTL", default=600),
+        session_ttl_seconds=_positive_int(
+            web_raw.get("session_ttl_seconds"), name="session TTL", default=86400
+        ),
+        support_email=str(web_raw.get("support_email", "")),
+    )
+    payment_enabled = boolean(paymob_raw, "enabled")
+    mode = str(paymob_raw.get("mode", "test"))
+    integrations = paymob_raw.get("integration_ids", [])
+    if (
+        mode not in {"test", "live"}
+        or not isinstance(integrations, list)
+        or any(type(i) is not int or i <= 0 for i in integrations)
+    ):
+        raise ValueError("Paymob requires mode test or live and positive integration IDs")
+    packages_raw = paymob_raw.get("packages_egp", [])
+    if not isinstance(packages_raw, list):
+        raise ValueError("Paymob packages_egp must be a list")
+    merchant_id = paymob_raw.get("merchant_id", 0)
+    if type(merchant_id) is not int or not 0 <= merchant_id < 2**63:
+        raise ValueError("Paymob merchant_id must be a nonnegative integer")
+    packages = []
+    for amount in packages_raw:
+        cents = decimal_amount(amount, "package amount") * 100
+        if cents != cents.to_integral_value() or cents > 100_000_000:
+            raise ValueError("Paymob package must be an EGP amount with at most two decimal places")
+        packages.append(int(cents))
+    fixed_fee = (
+        decimal_amount(paymob_raw.get("fixed_fee_egp", "0"), "fixed processing allowance", allow_zero=True)
+        * 100
+    )
+    if fixed_fee != fixed_fee.to_integral_value():
+        raise ValueError("Fixed processing allowance requires at most two decimal places")
+    paymob = PaymobSettings(
+        enabled=payment_enabled,
+        mode=mode,
+        integration_ids=tuple(dict.fromkeys(integrations)),
+        merchant_id=merchant_id,
+        secret_key_env=str(paymob_raw.get("secret_key_env", "PAYMOB_SECRET_KEY")),
+        public_key_env=str(paymob_raw.get("public_key_env", "PAYMOB_PUBLIC_KEY")),
+        hmac_secret_env=str(paymob_raw.get("hmac_secret_env", "PAYMOB_HMAC_SECRET")),
+        api_key_env=str(paymob_raw.get("api_key_env", "PAYMOB_API_KEY")),
+        egp_per_usd=decimal_amount(paymob_raw.get("egp_per_usd", "1"), "EGP per USD"),
+        fee_bps=percent_bps(paymob_raw.get("fee_percent", "0"), "fee_percent"),
+        fixed_fee_cents=int(fixed_fee),
+        packages=tuple(dict.fromkeys(packages)),
+    )
+    if web_enabled and not billing_enabled:
+        raise ValueError("Enable billing before enabling its website")
+    if payment_enabled and (not web_enabled or not integrations or paymob.merchant_id <= 0 or not packages):
+        raise ValueError(
+            "Paymob requires the billing website, merchant_id, integration_ids, and packages_egp"
+        )
+    if payment_enabled and mode == "live" and url.scheme != "https":
+        raise ValueError("Live Paymob checkout requires an HTTPS public URL")
+
     billing = BillingSettings(
         enabled=billing_enabled,
         database_path=billing_path,
         providers=paid_names,
-        response_cost=_positive_int(
-            billing_raw.get("response_cost"), name="billing.response_cost", default=1
-        ),
+        max_request_units=usd_to_units(billing_raw.get("max_request_usd", "0.10")),
         max_retries=_positive_int(billing_raw.get("max_retries"), name="billing.max_retries", default=1),
         attempt_timeout_seconds=_positive_float(
             billing_raw.get("attempt_timeout_seconds"),
@@ -641,9 +819,15 @@ def parse_settings(raw: dict[str, Any], *, project_root: Path = PROJECT_ROOT) ->
         max_output_tokens=_positive_int(
             billing_raw.get("max_output_tokens"),
             name="billing.max_output_tokens",
-            default=1_024,
+            default=1024,
         ),
+        markup_bps=percent_bps(billing_raw.get("markup_percent", "25"), "markup_percent"),
+        pricing=tuple(prices),
+        web=web,
+        paymob=paymob,
     )
+    if billing.max_request_units <= 0:
+        raise ValueError("billing.max_request_usd must be positive")
     if not all(
         math.isfinite(value)
         for value in (

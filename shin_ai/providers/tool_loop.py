@@ -6,6 +6,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
+from shin_ai.billing.pricing import usage_meter
 from shin_ai.utils.action_tools import (
     ACTION_TOOL_HANDLERS,
     ACTION_TOOL_SCHEMAS,
@@ -176,32 +177,33 @@ async def run_tool_calling_chat(
     pending_actions: list[dict] = []
 
     for _ in range(max_turns):
-        if inspect.iscoroutinefunction(create_completion):
-            response = await asyncio.wait_for(
-                create_completion(
-                    messages=messages,
-                    model=model,
-                    tools=active_tools,
-                    tool_choice="auto",
-                    **completion_kwargs,
-                ),
-                timeout=turn_timeout,
+        meter = usage_meter.get()
+        ticket = None
+        if meter is not None:
+            # UTF-8 byte length plus tool/schema overhead conservatively bounds text BPE inputs.
+            input_bound = len(json.dumps(messages, ensure_ascii=False).encode())
+            input_bound += len(json.dumps(active_tools, ensure_ascii=False).encode()) + 4096
+            ticket = await meter.before_call(
+                provider_name,
+                model,
+                input_bound,
+                completion_kwargs.get("max_tokens", 1024),
             )
-        else:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    create_completion,
-                    messages=messages,
-                    model=model,
-                    tools=active_tools,
-                    tool_choice="auto",
-                    **completion_kwargs,
-                ),
-                timeout=turn_timeout,
+        try:
+            response = await _create_metered_completion(
+                create_completion,
+                messages,
+                model,
+                active_tools,
+                turn_timeout,
+                completion_kwargs,
             )
-
-        if inspect.isawaitable(response):
-            response = await response
+            if meter is not None and ticket is not None:
+                await meter.record_response(ticket, response)
+        except BaseException:
+            if meter is not None and ticket is not None:
+                meter.failed_call(ticket)
+            raise
 
         response_message = response.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)
@@ -228,6 +230,39 @@ async def run_tool_calling_chat(
     if response is None:
         return "", pending_actions
     return response.choices[0].message.content or "", pending_actions
+
+
+async def _create_metered_completion(
+    create_completion, messages, model, active_tools, turn_timeout, completion_kwargs
+):
+    if inspect.iscoroutinefunction(create_completion):
+        response = await asyncio.wait_for(
+            create_completion(
+                messages=messages,
+                model=model,
+                tools=active_tools,
+                tool_choice="auto",
+                **completion_kwargs,
+            ),
+            timeout=turn_timeout,
+        )
+    else:
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                create_completion,
+                messages=messages,
+                model=model,
+                tools=active_tools,
+                tool_choice="auto",
+                **completion_kwargs,
+            ),
+            timeout=turn_timeout,
+        )
+
+    if inspect.isawaitable(response):
+        response = await response
+
+    return response
 
 
 def _coerce_message_id(raw_id: Any) -> int | str:

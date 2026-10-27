@@ -59,8 +59,20 @@ billing:
   # Add a dedicated provider under ai.providers, then list its name here.
   # Do not include these names in ai.primary or ai.fallbacks.
   providers: []
-  # Charged once per interaction with at least one confirmed delivery or action.
-  response_cost: 1
+  # Maximum authorized spend per paid interaction, including markup, in USD.
+  max_request_usd: "0.10"
+  markup_percent: "25"
+  # Add exact rates for each paid provider/model before enabling billing.
+  # - provider: paid_provider
+  #   model: model-name
+  #   adapter: deepseek  # gemini | deepseek | openrouter | openai
+  #   version: "your-price-version"
+  #   aliases: []  # Explicit returned model versions charged at these same rates.
+  #   input_per_million_usd: "0.00"
+  #   cached_input_per_million_usd: "0.00"
+  #   output_per_million_usd: "0.00"
+  #   max_input_tokens: 65536
+  pricing: []
   max_retries: 1
   attempt_timeout_seconds: 15
   # One hard generation deadline shared by main and supporting model calls.
@@ -69,6 +81,30 @@ billing:
   max_input_chars: 64000
   # Output token limit on each model generation, including supporting calls.
   max_output_tokens: 1024
+  web:
+    enabled: false
+    host: "127.0.0.1"
+    port: 8080
+    # Use your HTTPS domain in production. HTTP is allowed only on localhost.
+    public_url: "http://localhost:8080"
+    login_ttl_seconds: 600
+    session_ttl_seconds: 86400
+    support_email: ""
+  paymob:
+    enabled: false
+    mode: test  # Change to live only after merchant approval and sandbox checks.
+    merchant_id: 0
+    integration_ids: []
+    # Environment variable NAMES, never commit their secret values.
+    secret_key_env: PAYMOB_SECRET_KEY
+    public_key_env: PAYMOB_PUBLIC_KEY
+    hmac_secret_env: PAYMOB_HMAC_SECRET
+    api_key_env: PAYMOB_API_KEY
+    # Set your quoted conversion rate and processing allowance before enabling.
+    egp_per_usd: "1"
+    fee_percent: "0"
+    fixed_fee_egp: "0"
+    packages_egp: []
 
 # --- Audio Transcription (Whisper) ---
 whisper:

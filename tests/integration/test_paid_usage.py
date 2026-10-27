@@ -1,12 +1,16 @@
 """Paid admission, delivery, and fallback using the real durable ledger."""
 
+import uuid
 from dataclasses import replace
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from shin_ai.billing.pricing import usage_attempt, usage_meter
 from shin_ai.billing.store import Balance, CreditStore, Identity, Scope
+from shin_ai.billing.types import ModelPrice
 from shin_ai.core import handler
 from shin_ai.core.action_executor import ActionExecutionResult
 from shin_ai.core.request_context import delivery_callback, paid_route, record_delivery
@@ -24,7 +28,19 @@ def scenario(tmp_path, monkeypatch):
     settings = replace(
         original,
         ai=replace(original.ai, providers={**original.ai.providers, paid_provider.name: paid_provider}),
-        billing=BillingSettings(True, store.path, (paid_provider.name,), 2, 1, 5, 10),
+        billing=BillingSettings(
+            True,
+            store.path,
+            (paid_provider.name,),
+            2,
+            1,
+            5,
+            10,
+            markup_bps=0,
+            pricing=(
+                ModelPrice("paid-test", "test", "openai", "fixture", Decimal(0), Decimal(0), Decimal(2)),
+            ),
+        ),
     )
     monkeypatch.setattr(handler, "get_settings", lambda: settings)
     monkeypatch.setattr(handler, "get_credit_store", lambda: store)
@@ -58,6 +74,7 @@ def scenario(tmp_path, monkeypatch):
 
     async def provider(**_kwargs):
         calls.append("paid" if paid_route.get() else "free")
+        await record_mock_usage()
         return "hello back", []
 
     monkeypatch.setattr(handler, "call_ai_provider", provider)
@@ -82,6 +99,22 @@ def scenario(tmp_path, monkeypatch):
         memory=memory,
         send=send,
     )
+
+
+async def record_mock_usage():
+    meter = usage_meter.get()
+    if meter is None:
+        return
+    attempt = uuid.uuid4().hex
+    token = usage_attempt.set(attempt)
+    try:
+        ticket = await meter.before_call("paid-test", "test", 0, 1)
+        await meter.record_response(
+            ticket, SimpleNamespace(model="test", usage={"prompt_tokens": 0, "completion_tokens": 1})
+        )
+        await meter.accept_attempt(attempt)
+    finally:
+        usage_attempt.reset(token)
 
 
 async def fund(scenario, *, owner=None, mode="only_me"):
@@ -231,9 +264,12 @@ async def test_partial_delivery_then_exception_keeps_charge(scenario):
 
 async def test_successful_action_without_text_is_billable(scenario, monkeypatch):
     await fund(scenario)
-    monkeypatch.setattr(
-        handler, "call_ai_provider", AsyncMock(return_value=("[SKIP]", [{"type": "reaction"}]))
-    )
+
+    async def action_provider(**_kwargs):
+        await record_mock_usage()
+        return "[SKIP]", [{"type": "reaction"}]
+
+    monkeypatch.setattr(handler, "call_ai_provider", action_provider)
     monkeypatch.setattr(
         handler,
         "execute_pending_actions",

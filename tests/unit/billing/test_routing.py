@@ -136,8 +136,8 @@ def test_paid_input_limit_rejects_before_any_provider_call(monkeypatch, tmp_path
         ({"enabled": "false"}, "boolean"),
         ({"providers": ["missing"]}, "unknown provider"),
         ({"providers": ["free"]}, "cannot appear"),
-        ({"response_cost": 0}, "greater than zero"),
-        ({"response_cost": 1.5}, "integer"),
+        ({"response_cost": 0}, "replaced"),
+        ({"response_cost": 1.5}, "replaced"),
         ({"global_timeout_seconds": float("inf")}, "finite"),
     ],
 )

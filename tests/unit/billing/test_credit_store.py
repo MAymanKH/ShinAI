@@ -72,9 +72,12 @@ def test_terminal_requests_are_idempotent_and_cannot_replay(tmp_path, terminal):
         held = await store.reserve("request", ALICE, (CHAT,), 1)
         assert held == Reservation("request", ALICE, 1)
         assert await store.balance(ALICE) == Balance(1, 1)
-        await getattr(store, terminal)(held)
+        if terminal == "settle":
+            await store.settle(held, held.credits)
+        else:
+            await store.release(held)
         await store.release(held)
-        await store.settle(held)
+        await store.settle(held, held.credits)
         assert await store.balance(ALICE) == Balance(1 if terminal == "settle" else 2, 0)
         with pytest.raises(DuplicateRequest):
             await store.reserve("request", ALICE, (CHAT,), 1)
@@ -91,7 +94,7 @@ def test_recovery_is_explicit_and_preserves_terminal_requests(tmp_path):
         await store.grant(ALICE, 3, "grant")
         await store.configure(ALICE, CHAT, "only_me")
         settled = await store.reserve("delivered", ALICE, (CHAT,), 1)
-        await store.settle(settled)
+        await store.settle(settled, settled.credits)
         await store.reserve("interrupted", ALICE, (CHAT,), 1)
         reopened = CreditStore(path)
         assert await reopened.balance(ALICE) == Balance(1, 1)
@@ -115,7 +118,7 @@ def test_own_balance_then_chat_sponsor_then_guild_sponsor(tmp_path):
         for reference, expected in (("own", CAROL), ("chat", BOB), ("guild", ALICE)):
             reservation = await store.reserve(reference, CAROL, (GUILD, CHAT), 1)
             assert reservation.owner == expected
-            await store.settle(reservation)
+            await store.settle(reservation, reservation.credits)
         assert await store.reserve("empty", CAROL, (CHAT, GUILD), 1) is None
 
     asyncio.run(scenario())
@@ -180,11 +183,11 @@ def test_cancellation_during_reservation_refunds_completed_transaction(tmp_path,
         finish = threading.Event()
         original_record = store._record
 
-        def slow_record(connection, reference, owner, available, reserved, kind):
+        def slow_record(connection, reference, owner, available, reserved, kind, debt=0):
             if kind == "reserve":
                 started.set()
                 assert finish.wait(timeout=5)
-            original_record(connection, reference, owner, available, reserved, kind)
+            original_record(connection, reference, owner, available, reserved, kind, debt)
 
         monkeypatch.setattr(store, "_record", slow_record)
         request = asyncio.create_task(store.reserve("cancelled", ALICE, (CHAT,), 1))

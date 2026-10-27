@@ -10,6 +10,7 @@ import time
 
 from google import genai
 
+from shin_ai.billing.pricing import usage_meter
 from shin_ai.coordination.runtime import get_coordination_store
 from shin_ai.core.request_context import paid_route
 from shin_ai.platforms.models import UnifiedMessage
@@ -193,6 +194,11 @@ async def gemini_api(
                             config,
                             tool_context,
                             media_list,
+                            **(
+                                {"provider_name": provider.name}
+                                if usage_meter.get() is not None and provider is not None
+                                else {}
+                            ),
                         ),
                         timeout=attempt_timeout,
                     )
@@ -266,6 +272,9 @@ async def gemini_api(
                     failure.message,
                     extra={"event_name": "provider.failure_detail"},
                 )
+                if usage_meter.get() is not None:
+                    # A failed internal rotation must not become billable with a later success.
+                    raise
                 continue
 
     if last_exception:
@@ -383,7 +392,14 @@ def _param_to_gemini_schema(param: dict):
 
 
 async def _run_gemini_generation_loop(
-    genai_client, model: str, contents: list, config, tool_context=None, media_list=None
+    genai_client,
+    model: str,
+    contents: list,
+    config,
+    tool_context=None,
+    media_list=None,
+    *,
+    provider_name=None,
 ) -> tuple[object, list[dict]]:
     max_turns = 3
     current_turn = 0
@@ -391,11 +407,35 @@ async def _run_gemini_generation_loop(
     pending_actions: list[dict] = []
 
     while current_turn < max_turns:
-        response = await genai_client.aio.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        meter = usage_meter.get()
+        ticket = None
+        if meter is not None:
+            counted = await genai_client.aio.models.count_tokens(
+                model=model,
+                contents=contents,
+                config=genai.types.CountTokensConfig(
+                    system_instruction=config.system_instruction,
+                    tools=config.tools,
+                ),
+            )
+            ticket = await meter.before_call(
+                provider_name,
+                model,
+                counted.total_tokens,
+                config.max_output_tokens or get_settings().billing.max_output_tokens,
+            )
+        try:
+            response = await genai_client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            if meter is not None and ticket is not None:
+                await meter.record_response(ticket, response)
+        except BaseException:
+            if meter is not None and ticket is not None:
+                meter.failed_call(ticket)
+            raise
 
         if not response.function_calls:
             break

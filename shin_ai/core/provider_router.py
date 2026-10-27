@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from shin_ai.billing.pricing import AccountingError, usage_attempt, usage_meter
 from shin_ai.core.request_context import paid_route
 from shin_ai.platforms.base import PlatformAdapter
 from shin_ai.platforms.models import UnifiedMessage
@@ -153,6 +155,9 @@ async def _call_ai_provider(
                     extra={"event_name": "provider.deadline"},
                 )
                 break
+            meter = usage_meter.get()
+            attempt_id = uuid.uuid4().hex
+            attempt_token = usage_attempt.set(attempt_id)
             try:
                 # No wall-clock wrapper here: a provider that rotates keys and
                 # models does that work itself, and cutting the rotation short
@@ -169,6 +174,10 @@ async def _call_ai_provider(
                 )
                 if not isinstance(answer, str) or (not answer.strip() and not pending_actions):
                     raise RuntimeError("AI provider returned empty response")
+                if meter is not None:
+                    await meter.accept_attempt(attempt_id)
+                    if media_context and provider.type != "gemini" and meter.has_support_calls:
+                        await meter.accept_attempt("support")
                 logger.info(
                     "AI provider succeeded — provider=%s attempt=%s",
                     provider.name,
@@ -176,6 +185,9 @@ async def _call_ai_provider(
                     extra={"event_name": "provider.succeeded"},
                 )
                 return answer, pending_actions
+            except AccountingError as error:
+                last_error = error
+                logger.warning("Paid usage accounting stopped this attempt: %s", error)
             except TimeoutError as error:
                 last_error = error
                 retry_prompt = provider_prompt
@@ -187,6 +199,8 @@ async def _call_ai_provider(
                     f"Previous attempt failed with {type(error).__name__}: {error_text}\n"
                     "If needed, adapt your response approach to avoid the same failure."
                 )
+            finally:
+                usage_attempt.reset(attempt_token)
             if attempt >= attempts:
                 break
 

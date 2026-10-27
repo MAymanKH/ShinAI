@@ -22,7 +22,9 @@ def close_runtime_between_tests():
 
 
 def configure_runtime(monkeypatch, database, *, enabled=True):
-    settings = SimpleNamespace(billing=SimpleNamespace(enabled=enabled, database_path=database))
+    settings = SimpleNamespace(
+        billing=SimpleNamespace(enabled=enabled, database_path=database, web=SimpleNamespace(enabled=False))
+    )
     monkeypatch.setattr(runtime, "get_settings", lambda: settings)
 
 
@@ -82,14 +84,14 @@ cli.load_settings = lambda _path: SimpleNamespace(
     billing=SimpleNamespace(enabled=True, database_path=Path(sys.argv[1]))
 )
 args = cli.parser().parse_args([
-    "grant", "--platform", "discord", "--user", "payer", "--credits", "5",
+    "grant", "--platform", "discord", "--user", "payer", "--amount-usd", "0.000005",
     "--reference", "while-bot-running",
 ])
 asyncio.run(cli.run(args))
 """,
         database,
     )
-    assert "Available credits: 5" in granted.stdout
+    assert "Available balance: $0.000005" in granted.stdout
     assert asyncio.run(store.balance(OWNER)) == Balance(5, 0)
 
 
@@ -143,3 +145,37 @@ print("ownership acquired")
     )
     assert acquired.stdout.strip() == "ownership acquired"
     assert runtime.get_credit_store() is not original
+
+
+@pytest.mark.asyncio
+async def test_failed_web_start_releases_ownership_and_allows_retry(tmp_path, monkeypatch):
+    from shin_ai.billing import web
+
+    settings = SimpleNamespace(
+        billing=SimpleNamespace(
+            enabled=True, database_path=tmp_path / "billing.sqlite3", web=SimpleNamespace(enabled=True)
+        )
+    )
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
+
+    async def fail(*_args):
+        raise OSError("port already bound")
+
+    monkeypatch.setattr(web, "start_web", fail)
+    with pytest.raises(OSError, match="port already bound"):
+        await runtime.initialize_billing()
+    assert runtime._ownership_file is None
+    assert not runtime._initialized
+
+    class Runner:
+        async def cleanup(self):
+            pass
+
+    runner = Runner()
+
+    async def succeed(*_args):
+        return runner
+
+    monkeypatch.setattr(web, "start_web", succeed)
+    await runtime.initialize_billing()
+    assert runtime._initialized and runtime._web_runner is runner

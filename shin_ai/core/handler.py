@@ -12,6 +12,7 @@ import re as _re
 import time
 from dataclasses import dataclass
 
+from shin_ai.billing.pricing import UsageMeter, usage_attempt, usage_meter
 from shin_ai.billing.runtime import get_credit_store
 from shin_ai.billing.store import DuplicateRequest, Identity, Scope
 from shin_ai.coordination.runtime import get_coordination_store
@@ -250,16 +251,17 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
     store = None
     reservation = None
     delivery_seen = False
-    settlement_done = False
+    meter = None
+    meter_token = usage_meter.set(None)
+    attempt_token = usage_attempt.set("support")
     route_token = paid_route.set(None)
     delivery_token = delivery_callback.set(None)
 
     async def settle_delivery() -> None:
-        nonlocal delivery_seen, settlement_done
+        nonlocal delivery_seen
         delivery_seen = True
-        if store is not None and reservation is not None and not settlement_done:
-            await store.settle(reservation)
-            settlement_done = True
+        if meter is not None:
+            await meter.mark_delivered()
 
     with bind_log_context(**_message_log_context(platform, msg, payload.interaction_id)):
         reset_request_context()
@@ -300,11 +302,14 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
                             reference,
                             Identity(msg.platform, normalize_chat_id(msg.platform, msg.from_user.id)),
                             tuple(scopes),
-                            billing.response_cost,
+                            billing.max_request_units,
                         )
                     except DuplicateRequest:
                         return
                     if reservation is not None:
+                        await store.configure_reservation(reservation, billing.markup_bps)
+                        meter = UsageMeter(store, reservation, billing.pricing, billing.markup_bps)
+                        usage_meter.set(meter)
                         paid_route.set(
                             PaidRoute(
                                 providers=billing.providers,
@@ -342,20 +347,24 @@ async def _process_admitted_interaction(payload: _AdmittedInteraction) -> None:
             if provider_succeeded is False and reservation is not None and not delivery_seen:
                 await store.release(reservation)
                 reservation = None
+                meter = None
+                usage_meter.set(None)
                 paid_route.set(None)
                 delivery_callback.set(None)
                 if await _admit_free_usage(platform, msg):
                     await _execute_frozen_message(**frozen)
         finally:
             try:
-                if store is not None and reservation is not None and not settlement_done:
-                    if delivery_seen:
-                        await store.settle(reservation)
+                if store is not None and reservation is not None:
+                    if meter is not None:
+                        await meter.finish()
                     else:
                         await store.release(reservation)
             finally:
                 delivery_callback.reset(delivery_token)
                 paid_route.reset(route_token)
+                usage_meter.reset(meter_token)
+                usage_attempt.reset(attempt_token)
                 reset_request_context()
 
 
@@ -601,6 +610,10 @@ async def _execute_frozen_message(
         # and database persistence so background work cannot restart the indicator.
         await stop_typing(typing_session)
         typing_session = None
+
+        meter = usage_meter.get()
+        if meter is not None:
+            await meter.finish()
 
         await save_interaction_memory(
             platform=platform.platform_name,

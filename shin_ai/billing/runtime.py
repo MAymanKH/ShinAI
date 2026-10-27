@@ -10,6 +10,7 @@ from shin_ai.settings import get_settings
 _store: CreditStore | None = None
 _ownership_file: BinaryIO | None = None
 _initialized = False
+_web_runner = None
 
 
 def get_credit_store() -> CreditStore | None:
@@ -34,17 +35,28 @@ def get_credit_store() -> CreditStore | None:
 
 
 async def initialize_billing() -> None:
-    global _initialized
+    global _initialized, _web_runner
     if _initialized:
         return
     store = get_credit_store()
     if store is not None:
-        await store.recover()
-        _initialized = True
+        try:
+            await store.recover()
+            if get_settings().billing.web.enabled:
+                from shin_ai.billing.web import start_web
+
+                _web_runner = await start_web(store, get_settings().billing)
+            _initialized = True
+        except BaseException:
+            await close_billing()
+            raise
 
 
 async def close_billing() -> None:
-    global _store, _ownership_file, _initialized
+    global _store, _ownership_file, _initialized, _web_runner
+    if _web_runner is not None:
+        await _web_runner.cleanup()
+        _web_runner = None
     _initialized = False
     _store = None
     if _ownership_file is not None:
