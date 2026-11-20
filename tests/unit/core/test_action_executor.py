@@ -62,10 +62,13 @@ def test_interaction_memory_combines_text_and_actions_once() -> None:
             original_prompt="hello",
             reply_text="",
             memory_saver=save,
+            trigger="mention",
         )
 
         assert len(saved) == 1
         assert saved[0]["response"] == "sent text [Reacted: 👍]"
+        assert saved[0]["trigger"] == "mention"
+        assert saved[0]["deliveries"] == "reaction,text"
 
     run(scenario())
 

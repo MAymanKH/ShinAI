@@ -532,6 +532,7 @@ async def _execute_frozen_message(
             completed_actions=action_result.completed_actions,
             original_prompt=prompt,
             reply_text=reply_text,
+            trigger=_direct_trigger(msg) or ("follow_up" if _should_use_speculative_reply(msg) else "automatic"),
         )
     finally:
         if typing_session is not None:
@@ -571,18 +572,20 @@ async def _get_reply_chain_text(platform: PlatformAdapter, msg: UnifiedMessage) 
 
 
 def _is_direct_interaction(msg: UnifiedMessage) -> bool:
+    return _direct_trigger(msg) is not None
+
+
+def _direct_trigger(msg: UnifiedMessage) -> str | None:
     if msg.chat.type == "PRIVATE":
-        return True
+        return "direct_message"
 
     text = msg.text or msg.caption or ""
-    if "يالبوت" in text:
-        return True
-    if msg.mentioned:
-        return True
+    if "يالبوت" in text or msg.mentioned:
+        return "mention"
 
-    return bool(
-        msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_self
-    )
+    if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_self:
+        return "reply"
+    return None
 
 
 def _should_use_speculative_reply(msg: UnifiedMessage) -> bool:

@@ -7,7 +7,16 @@ from html import escape
 from io import BytesIO
 
 _DAY = timedelta(days=1)
+_DAYS = 30
 _RANK_LIMIT = 20
+_TRIGGERS = {
+    "direct_message": "Direct message",
+    "mention": "Mention or name call",
+    "reply": "Reply to ShinAI",
+    "follow_up": "Automatic follow-up",
+    "automatic": "Proactive interaction",
+}
+_DELIVERIES = {"text": "Text", "reaction": "Reaction", "sticker": "Sticker", "moderation": "Moderation"}
 _CHAT_TYPES = {
     "PRIVATE": "Direct message",
     "BOT": "Direct message",
@@ -20,15 +29,17 @@ _CHAT_TYPES = {
 
 _STYLE = """
 :root {
-  --paper: #f2f6f7; --white: #fff; --ink: #142c38; --muted: #49616d;
-  --edge: #ccdae0; --teal: #056b66; --mint: #a8efdb;
+  color-scheme: dark;
+  --paper: #101923; --panel: #172430; --ink: #edf5f8; --muted: #b0c3d0;
+  --edge: #364b5a; --teal: #79e4cc; --header: #0c141d;
+  --heat: 121, 228, 204;
   font: 100%/1.5 system-ui, sans-serif; color: var(--ink); background: var(--paper);
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
 .wrap { width: min(72rem, calc(100% - 2rem)); margin: auto; }
-header { background: var(--ink); color: var(--white); padding: 2.5rem 0 1.75rem; }
-header p { color: var(--mint); margin: .4rem 0 0; }
+header { background: var(--header); border-bottom: 1px solid var(--edge); padding: 2.5rem 0 1.75rem; }
+header p { color: var(--teal); margin: .4rem 0 0; }
 nav { display: flex; flex-wrap: wrap; gap: .45rem 1.25rem; margin-top: 1.15rem; }
 nav a { color: inherit; text-underline-offset: .25em; }
 h1, h2, h3 { letter-spacing: -.035em; line-height: 1.12; margin: 0; }
@@ -36,7 +47,7 @@ h1 { font-size: clamp(2.25rem, 6vw, 4rem); }
 h2 { font-size: clamp(1.45rem, 4vw, 2rem); }
 h3 { font-size: 1.1rem; }
 section { margin-block: 1.8rem; scroll-margin-top: 1rem; }
-.panel { padding: clamp(.85rem, 3vw, 1.6rem); background: var(--white); border: 1px solid var(--edge); }
+.panel { padding: clamp(.85rem, 3vw, 1.6rem); background: var(--panel); border: 1px solid var(--edge); }
 p { margin: .6rem 0; }
 .note, figcaption { color: var(--muted); font-size: .875rem; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); margin: 0; }
@@ -54,13 +65,19 @@ figure { margin: 1rem 0 0; }
 }
 .day { display: flex; align-items: end; }
 .day i { display: block; width: 100%; height: var(--fill); background: var(--teal); border-radius: 2px 2px 0 0; }
-.day:last-child i { background: #3aa88d; }
+.day:hover i, .day:focus-visible i { background: var(--ink); }
 .axis { display: flex; justify-content: space-between; gap: .5rem; color: var(--muted); font-size: .8rem; }
 .heat { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 2px; margin: .8rem 0; }
 .heat th { font-size: .7rem; font-weight: 500; color: var(--muted); padding: 0; text-align: left; }
 .heat thead th:not(:first-child) { text-align: center; }
 .heat th:first-child { width: 2rem; }
-.heat td { padding: 0; height: 1.05rem; border: 0; background: rgba(5, 107, 102, var(--fill)); }
+.heat td { padding: 0; height: 1.05rem; border: 0; background: rgba(var(--heat), var(--fill)); }
+[data-tip]:hover, [data-tip]:focus-visible { outline: 1px solid var(--ink); outline-offset: 1px; }
+#chart-tip {
+  position: fixed; z-index: 2; pointer-events: none; max-width: calc(100vw - 16px);
+  padding: .35rem .65rem; background: var(--ink); color: var(--paper);
+  border-radius: .3rem; font-size: .8rem; font-weight: 650; white-space: nowrap;
+}
 .bars { list-style: none; padding: 0; margin: .8rem 0 0; }
 .bars li { margin-block: .65rem; }
 .bar-label { display: flex; justify-content: space-between; gap: .75rem; overflow-wrap: anywhere; }
@@ -81,10 +98,74 @@ footer { padding-block: 0 2rem; }
   .daily { height: 7rem; }
 }
 @media print {
-  :root { background: white; }
+  :root {
+    color-scheme: light;
+    --paper: #fff; --panel: #fff; --ink: #142c38; --muted: #49616d;
+    --edge: #ccdae0; --teal: #056b66; --header: #fff; --heat: 5, 107, 102;
+  }
   .wrap { width: 100%; } nav { display: none; } section, figure { break-inside: avoid; }
   * { print-color-adjust: exact; }
 }
+"""
+
+_TOOLTIPS = """
+const tip = document.querySelector('#chart-tip');
+let anchor;
+function show(point) {
+  const bounds = point.getBoundingClientRect();
+  if (bounds.bottom <= 0 || bounds.top >= window.innerHeight) {
+    hide();
+    return;
+  }
+  anchor = point;
+  tip.textContent = point.dataset.tip;
+  tip.hidden = false;
+  const left = bounds.left + (bounds.width - tip.offsetWidth) / 2;
+  tip.style.left = Math.max(8, Math.min(left, document.documentElement.clientWidth - tip.offsetWidth - 8)) + 'px';
+  const above = bounds.top - tip.offsetHeight - 8;
+  tip.style.top = (above >= 8 ? above : bounds.bottom + 8) + 'px';
+}
+function hide() {
+  tip.hidden = true;
+  anchor = null;
+}
+for (const event of ['pointerover', 'pointerdown', 'focusin', 'click']) {
+  document.addEventListener(event, ({target, pointerType}) => {
+    if (event === 'pointerover' && pointerType === 'touch') return;
+    if (event === 'pointerdown' && pointerType !== 'touch') return;
+    const point = target.closest('[data-tip]');
+    if (point) show(point);
+    else if (event === 'pointerdown' || event === 'click') hide();
+  });
+}
+for (const event of ['pointerout', 'focusout']) {
+  document.addEventListener(event, ({target, relatedTarget, pointerType}) => {
+    if (pointerType === 'touch') return;
+    if (anchor && target.closest('[data-tip]') === anchor && !anchor.contains(relatedTarget)) hide();
+  });
+}
+for (const event of ['resize', 'scroll']) {
+  window.addEventListener(event, () => {
+    if (anchor) show(anchor);
+  });
+}
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') hide();
+  const point = event.target.closest('[data-tip]');
+  if (!point) return;
+  const chart = point.closest('[data-chart]');
+  const stride = Number(chart.dataset.chart);
+  const step = {ArrowLeft: -1, ArrowRight: 1, ArrowUp: -stride, ArrowDown: stride}[event.key];
+  if (!step) return;
+  event.preventDefault();
+  const cells = Array.from(chart.querySelectorAll('[data-tip]'));
+  const next = cells[cells.indexOf(point) + step];
+  if (next) {
+    chart.querySelector('[tabindex="0"]').tabIndex = -1;
+    next.tabIndex = 0;
+    next.focus();
+  }
+});
 """
 
 
@@ -92,15 +173,24 @@ footer { padding-block: 0 2rem; }
 class _Usage:
     total: int = 0
     recent: int = 0
+    previous: int = 0
     first: datetime | None = None
     last: datetime | None = None
+    recent_day: int | None = None
+    multiple_days: bool = False
     label: str = ""
     kind: str = ""
 
-    def record(self, when: datetime | None, start: datetime, label: str = "", kind: str = "") -> None:
+    def record(self, when: datetime | None, days_ago: int, label: str = "", kind: str = "") -> None:
         self.total += 1
+        if 1 <= days_ago <= _DAYS:
+            self.recent += 1
+            if self.recent_day is None:
+                self.recent_day = days_ago
+            elif self.recent_day != days_ago:
+                self.multiple_days = True
+        self.previous += _DAYS < days_ago <= 2 * _DAYS
         if when:
-            self.recent += when >= start
             if self.first is None or when < self.first:
                 self.first = when
         if self.last is None or (when and when >= self.last):
@@ -175,20 +265,20 @@ def _metric(label, count):
 
 
 def _daily_chart(start, counts):
-    days = [(start.date() + offset * _DAY, count) for offset, count in enumerate(counts)]
+    days = [(start + offset * _DAY, count) for offset, count in enumerate(counts)]
     peak = max(counts)
     bars = "".join(
-        f'<div class="day" title="{day:%b %d} UTC, {count:,} interactions">'
+        f'<div class="day" role="img" {_tooltip(f"{day:%b %d} UTC, {count:,} saved interactions", first=index == 0)}>'
         f'<i style="--fill:{100 * count / (peak or 1):.4f}%"></i></div>'
-        for day, count in days
+        for index, (day, count) in enumerate(days)
     )
     caption = (
-        f"Peak of {peak:,} on {max(days, key=lambda day: day[1])[0]:%b %d}. Today is in progress."
+        f"Peak of {peak:,} on {max(days, key=lambda day: day[1])[0]:%b %d}."
         if peak
         else "No dated interactions in this period."
     )
     return (
-        f'<figure><div class="daily" aria-hidden="true">{bars}</div>'
+        f'<figure><div class="daily" role="group" aria-label="Daily saved interactions" data-chart="0">{bars}</div>'
         f'<div class="axis"><span>{days[0][0]:%b %d}</span>'
         f"<span>{days[-1][0]:%b %d} UTC</span></div>"
         f"<figcaption>{caption}</figcaption></figure>"
@@ -196,6 +286,11 @@ def _daily_chart(start, counts):
             _table(('Date (UTC)', 'Interactions'), [(day, f'{count:,}') for day, count in days], numeric=(1,))
         }</details>"
     )
+
+
+def _tooltip(text: str, *, first: bool) -> str:
+    label = escape(text)
+    return f'data-tip="{label}" aria-label="{label}" tabindex="{0 if first else -1}"'
 
 
 def _heatmap(counts):
@@ -213,17 +308,17 @@ def _heatmap(counts):
         for hour in range(24):
             count = counts[day, hour]
             strength = 0.05 + 0.95 * count / peak
-            description = f"{label} {hour:02d}:00 UTC, {count:,} interactions"
+            description = f"{label} {hour:02d}:00 UTC, {count:,} saved interactions"
             cells.append(
-                f'<td style="--fill:{strength:.3f}" title="{description}" aria-label="{description}"></td>'
+                f'<td style="--fill:{strength:.3f}" {_tooltip(description, first=(day, hour) == (0, 0))}></td>'
             )
         rows.append(f'<tr><th scope="row">{label}</th>{"".join(cells)}</tr>')
     day, hour = max(counts, key=counts.get)
     return (
-        f'<figure><table class="heat" aria-label="Interactions by weekday and hour in UTC">'
+        f'<figure><table class="heat" aria-label="Interactions by weekday and hour in UTC" data-chart="24">'
         f"<thead><tr><th></th>{columns}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
         f"<figcaption>Busiest slot was {weekdays[day]} at {hour:02d}:00 UTC "
-        f"with {peak:,} interactions across the last 30 dates.</figcaption></figure>"
+        f"with {peak:,} saved interactions.</figcaption></figure>"
     )
 
 
@@ -231,73 +326,101 @@ def _date(when):
     return when.strftime("%Y-%m-%d") if when else "Unknown"
 
 
-def _ranked(items):
-    return sorted(items.items(), key=lambda item: (-item[1].total, item[0]))[:_RANK_LIMIT]
+def _ranked(items, period):
+    return sorted(
+        ((key, usage) for key, usage in items.items() if getattr(usage, period)),
+        key=lambda item: (-getattr(item[1], period), item[0]),
+    )[:_RANK_LIMIT]
 
 
 def _user_label(usage, user_id):
     return f"@{usage.label.lstrip('@')}" if usage.label else f"Account {user_id}"
 
 
+def _leaderboard(items, name, row, headers, numeric):
+    recent = _ranked(items, "recent")
+    all_time = _ranked(items, "total")
+    return (
+        f"{_bars([(name(key, usage), usage.recent) for key, usage in recent[:5]])}"
+        f"<details><summary>Last 30 days · Top {_RANK_LIMIT}</summary>"
+        f"{_table(headers, [row(key, usage) for key, usage in recent], numeric=numeric)}</details>"
+        f"<details><summary>All time · Top {_RANK_LIMIT}</summary>"
+        f"{_table(headers, [row(key, usage) for key, usage in all_time], numeric=numeric)}</details>"
+    )
+
+
 def render_analytics_report(newest_first: list[dict], as_of: datetime) -> BytesIO:
     """Return a named upload with an offline report as of the snapshot time."""
-    start = as_of.replace(hour=0, minute=0, second=0, microsecond=0) - 29 * _DAY
+    today = as_of.date()
+    start = today - _DAYS * _DAY
     platforms = defaultdict(_Usage)
     users = defaultdict(_Usage)
     chats = defaultdict(_Usage)
     servers = defaultdict(_Usage)
-    platform_users = defaultdict(set)
-    platform_chats = defaultdict(set)
+    server_channels = defaultdict(lambda: defaultdict(_Usage))
     chat_users = defaultdict(set)
-    server_channels = defaultdict(set)
-    daily = [0] * 30
+    chat_active_users = defaultdict(set)
+    server_active_users = defaultdict(set)
+    daily = [0] * _DAYS
     heat = Counter()
     kinds = Counter()
+    triggers = Counter()
+    deliveries = Counter()
     recent_rows = []
-    week = previous_week = valid_times = discord_without_server = unknown_users = unknown_chats = 0
+    today_count = valid_times = discord_without_server = unknown_users = unknown_chats = legacy_platform = 0
 
     for meta in newest_first:
-        platform = _value(meta, "platform").lower() or "telegram"
-        platform = "WhatsApp" if platform == "whatsapp" else platform.title()
+        platform_key = _value(meta, "platform").lower()
+        legacy_platform += not platform_key
+        platform = "WhatsApp" if platform_key == "whatsapp" else (platform_key or "telegram").title()
         user_id = _value(meta, "user_id")
         chat_id = _value(meta, "chat_id")
-        username = _value(meta, "username")
-        title = _value(meta, "chat_title")
         guild_id = _value(meta, "guild_id") if platform == "Discord" else ""
         chat_type = _chat_type(meta, platform, chat_id, user_id, guild_id)
         kinds[chat_type] += 1
+        trigger = _TRIGGERS.get(_value(meta, "trigger"), "Not recorded")
+        delivery_types = {
+            _DELIVERIES[kind] for kind in _value(meta, "deliveries").split(",") if kind in _DELIVERIES
+        }
+        triggers[trigger] += 1
+        deliveries.update(delivery_types or {"Not recorded"})
+
         when = _time(meta, as_of)
-        platforms[platform].record(when, start)
+        days_ago = (today - when.date()).days if when else -1
+        in_period = 1 <= days_ago <= _DAYS
+        platforms[platform].record(when, days_ago)
         if user_id:
-            users[platform, user_id].record(when, start, username)
-            platform_users[platform].add(user_id)
+            users[platform, user_id].record(when, days_ago, _value(meta, "username"))
         else:
             unknown_users += 1
         if chat_id:
             chats[platform, chat_id].record(
-                when, start, title, "" if chat_type == "Unclassified" else chat_type
+                when, days_ago, _value(meta, "chat_title"), "" if chat_type == "Unclassified" else chat_type
             )
-            platform_chats[platform].add(chat_id)
+            if in_period and user_id:
+                chat_active_users[platform, chat_id].add(user_id)
             if user_id:
                 chat_users[platform, chat_id].add(user_id)
         else:
             unknown_chats += 1
         if guild_id:
-            servers[guild_id].record(when, start, _value(meta, "guild_name"))
+            servers[guild_id].record(when, days_ago, _value(meta, "guild_name"))
             if chat_id:
-                server_channels[guild_id].add(chat_id)
+                server_channels[guild_id][chat_id].record(when, days_ago)
+            if in_period and user_id:
+                server_active_users[guild_id].add(user_id)
         elif platform == "Discord" and chat_type != "Direct message":
             discord_without_server += 1
         if when:
             valid_times += 1
-            age = as_of - when
-            week += age < 7 * _DAY
-            previous_week += 7 * _DAY <= age < 14 * _DAY
-            if when >= start:
-                daily[(when.date() - start.date()).days] += 1
+            today_count += days_ago == 0
+            if in_period:
+                daily[_DAYS - days_ago] += 1
                 heat[when.weekday(), when.hour] += 1
             if len(recent_rows) < 25:
-                recent_rows.append((when, platform, user_id, chat_id))
+                recent_rows.append(
+                    (when, platform, user_id, chat_id, trigger, ", ".join(sorted(delivery_types)))
+                )
 
     def chat_label(platform, chat_id):
         chat = chats[platform, chat_id]
@@ -309,68 +432,113 @@ def render_analytics_report(newest_first: list[dict], as_of: datetime) -> BytesI
             return f"Direct chat with {_user_label(users[platform, user_id], user_id)}"
         return f"Chat {chat_id}"
 
+    def account_label(key, usage):
+        return f"{_user_label(usage, key[1])} ({key[0]})"
+
+    def account_row(key, usage):
+        platform, uid = key
+        return (
+            _user_label(usage, uid),
+            platform,
+            uid,
+            f"{usage.recent:,}",
+            f"{usage.total:,}",
+            _date(usage.first),
+            _date(usage.last),
+        )
+
+    def chat_row(key, usage):
+        platform, cid = key
+        return (
+            chat_label(platform, cid),
+            platform,
+            usage.kind or "Unclassified",
+            cid,
+            f"{len(chat_active_users[key]):,}",
+            f"{usage.recent:,}",
+            f"{usage.total:,}",
+            _date(usage.last),
+        )
+
     total = len(newest_first)
-    active_users = sum(user.recent > 0 for user in users.values())
-    returning_users = sum(bool(user.recent and user.first and user.first < start) for user in users.values())
+    active_by_platform = Counter()
+    previous_by_platform = Counter()
+    first_seen = multiple_days = 0
+    for (platform, _), user in users.items():
+        if user.recent:
+            active_by_platform[platform] += 1
+            first_seen += user.first.date() >= start
+            multiple_days += user.multiple_days
+        previous_by_platform[platform] += user.previous > 0
+    active_users = active_by_platform.total()
+
     totals = "".join(
         (
             _metric("Saved interactions", total),
-            _metric("Accounts", len(users)),
+            _metric("Platform accounts", len(users)),
             _metric("Chats & channels", len(chats)),
             _metric("Platforms", len(platforms)),
         )
     )
-    ranked_platforms = sorted(platforms.items(), key=lambda item: (-item[1].total, item[0]))
+    ranked_platforms = sorted(platforms.items(), key=lambda item: (-item[1].recent, -item[1].total, item[0]))
     platform_rows = [
         (
             name,
-            f"{usage.total:,}",
             f"{usage.recent:,}",
-            f"{len(platform_users[name]):,}",
-            f"{len(platform_chats[name]):,}",
+            f"{usage.previous:,}",
+            f"{active_by_platform[name]:,}",
+            f"{previous_by_platform[name]:,}",
+            f"{usage.total:,}",
         )
         for name, usage in ranked_platforms
     ]
-    top_users = _ranked(users)
-    top_chats = _ranked(chats)
-    user_rows = [
-        (_user_label(u, uid), platform, uid, f"{u.total:,}", f"{u.recent:,}", _date(u.first), _date(u.last))
-        for (platform, uid), u in top_users
-    ]
-    chat_rows = [
-        (
-            chat_label(platform, cid),
-            platform,
-            c.kind or "Unclassified",
-            cid,
-            f"{len(chat_users[platform, cid]):,}",
-            f"{c.total:,}",
-            f"{c.recent:,}",
-            _date(c.last),
+    account_board = _leaderboard(
+        users,
+        account_label,
+        account_row,
+        ("Account", "Platform", "ID", "30 days", "All time", "First seen", "Last seen"),
+        (3, 4),
+    )
+    chat_board = _leaderboard(
+        chats,
+        lambda key, _: f"{chat_label(*key)} ({key[0]})",
+        chat_row,
+        ("Chat", "Platform", "Type", "ID", "Active accounts", "30 days", "All time", "Last seen"),
+        (4, 5, 6),
+    )
+    server_panels = []
+    # Show the most active servers in the period, then use remaining space for historical servers.
+    recent_servers = _ranked(servers, "recent")
+    recent_server_ids = {sid for sid, _ in recent_servers}
+    other_servers = {sid: usage for sid, usage in servers.items() if sid not in recent_server_ids}
+    for sid, usage in (recent_servers + _ranked(other_servers, "total"))[:_RANK_LIMIT]:
+        channel_rows = [
+            (chat_label("Discord", cid), cid, f"{channel.recent:,}", f"{channel.total:,}")
+            for cid, channel in sorted(
+                server_channels[sid].items(), key=lambda item: (-item[1].recent, -item[1].total, item[0])
+            )[:10]
+        ]
+        server_name = escape(usage.label or f"Server {sid}")
+        server_panels.append(
+            f"<details><summary>{server_name} · {usage.recent:,} saved in 30 days</summary>"
+            f'<p class="note">ID {escape(sid)} · {len(server_channels[sid]):,} recorded channels · '
+            f"{len(server_active_users[sid]):,} active accounts · {usage.total:,} all-time interactions.</p>"
+            f"{_table(('Top channels', 'ID', '30 days', 'All time'), channel_rows, numeric=(2, 3))}</details>"
         )
-        for (platform, cid), c in top_chats
-    ]
-    top_servers = _ranked(servers)
-    server_rows = [
-        (
-            u.label or f"Server {sid}",
-            sid,
-            f"{len(server_channels[sid]):,}",
-            f"{u.total:,}",
-            f"{u.recent:,}",
-            _date(u.last),
-        )
-        for sid, u in top_servers
-    ]
     activity_rows = [
         (
             when.strftime("%Y-%m-%d %H:%M"),
             platform,
             _user_label(users[platform, uid], uid) if uid else "Unknown",
             chat_label(platform, cid) if cid else "Unknown",
+            trigger,
+            delivery or "Not recorded",
         )
-        for when, platform, uid, cid in recent_rows
+        for when, platform, uid, cid, trigger, delivery in recent_rows
     ]
+    earliest = min((usage.first for usage in platforms.values() if usage.first), default=None)
+    period = f"{start:%d %b %Y} to {today - _DAY:%d %b %Y} UTC"
+    previous_period = f"{start - _DAYS * _DAY:%d %b %Y} to {start - _DAY:%d %b %Y} UTC"
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -385,86 +553,100 @@ def render_analytics_report(newest_first: list[dict], as_of: datetime) -> BytesI
 <p>Snapshot as of {as_of:%d %b %Y, %H:%M} UTC</p>
 <nav aria-label="Report sections">
 <a href="#usage">Usage</a><a href="#platforms">Platforms</a><a href="#people">Accounts</a>
-<a href="#chats">Chats &amp; servers</a><a href="#activity">Recent activity</a>
+<a href="#chats">Chats &amp; servers</a><a href="#interaction-types">Interaction types</a><a href="#activity">Recent activity</a>
 </nav>
 </div></header>
 <main class="wrap">
-<section aria-label="All-time totals"><dl class="metrics">{totals}</dl></section>
+<section aria-label="All-time totals"><dl class="metrics">{totals}</dl>
+<p class="note">One saved interaction is one recorded exchange with a delivered reply or action.
+Earliest dated record: {_date(earliest)}.</p></section>
 <section id="usage" class="panel">
 <h2>Interaction volume</h2>
-<p><strong class="num">{sum(daily):,}</strong> across the last 30 UTC dates.
-The past 7 days had <strong class="num">{week:,}</strong> interactions, compared with
-<strong class="num">{previous_week:,}</strong> in the preceding 7 days.</p>
+<p><strong class="num">{sum(daily):,}</strong> interactions in the last 30 complete days, compared with
+<strong class="num">{
+        sum(usage.previous for usage in platforms.values()):,}</strong> in the previous 30 days.</p>
+<p class="note">{period}. Today so far: <strong class="num">{today_count:,}</strong> interactions.</p>
 {_daily_chart(start, daily)}
 </section>
 <div class="grid">
 <section id="platforms" class="panel">
-<h2>Platforms</h2><p class="note">Share of all saved interactions</p>
-{_bars([(name, usage.total) for name, usage in ranked_platforms], denominator=total)}
-<details><summary>Platform breakdown</summary>
-{_table(("Platform", "All time", "30 dates", "Accounts", "Chats"), platform_rows, numeric=(1, 2, 3, 4))}
+<h2>Platforms</h2><p class="note">Share of saved interactions in the last 30 days</p>
+{_bars([(name, usage.recent) for name, usage in ranked_platforms if usage.recent], denominator=sum(daily))}
+<details><summary>Compare with the previous 30 days</summary>
+<p class="note">Previous period: {previous_period}.</p>
+{
+        _table(
+            (
+                "Platform",
+                "Interactions",
+                "Prior interactions",
+                "Active accounts",
+                "Prior active accounts",
+                "All time",
+            ),
+            platform_rows,
+            numeric=(1, 2, 3, 4, 5),
+        )
+    }
 </details>
 </section>
 <section class="panel"><h2>When chats are active</h2>
-<p class="note">Last 30 UTC dates. Darker cells mean more interactions.</p>
+<p class="note">Last 30 days (UTC). Brighter cells mean more interactions.</p>
 {_heatmap(heat)}
 </section>
 </div>
 <section id="people" class="panel">
 <h2>Accounts</h2>
-<p><strong class="num">{active_users:,}</strong> active across the last 30 UTC dates.
-<strong class="num">{returning_users:,}</strong> of them also interacted before that period.</p>
-<h3>Most active accounts of all time</h3>
-{_bars([(f"{_user_label(u, uid)} ({platform})", u.total) for (platform, uid), u in top_users[:5]])}
-<details><summary>Account details (up to {_RANK_LIMIT})</summary>
-{
-        _table(
-            ("Account", "Platform", "ID", "All time", "30 dates", "First seen", "Last seen"),
-            user_rows,
-            numeric=(3, 4),
-        )
-    }
-</details>
+<p><strong class="num">{active_users:,}</strong> active in the last 30 days.
+<strong class="num">{first_seen:,}</strong> first seen,
+<strong class="num">{active_users - first_seen:,}</strong> returning, and
+<strong class="num">{multiple_days:,}</strong> active on multiple days.</p>
+<h3>Most active accounts in 30 days</h3>
+{account_board}
 </section>
 <section id="chats" class="panel">
 <h2>Chats &amp; servers</h2>
 <div class="grid">
-<div><p class="note">Share of all saved interactions by chat type</p>
+<div><p class="note">All-time share by chat type</p>
 {_bars(kinds.most_common(), denominator=total)}
 </div>
-<div><p class="note">Most active chats and channels of all time</p>
-{_bars([(f"{chat_label(platform, cid)} ({platform})", c.total) for (platform, cid), c in top_chats[:5]])}
+<div><p class="note">Most active chats and channels in 30 days</p>
+{chat_board}
 </div></div>
-<details><summary>Chat and channel details (up to {_RANK_LIMIT})</summary>
-{
-        _table(
-            ("Chat", "Platform", "Type", "ID", "Accounts", "All time", "30 dates", "Last seen"),
-            chat_rows,
-            numeric=(4, 5, 6),
-        )
-    }
+<details id="servers"><summary>Discord servers ({len(servers):,} recorded)</summary>
+<p class="note">Up to {_RANK_LIMIT} servers. {discord_without_server:,} Discord interactions outside known
+direct messages have no saved server ID.</p>
+{"".join(server_panels) or '<p class="note">No Discord server activity recorded.</p>'}
 </details>
-<details><summary>Discord servers ({len(servers):,} recorded)</summary>
-<p class="note">Channel totals count channels with saved interactions. {discord_without_server:,}
-Discord interactions outside known direct messages have no saved server ID.</p>
-{_bars([(u.label or f"Server {sid}", u.total) for sid, u in top_servers[:5]]) if top_servers else ""}
-{_table(("Server", "ID", "Channels", "All time", "30 dates", "Last seen"), server_rows, numeric=(2, 3, 4))}
-</details>
+</section>
+<section id="interaction-types" class="panel">
+<h2>Interaction types</h2>
+<p class="note">All-time shares of saved interactions. Older records may lack trigger and delivery details.
+An interaction can include multiple delivery types.</p>
+<div class="grid">
+<div><h3>How it started</h3>{_bars(triggers.most_common(), denominator=total)}</div>
+<div><h3>What ShinAI delivered</h3>{_bars(deliveries.most_common(), denominator=total)}</div>
+</div>
 </section>
 <section id="activity" class="panel">
 <h2>Recent activity</h2>
-<details open><summary>Last {len(activity_rows):,} dated interactions</summary>
-{_table(("Time (UTC)", "Platform", "Account", "Chat"), activity_rows)}
+<details><summary>Last {len(activity_rows):,} dated interactions</summary>
+{_table(("Time (UTC)", "Platform", "Account", "Chat", "Trigger", "Delivered"), activity_rows)}
 </details>
 </section>
 </main>
 <footer class="wrap note">
-<p>Totals come from ShinAI’s saved interaction history. Each account and chat is counted by its platform ID.
-The same person can have an account on more than one platform. Records without a platform use the
-legacy Telegram default.</p>
-<p>Coverage gaps include {total - valid_times:,} unusable timestamps, {unknown_users:,} missing account IDs
-and {unknown_chats:,} missing chat IDs. Those records still count toward interaction totals.</p>
+<details><summary>Data coverage</summary>
+<p>The same person can have an account on more than one platform. First seen means the first dated
+interaction in the saved history.</p>
+<p>{legacy_platform:,} records without a platform use the legacy Telegram default.
+{total - valid_times:,} interactions have unusable timestamps and only count in all-time totals.
+{unknown_users:,} lack account IDs, {unknown_chats:,} lack chat IDs, and {
+        kinds["Unclassified"]:,} lack a known chat type.</p>
+</details>
 </footer>
+<div id="chart-tip" aria-hidden="true" hidden></div>
+<script>{_TOOLTIPS}</script>
 </body>
 </html>
 """

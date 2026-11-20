@@ -472,6 +472,8 @@ async def save_interaction_memory(
     original_prompt: str,
     reply_text: str,
     memory_saver=None,
+    *,
+    trigger: str | None = None,
 ) -> None:
     if not messages and not completed_actions:
         return
@@ -501,9 +503,12 @@ async def save_interaction_memory(
                 short_context = reply_text.strip()
 
         mem_parts = list(messages)  # text messages first
+        deliveries = {"text"} if any(messages) else set()
 
         for action in completed_actions:
             action_type = action.get("type")
+            if action_type in {"reaction", "sticker", "moderation"}:
+                deliveries.add(action_type)
             if action_type == "reaction":
                 mem_parts.append(f"[Reacted: {action.get('emoji', '')}]")
             elif action_type == "sticker":
@@ -531,6 +536,8 @@ async def save_interaction_memory(
             chat_type=msg.chat.type,
             guild_id=msg.chat.guild_id,
             guild_name=msg.chat.guild_name,
+            trigger=trigger,
+            deliveries=",".join(sorted(deliveries)),
         )
     except Exception as e:
         logger.error("Failed to save long-term memory: %s", e)
