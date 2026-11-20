@@ -240,8 +240,15 @@ class DiscordPlatform(PlatformAdapter):
 
     def to_unified_message(self, msg: discord.Message) -> UnifiedMessage:
         chat_type = "PRIVATE" if isinstance(msg.channel, discord.DMChannel) else "GROUP"
+        guild = getattr(msg, "guild", None)
 
-        chat = UnifiedChat(id=msg.channel.id, title=getattr(msg.channel, "name", None), type=chat_type)
+        chat = UnifiedChat(
+            id=msg.channel.id,
+            title=getattr(msg.channel, "name", None),
+            type=chat_type,
+            guild_id=getattr(guild, "id", None),
+            guild_name=getattr(guild, "name", None),
+        )
 
         from_user = None
         if msg.author:

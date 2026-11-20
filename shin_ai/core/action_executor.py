@@ -528,6 +528,9 @@ async def save_interaction_memory(
             context=short_context,
             chat_id=msg.chat.id,
             chat_title=msg.chat.title or "Private Chat",
+            chat_type=msg.chat.type,
+            guild_id=msg.chat.guild_id,
+            guild_name=msg.chat.guild_name,
         )
     except Exception as e:
         logger.error("Failed to save long-term memory: %s", e)

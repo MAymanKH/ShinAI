@@ -32,6 +32,10 @@ async def save_memory(
     context: str = "",
     chat_id: int | str = 0,
     chat_title: str = "",
+    *,
+    chat_type: str | None = None,
+    guild_id: int | str | None = None,
+    guild_name: str | None = None,
 ):
     """
     Saves a user-bot interaction to the vector database.
@@ -78,6 +82,12 @@ async def save_memory(
             meta["chat_id"] = str(chat_id)
         if chat_title:
             meta["chat_title"] = chat_title
+        if chat_type:
+            meta["chat_type"] = chat_type
+        if guild_id:
+            meta["guild_id"] = str(guild_id)
+        if guild_name:
+            meta["guild_name"] = guild_name
 
         # Unique Memory ID
         mem_id = str(uuid.uuid4())

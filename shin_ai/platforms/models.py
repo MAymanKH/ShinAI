@@ -19,6 +19,8 @@ class UnifiedChat:
     id: int | str
     title: str | None
     type: str  # "PRIVATE", "GROUP", "SUPERGROUP", "CHANNEL"
+    guild_id: int | str | None = None
+    guild_name: str | None = None
 
 
 @dataclass

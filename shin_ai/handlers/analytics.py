@@ -1,10 +1,14 @@
 import asyncio
 import time
 from collections import Counter
+from datetime import UTC, datetime
 
 from pyrogram import Client, StopPropagation, filters
+from pyrogram.enums import ChatType
+from pyrogram.errors import PeerIdInvalid
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from shin_ai.handlers.analytics_report import render_analytics_report
 from shin_ai.handlers.common import COMMAND_HANDLER_GROUP
 from shin_ai.settings import get_settings
 from shin_ai.utils.logger_config import logger
@@ -23,7 +27,7 @@ _analytics_cache: tuple[float, dict] | None = None
 def _safe_int(value, default=0):
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -114,15 +118,14 @@ def _compute_analytics_data():
             if not batch_ids:
                 break
 
-            batch_metadatas = batch.get("metadatas", [])
-            metadatas.extend(batch_metadatas)
+            metadatas.extend(meta or {} for meta in batch.get("metadatas") or [])
 
             if len(batch_ids) < batch_size:
                 break
             offset += batch_size
-        except Exception as e:
-            logger.error("Error loading analytics data batch at offset %s: %s", offset, e)
-            break
+        except Exception:
+            logger.error("Error loading analytics data batch at offset %s", offset)
+            raise
 
     if not metadatas:
         return {
@@ -133,6 +136,7 @@ def _compute_analytics_data():
             "last_24h_interactions": 0,
             "recent_activities": [],
             "total_interactions": 0,
+            "snapshot_time": datetime.now(UTC),
         }
 
     current_time = int(time.time())
@@ -191,6 +195,7 @@ def _compute_analytics_data():
         "last_year_interactions": last_year_interactions,
         "recent_activities": recent_activities,
         "total_interactions": len(metadatas),
+        "snapshot_time": datetime.fromtimestamp(current_time, UTC),
     }
 
 
@@ -408,10 +413,29 @@ def register(client) -> None:
     @client.on_message(filters.command("shinai_analytics"), group=COMMAND_HANDLER_GROUP)
     async def show_analytics(client: Client, msg: Message):
         if msg.from_user and msg.from_user.id == get_settings().admin_user_id:
+            arguments = [arg.casefold() for arg in msg.command[1:]]
             try:
-                analytics = await load_analytics_data()
-                report, keyboard = _render_view(analytics, "main", 0)
-                await msg.reply(report, reply_markup=keyboard)
+                if arguments and arguments != ["short"]:
+                    await msg.reply("Use /shinai_analytics for the HTML report or /shinai_analytics short for the summary.")
+                elif arguments:
+                    analytics = await load_analytics_data()
+                    report, keyboard = _render_view(analytics, "main", 0)
+                    await msg.reply(report, reply_markup=keyboard)
+                else:
+                    analytics = await load_analytics_data()
+                    document = await asyncio.to_thread(
+                        render_analytics_report, analytics["recent_activities"], analytics["snapshot_time"]
+                    )
+                    with document:
+                        if msg.chat.type == ChatType.PRIVATE:
+                            await msg.reply_document(document, force_document=True)
+                        else:
+                            try:
+                                await client.send_document(msg.from_user.id, document, force_document=True)
+                            except PeerIdInvalid:
+                                await msg.reply("Open a private chat with me and run /shinai_analytics there.")
+                            else:
+                                await msg.reply("I sent the analytics report to your private chat.")
             except Exception as e:
                 logger.error("Error generating analytics: %s", e, exc_info=True)
                 await msg.reply("An error occurred while generating analytics.")

@@ -7,10 +7,13 @@ answered by the chat model instead of the stats reader.
 
 import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from pyrogram import StopPropagation
+from pyrogram.enums import ChatType
 
 from shin_ai.handlers import analytics, stats, telegram_chat
 from shin_ai.handlers.common import COMMAND_HANDLER_GROUP
@@ -99,3 +102,66 @@ class TestPropagation:
             asyncio.run(registered.messages[name].callback(object(), msg))
 
         assert msg.replies == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "chat_type", "user_id", "delivery"),
+    [
+        ("/shinai_analytics short", ChatType.PRIVATE, 42, "short"),
+        ("/shinai_analytics@ShinAIBot", ChatType.PRIVATE, 42, "attachment"),
+        ("/shinai_analytics", ChatType.SUPERGROUP, 42, "private attachment"),
+        ("/shinai_analytics short extra", ChatType.PRIVATE, 42, "usage"),
+        ("/shinai_analytics", ChatType.PRIVATE, 99, "ignored"),
+    ],
+)
+async def test_analytics_command_modes(registered, monkeypatch, command, chat_type, user_id, delivery):
+    monkeypatch.setattr(analytics, "get_settings", lambda: SimpleNamespace(admin_user_id=42))
+    monkeypatch.setattr(analytics, "_analytics_cache", None)
+    collection = SimpleNamespace(get=lambda **_: {"ids": ["one"], "metadatas": [{"username": "<name>"}]})
+    monkeypatch.setattr(analytics, "_get_memory_collection", lambda: collection)
+    files = []
+
+    async def capture_document(document, *, force_document):
+        assert force_document
+        files.append((document.name, document.read().decode("utf-8")))
+
+    msg = SimpleNamespace(
+        text=command,
+        from_user=SimpleNamespace(id=user_id),
+        chat=SimpleNamespace(type=chat_type),
+        reply=AsyncMock(),
+        reply_document=AsyncMock(side_effect=capture_document),
+    )
+
+    async def send_document(chat_id, document, **kwargs):
+        assert chat_id == 42
+        await capture_document(document, **kwargs)
+
+    registered.me = SimpleNamespace(username="ShinAIBot", usernames=[])
+    registered.send_document = AsyncMock(side_effect=send_document)
+    handler = registered.messages["show_analytics"]
+    assert await handler.filters(registered, msg)
+    with pytest.raises(StopPropagation):
+        await handler.callback(registered, msg)
+
+    if delivery == "short":
+        assert "Bot Analytics" in msg.reply.call_args.args[0]
+        assert msg.reply.call_args.kwargs["reply_markup"]
+    elif delivery == "usage":
+        assert "/shinai_analytics short" in msg.reply.call_args.args[0]
+    elif delivery == "ignored":
+        msg.reply.assert_not_called()
+    else:
+        [(name, html)] = files
+        assert name.endswith(".html")
+        assert "<title>ShinAI usage report</title>" in html
+        if delivery == "attachment":
+            msg.reply_document.assert_awaited_once()
+            msg.reply.assert_not_called()
+        else:
+            registered.send_document.assert_awaited_once()
+            msg.reply_document.assert_not_called()
+        return
+    assert not files
+
